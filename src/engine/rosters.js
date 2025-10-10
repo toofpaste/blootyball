@@ -1,6 +1,7 @@
 import { TEAM_RED, TEAM_BLK, ROLES_OFF, ROLES_DEF } from './constants';
 import { clamp, rand, yardsToPixY } from './helpers';
 import { ENDZONE_YARDS, FIELD_PIX_W } from './constants';
+import { resetMotion } from './motion';
 
 /* =========================================================
    Player factories (persistent per-team pools)
@@ -22,7 +23,7 @@ function makeAttrs(role) {
 }
 
 function makePlayer(team, role) {
-    return {
+    const player = {
         id: `${team}-${role}-${_pid++}`,
         team,
         role,
@@ -32,6 +33,8 @@ function makePlayer(team, role) {
         home: null,
         alive: true,
     };
+    resetMotion(player);
+    return player;
 }
 
 /* =========================================================
@@ -59,8 +62,16 @@ export function createTeams() {
 export function rosterForPossession(teams, offenseTeam) {
     const defenseTeam = offenseTeam === TEAM_RED ? TEAM_BLK : TEAM_RED;
     const off = {}, def = {};
-    ROLES_OFF.forEach(r => { off[r] = { ...teams[offenseTeam].off[r] }; });
-    ROLES_DEF.forEach(r => { def[r] = { ...teams[defenseTeam].def[r] }; });
+    ROLES_OFF.forEach(r => {
+        const base = teams[offenseTeam].off[r];
+        off[r] = { ...base, pos: { ...base.pos }, home: base.home ? { ...base.home } : null };
+        resetMotion(off[r]);
+    });
+    ROLES_DEF.forEach(r => {
+        const base = teams[defenseTeam].def[r];
+        def[r] = { ...base, pos: { ...base.pos }, home: base.home ? { ...base.home } : null };
+        resetMotion(def[r]);
+    });
     return { off, def };
 }
 
@@ -91,6 +102,7 @@ export function lineUpFormation(roster, losPixY) {
         p.pos = { x, y };
         p.v = { x: 0, y: 0 };
         p.home = { x, y };
+        resetMotion(p);
     };
 
     // Offensive line

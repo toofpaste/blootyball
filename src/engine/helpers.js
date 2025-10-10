@@ -1,4 +1,4 @@
-import { PX_PER_YARD, FIELD_PIX_W, FIELD_PIX_H, ENDZONE_YARDS } from './constants';
+import { PX_PER_YARD } from './constants';
 
 export const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 export const rand = (a, b) => a + Math.random() * (b - a);

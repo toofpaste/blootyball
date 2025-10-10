@@ -3,7 +3,7 @@ import {
     COLORS, FIELD_PIX_W, FIELD_PIX_H,
     ENDZONE_YARDS, PLAYING_YARDS_H,
     PX_PER_YARD, FIELD_YARDS_W,
- TEAM_RED, TEAM_BLK
+    TEAM_RED
 } from '../engine/constants';
 
 import { yardsToPixY } from '../engine/helpers';
@@ -72,7 +72,7 @@ function drawContent(ctx, state) {
     // Ball
     try {
         const bp = getBallPix(state);
-        if (bp && Number.isFinite(bp.x) && Number.isFinite(bp.y)) drawBall(ctx, bp);
+        if (bp && Number.isFinite(bp.x) && Number.isFinite(bp.y)) drawBall(ctx, bp, state.play.ball);
     } catch { }
 
     // HUD (top-left of portrait space -> left side of landscape)
@@ -129,7 +129,6 @@ function drawField(ctx) {
     ctx.font = '24px ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto';
     ctx.textBaseline = 'middle';
 
-    const topEndzonePix = yardsToPixY(ENDZONE_YARDS);
     const leftNumX = 24;
     const rightNumX = FIELD_PIX_W - 24;
 
@@ -198,12 +197,35 @@ function shortRole(r) {
     };
     return map[r] || (r || '?');
 }
-function drawBall(ctx, pos) {
+function drawBall(ctx, pos, ballState) {
+    const height = Math.max(0, ballState?.flight?.height ?? 0);
+    const shadow = ballState?.shadowPos || pos;
+
+    // Shadow for depth perception
+    ctx.save();
+    const shadowAlpha = 0.25 + Math.min(height / 120, 0.2);
+    ctx.globalAlpha = shadowAlpha;
+    ctx.fillStyle = 'rgba(0,0,0,0.45)';
+    ctx.beginPath();
+    ctx.ellipse(shadow.x + 1.8, shadow.y + 2.6, 6.2, 3.2, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+
+    // Actual ball with slight vertical offset based on height
+    const offsetY = height * 0.08;
+    const radiusMajor = 4.4 + Math.min(2.6, height / 14);
+    const radiusMinor = radiusMajor * 0.72;
+
     ctx.save();
     ctx.fillStyle = COLORS.ball;
-    ctx.beginPath(); ctx.arc(pos.x, pos.y, 5, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath();
+    ctx.ellipse(pos.x, pos.y - offsetY, radiusMajor, radiusMinor, Math.PI / 12, 0, Math.PI * 2);
+    ctx.fill();
     ctx.strokeStyle = '#f5e6d3';
-    ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.moveTo(pos.x - 3, pos.y); ctx.lineTo(pos.x + 3, pos.y); ctx.stroke();
+    ctx.lineWidth = 0.9;
+    ctx.beginPath();
+    ctx.moveTo(pos.x - radiusMajor * 0.6, pos.y - offsetY);
+    ctx.lineTo(pos.x + radiusMajor * 0.6, pos.y - offsetY);
+    ctx.stroke();
     ctx.restore();
 }
