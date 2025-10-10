@@ -8,6 +8,7 @@ import { initRoutesAfterSnap, moveOL, moveReceivers, moveTE, qbLogic, rbLogic, d
 import { moveBall, getBallPix } from './ball';
 import { beginFrame, endFrame } from './motion';
 import { beginPlayDiagnostics, finalizePlayDiagnostics, recordPlayEvent } from './diagnostics';
+import { pickFormations } from './playbooks';
 
 /* =========================================================
    Utilities / guards
@@ -112,7 +113,13 @@ export function createPlayState(roster, drive) {
         : { losYards: 25, down: 1, toGo: 10 };
 
     const losPixY = yardsToPixY(ENDZONE_YARDS + safeDrive.losYards);
-    const formation = lineUpFormation(roster, losPixY) || { off: {}, def: {} };
+    const formationNames = pickFormations({
+        down: safeDrive.down,
+        toGo: safeDrive.toGo,
+        yardline: safeDrive.losYards,
+    }) || {};
+
+    const formation = lineUpFormation(roster, losPixY, formationNames) || { off: {}, def: {} };
 
     // NEW: pick by forced name if armed and valid
     let playCall;
