@@ -7,6 +7,7 @@ import { createTeams, rosterForPossession, lineUpFormation } from './rosters';
 import { initRoutesAfterSnap, moveOL, moveReceivers, moveTE, qbLogic, rbLogic, defenseLogic } from './ai';
 import { moveBall, getBallPix } from './ball';
 import { beginFrame, endFrame } from './motion';
+import { beginPlayDiagnostics, finalizePlayDiagnostics, recordPlayEvent } from './diagnostics';
 
 /* =========================================================
    Utilities / guards
@@ -89,7 +90,7 @@ export function createInitialGameState() {
     const play = createPlayState(roster, drive);
     const clock = { quarter: 1, time: 15 * 60 };
 
-    return {
+    const state = {
         teams,
         possession,
         roster,
@@ -100,6 +101,9 @@ export function createInitialGameState() {
         scores: { [TEAM_RED]: 0, [TEAM_BLK]: 0 },
         debug: { trace: false },
     };
+
+    beginPlayDiagnostics(state);
+    return state;
 }
 
 export function createPlayState(roster, drive) {
@@ -168,6 +172,7 @@ export function stepGame(state, dt) {
     if (!s.play) {
         s.roster.__ownerState = s;
         s.play = createPlayState(s.roster, s.drive);
+        beginPlayDiagnostics(s);
     }
 
     s.play.elapsed += dt;
@@ -178,11 +183,15 @@ export function stepGame(state, dt) {
                 s.play.phase = 'POSTSNAP';
                 s.play.ball.carrierId = 'QB';
                 s.play.ball.inAir = false;
+                recordPlayEvent(s, { type: 'phase:post-snap' });
             }
             return s;
         }
         case 'POSTSNAP': {
-            if (s.play.elapsed > 1.2) s.play.phase = 'LIVE';
+            if (s.play.elapsed > 1.2) {
+                s.play.phase = 'LIVE';
+                recordPlayEvent(s, { type: 'phase:live' });
+            }
             return s;
         }
         case 'LIVE': {
@@ -244,10 +253,11 @@ export function betweenPlays(s) {
 
     // Where did the ball end up in yards going-in (0..100)?
     const endYd = resolveEndSpotYards(s);  // see helper below
-    const gained = clamp(endYd - startLos, -100, 100);
+    const netGain = clamp(endYd - startLos, -100, 100);
 
     // Helpers
     const noAdvance = isNoAdvance(why); // make sure this handles 'Throw away' too
+    const gained = noAdvance ? 0 : netGain;
     const firstDownAchieved = !noAdvance && (gained >= startToGo);
 
     // Text says turnover on downs OR 4th down failed to gain enough
@@ -257,6 +267,7 @@ export function betweenPlays(s) {
     let los = s.drive.losYards;
     let down = s.drive.down;
     let toGo = s.drive.toGo;
+    let turnover = !!s.play.turnover;
 
     // Touchdown: keep same offense, reset to 25
     // Touchdown: add score, keep same offense, reset to 25
@@ -270,7 +281,7 @@ export function betweenPlays(s) {
             startDown, startToGo, startLos,
             endLos: los,
             why: 'Touchdown',
-            gained: endYd - startLos,
+            gained,
             offense: offenseAtSnap
         });
     }
@@ -285,12 +296,13 @@ export function betweenPlays(s) {
         los = 25;           // force new drive start at 25
         down = 1;
         toGo = 10;
+        turnover = true;
 
         pushPlayLog(s, {
             name: call.name,
             startDown, startToGo, startLos,
             endLos: los,                        // log shows the new drive start
-            gained: endYd - startLos,
+            gained: netGain,
             why: 'Turnover on downs',
             turnover: true,
             offense: offenseAtSnap
@@ -314,12 +326,13 @@ export function betweenPlays(s) {
                 los = 25;      // force new drive start at 25
                 down = 1;
                 toGo = 10;
+                turnover = true;
 
                 pushPlayLog(s, {
                     name: call.name,
                     startDown, startToGo, startLos,
                     endLos: los,
-                    gained: endYd - startLos,
+                    gained: netGain,
                     why: 'Turnover on downs',
                     turnover: true,
                     offense: offenseAtSnap
@@ -329,7 +342,7 @@ export function betweenPlays(s) {
                 pushPlayLog(s, {
                     name: call.name,
                     startDown, startToGo, startLos,
-                    endLos: los, gained: endYd - startLos,
+                    endLos: los, gained,
                     why,
                     offense: offenseAtSnap
                 });
@@ -340,8 +353,16 @@ export function betweenPlays(s) {
     // Commit updated drive
     s.drive = { losYards: clamp(los, 1, 99), down, toGo };
 
+    finalizePlayDiagnostics(s, {
+        result: why,
+        gained,
+        endLos: los,
+        turnover,
+    });
+
     // Start next play for whoever now has the ball
     s.play = createPlayState(s.roster, s.drive);
+    beginPlayDiagnostics(s);
     return s;
 }
 
@@ -360,11 +381,15 @@ function checkDeadBall(s) {
     if (!pos || typeof pos.x !== 'number' || typeof pos.y !== 'number') return;
 
     if (pos.x < 10 || pos.x > FIELD_PIX_W - 10) {
-        s.play.deadAt = s.play.elapsed; s.play.phase = 'DEAD'; s.play.resultWhy = 'Out of bounds'; return;
+        s.play.deadAt = s.play.elapsed; s.play.phase = 'DEAD'; s.play.resultWhy = 'Out of bounds';
+        recordPlayEvent(s, { type: 'ball:out-of-bounds' });
+        return;
     }
     const yards = pixYToYards(pos.y);
     if (yards >= ENDZONE_YARDS + PLAYING_YARDS_H) {
-        s.play.deadAt = s.play.elapsed; s.play.phase = 'DEAD'; s.play.resultWhy = 'Touchdown'; return;
+        s.play.deadAt = s.play.elapsed; s.play.phase = 'DEAD'; s.play.resultWhy = 'Touchdown';
+        recordPlayEvent(s, { type: 'ball:touchdown' });
+        return;
     }
 }
 // Put this near your other exported helpers in state.js

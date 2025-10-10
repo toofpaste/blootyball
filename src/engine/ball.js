@@ -2,6 +2,7 @@
 import { clamp, dist, yardsToPixY } from './helpers';
 import { FIELD_PIX_W, FIELD_PIX_H } from './constants';
 import { mphToPixelsPerSecond } from './motion';
+import { recordPlayEvent } from './diagnostics';
 
 // ⬇️ ADD this small helper near the top (below the imports)
 function _resolveOffensivePlayer(off, idOrRole) {
@@ -70,6 +71,15 @@ export function startPass(s, from, to, targetId) {
     ball.shadowPos = { ...from };
     ball.renderPos = { ...from };
     ball.targetId = targetId; // null means throw-away
+
+    recordPlayEvent(s, {
+        type: 'pass:thrown',
+        from: { ...from },
+        to: { ...to },
+        targetId: targetId ?? null,
+        throwSpeed: speed,
+        duration,
+    });
 }
 
 export function moveBall(s, dt) {
@@ -84,6 +94,7 @@ export function moveBall(s, dt) {
         s.play.phase = 'DEAD';
         s.play.resultWhy = 'Fumble';
         s.play.turnover = true;
+        recordPlayEvent(s, { type: 'ball:fumble', by: ball.carrierId });
         return;
     }
 
@@ -109,6 +120,7 @@ export function moveBall(s, dt) {
                 s.play.resultWhy = 'Throw away';
                 ball.inAir = false;
                 ball.flight = null;
+                recordPlayEvent(s, { type: 'pass:throwaway' });
                 return;
             }
 
@@ -145,6 +157,11 @@ export function moveBall(s, dt) {
                     ball.flight = null;
                     ball.renderPos = { ...r.pos };
                     ball.shadowPos = { ...r.pos };
+                    recordPlayEvent(s, {
+                        type: 'pass:interception',
+                        by: nearestDef.t?.id || null,
+                        targetId: r.id,
+                    });
                     return;
                 }
 
@@ -158,9 +175,15 @@ export function moveBall(s, dt) {
                 if (catchChance > 0.5) {
                     ball.inAir = false;
                     ball.carrierId = r.id;
+                    ball.lastCarrierId = r.id;
                     ball.flight = null;
                     ball.renderPos = { ...r.pos };
                     ball.shadowPos = { ...r.pos };
+                    recordPlayEvent(s, {
+                        type: 'pass:complete',
+                        targetId: r.id,
+                        separation: nearestDef.d,
+                    });
                 } else {
                     s.play.deadAt = s.play.elapsed;
                     s.play.phase = 'DEAD';
@@ -169,6 +192,11 @@ export function moveBall(s, dt) {
                     ball.flight = null;
                     ball.renderPos = { ...ball.to };
                     ball.shadowPos = { ...ball.to };
+                    recordPlayEvent(s, {
+                        type: 'pass:incomplete',
+                        targetId: r.id,
+                        separation: nearestDef.d,
+                    });
                 }
             } else {
                 s.play.deadAt = s.play.elapsed;
@@ -178,18 +206,27 @@ export function moveBall(s, dt) {
                 ball.flight = null;
                 ball.renderPos = { ...ball.to };
                 ball.shadowPos = { ...ball.to };
+                recordPlayEvent(s, { type: 'pass:incomplete', targetId: null });
             }
         }
     } else {
-        const carrier = s.play.ball.carrierId ? off[s.play.ball.carrierId] : null;
+        const carrier = _resolveOffensivePlayer(off, s.play.ball.carrierId);
         if (carrier) {
             ball.renderPos = { ...carrier.pos };
             ball.shadowPos = { ...carrier.pos };
+            if (carrier.id) ball.lastCarrierId = carrier.id;
         } else {
             const fallback = _resolveOffensivePlayer(off, ball.lastCarrierId) || off.QB;
             if (fallback?.pos) {
                 ball.renderPos = { ...fallback.pos };
                 ball.shadowPos = { ...fallback.pos };
+                if (fallback.id) ball.lastCarrierId = fallback.id;
+            } else {
+                recordPlayEvent(s, {
+                    type: 'ball:lost-carrier',
+                    carrierId: ball.carrierId ?? null,
+                    lastCarrierId: ball.lastCarrierId ?? null,
+                });
             }
         }
         ball.flight = null;
