@@ -1068,7 +1068,13 @@ function _evaluateReceivingTarget(s, key, r, qb, def, losY, call) {
     const scrambleBonus = s.play.qbMoveMode === 'SCRAMBLE' ? 4 : 0;
     const timingBonus = stage > 0.65 ? stage * 6 : stage * 2 - 3;
     const coverageHelp = coverage.assigned && Object.values(coverage.assigned).some(v => v === key) ? 1 : 0;
-    const score = separation * 1.25 + depthPastLOS * 0.14 - throwLine * 0.09 + timingBonus + progressionBonus + leverageBonus + scrambleBonus - coverageHelp * 2;
+    const needDepth = s.play?.mustReachSticks ? (s.play?.sticksDepthPx || 0) : 0;
+    let sticksBonus = 0;
+    if (needDepth > 0) {
+        const diff = depthPastLOS - needDepth;
+        sticksBonus = diff >= -PX_PER_YARD ? diff * 0.18 + 4 : diff * 0.25;
+    }
+    const score = separation * 1.25 + depthPastLOS * 0.14 - throwLine * 0.09 + timingBonus + progressionBonus + leverageBonus + scrambleBonus - coverageHelp * 2 + sticksBonus;
     return {
         key,
         r,
@@ -1131,7 +1137,8 @@ function tryThrow(s, press) {
             const open = nearestDefDist(def, r.pos), throwLine = dist(qb.pos, r.pos);
             let score = open * 1.05 - throwLine * 0.35;
             if (tNow < (ttt + CFG.CHECKDOWN_LAG)) score -= CFG.RB_EARLY_PENALTY;
-            rbCand = { key: 'RB', r, score, open, throwLine };
+            const depth = Math.max(0, r.pos.y - losY);
+            rbCand = { key: 'RB', r, score, open, throwLine, depthPastLOS: depth };
         }
     }
 
@@ -1155,6 +1162,11 @@ function tryThrow(s, press) {
         const laneClear = isThrowLaneClear(def, { x: qb.pos.x, y: qb.pos.y }, to, corridor);
         const separationMetric = cand.separation ?? cand.open ?? 0;
         if (!laneClear && (!allowContest || separationMetric < contestThreshold)) return false;
+        if (s.play?.mustReachSticks) {
+            const needDepth = s.play?.sticksDepthPx || 0;
+            const depth = cand.depthPastLOS != null ? cand.depthPastLOS : Math.max(0, cand.r.pos.y - losY);
+            if (depth + PX_PER_YARD * 0.5 < needDepth) return false;
+        }
         const from = { x: qb.pos.x, y: qb.pos.y - 2 };
         const safeTo = { x: to.x, y: Math.max(to.y, qb.pos.y - PX_PER_YARD * 0.25) };
         startPass(s, from, { x: safeTo.x, y: safeTo.y }, cand.r.id);
