@@ -1555,8 +1555,13 @@ export function defenseLogic(s, dt) {
                 cover.assigned[k] = Object.entries(def).find(([dk, pp]) => pp === nearestDB.p)?.[0] ? targetRole : cover.assigned[k];
             }
 
-            const aim = { x: t.pos.x, y: Math.max(t.pos.y - cushion, cover.losY + PX_PER_YARD * 1.2) };
-            moveToward(d, aim, dt, 0.99);
+            const lead = _leadPoint(t, isDB ? 0.30 : 0.24, dt);
+            const leverage = Math.sign(d.pos.x - t.pos.x);
+            const cushionY = Math.max(lead.y - cushion, cover.losY + PX_PER_YARD * 1.2);
+            const aimX = clamp(lead.x + leverage * 6, 16, FIELD_PIX_W - 16);
+            const aim = { x: aimX, y: cushionY };
+            const speedMul = isDB ? 1.035 : 1.0;
+            moveToward(d, aim, dt, speedMul);
             return;
         }
 
