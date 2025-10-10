@@ -1106,54 +1106,18 @@ function tryThrow(s, press) {
         if (!r || !r.alive || r.pos.y < losY) continue;
         candidates.push(_evaluateReceivingTarget(s, key, r, qb, def, losY, call));
     }
-    const qbProgression = Array.isArray(s.play.qbProgressionOrder)
-        ? s.play.qbProgressionOrder
-        : [..._progressionOrder(call), 'RB'];
-    const candidateMap = {};
-    for (const cand of candidates) candidateMap[cand.key] = cand;
-
-    const cadenceBase = press.underImmediatePressure ? 0.14 : press.underHeat ? 0.2 : 0.28;
-    if (typeof s.play.qbReadIdx !== 'number' || s.play.qbReadIdx < 1) s.play.qbReadIdx = 1;
-    if (typeof s.play.qbNextReadAt !== 'number' || s.play.qbNextReadAt <= 0) {
-        s.play.qbNextReadAt = readyAt + cadenceBase;
-    }
-    if (tNow + cadenceBase < s.play.qbNextReadAt) {
-        s.play.qbNextReadAt = tNow + cadenceBase;
-    }
-    while (s.play.qbReadIdx < qbProgression.length && tNow >= s.play.qbNextReadAt) {
-        s.play.qbReadIdx += 1;
-        s.play.qbNextReadAt += cadenceBase;
-    }
-
     candidates.sort((a, b) => b.score - a.score);
     const bestWRTE = candidates[0] || null;
     const wrDepthNeed = CFG.WR_MIN_DEPTH_YARDS * PX_PER_YARD;
 
-    let chosen = null;
-    const maxReadIdx = Math.min(s.play.qbReadIdx, qbProgression.length);
-    for (let i = 0; i < maxReadIdx; i++) {
-        const key = qbProgression[i];
-        if (key === 'RB') continue;
-        const cand = candidateMap[key];
-        if (!cand) continue;
-        const sepNeed = Math.max(12, CFG.WR_MIN_OPEN - i * 2.5);
-        const stageNeed = i <= 1 ? 0.45 : 0.28;
-        const depthNeed = wrDepthNeed * (i === 0 ? 0.65 : i === 1 ? 0.55 : 0.35);
-        const heatRelax = press.underImmediatePressure ? 0.85 : press.underHeat ? 0.9 : 1;
-        const stageMet = cand.stage >= stageNeed || cand.routeFinished;
-        const sepMet = cand.separation >= sepNeed * heatRelax;
-        const depthMet = cand.depthPastLOS >= depthNeed;
-        if ((sepMet && stageMet) || (depthMet && cand.stage >= stageNeed * 0.85)) {
-            chosen = cand;
-            break;
-        }
-    }
-
-    const qbTargetChoice = chosen || bestWRTE;
-
+    const wrAccept = bestWRTE && (
+        bestWRTE.separation >= CFG.WR_MIN_OPEN ||
+        bestWRTE.depthPastLOS >= wrDepthNeed ||
+        (tNow >= ttt && press.underHeat && bestWRTE.separation >= CFG.WR_MIN_OPEN * 0.75)
+    );
     let rbCand = null;
-    const rbIndex = Math.max(qbProgression.indexOf('RB'), qbProgression.length - 1);
-    if (!qbTargetChoice && checkdownGate && s.play.qbReadIdx > rbIndex) {
+    const rbIndex = Math.max(progression.indexOf('RB'), progression.length - 1);
+    if (!targetChoice && checkdownGate && s.play.qbReadIdx > rbIndex) {
         const r = off.RB;
         if (r && r.alive) {
             const open = nearestDefDist(def, r.pos), throwLine = dist(qb.pos, r.pos);
@@ -1173,13 +1137,13 @@ function tryThrow(s, press) {
         return { x: raw.x, y: safeY };
     };
 
-    if (qbTargetChoice) {
-        const to = _leadTo(qbTargetChoice.r);
+    if (targetChoice) {
+        const to = _leadTo(targetChoice.r);
         if (isThrowLaneClear(def, { x: qb.pos.x, y: qb.pos.y }, to, 18)) {
             const from = { x: qb.pos.x, y: qb.pos.y - 2 };
             const safeTo = { x: to.x, y: Math.max(to.y, qb.pos.y - PX_PER_YARD * 0.25) };
-            startPass(s, from, { x: safeTo.x, y: safeTo.y }, qbTargetChoice.r.id);
-            s.play.passRisky = qbTargetChoice.separation < 22;
+            startPass(s, from, { x: safeTo.x, y: safeTo.y }, bestWRTE.r.id);
+            s.play.passRisky = bestWRTE.separation < 22;
             return;
         }
     }
@@ -1196,13 +1160,13 @@ function tryThrow(s, press) {
     }
 
     if (mustThrow) {
-        if (qbTargetChoice) {
-            const to = _leadTo(qbTargetChoice.r);
+        if (targetChoice) {
+            const to = _leadTo(targetChoice.r);
             if (isThrowLaneClear(def, { x: qb.pos.x, y: qb.pos.y }, to, 18)) {
                 const from = { x: qb.pos.x, y: qb.pos.y - 2 };
                 const safeTo = { x: to.x, y: Math.max(to.y, qb.pos.y - PX_PER_YARD * 0.25) };
-                startPass(s, from, { x: safeTo.x, y: safeTo.y }, qbTargetChoice.r.id);
-                s.play.passRisky = qbTargetChoice.separation < 22;
+                startPass(s, from, { x: safeTo.x, y: safeTo.y }, bestWRTE.r.id);
+                s.play.passRisky = bestWRTE.separation < 22;
             } else {
                 const sidelineX = qb.pos.x < FIELD_PIX_W / 2 ? 8 : FIELD_PIX_W - 8;
                 const outY = Math.max(qb.pos.y + PX_PER_YARD * 2, losY + PX_PER_YARD);
