@@ -1404,6 +1404,370 @@ function _leadPoint(p, dtLead, dtSample = 0.016) {
     return { x: p.pos.x + v.x * dtLead, y: p.pos.y + v.y * dtLead };
 }
 
+const MAN_KEYS = ['CB1', 'CB2', 'NB', 'LB1', 'LB2'];
+
+function _isDefensiveBack(key) {
+    return key === 'CB1' || key === 'CB2' || key === 'NB';
+}
+
+function _coverageReleaseDepthFor(cover, key) {
+    const isDB = _isDefensiveBack(key);
+    return {
+        run: cover.losY + PX_PER_YARD * (isDB ? 3.2 : 1.8),
+        qb: cover.losY + PX_PER_YARD * (isDB ? 2.2 : 1.0),
+    };
+}
+
+function _coverageLeverage(defender, target, qbPos) {
+    if (!defender?.pos || !target?.pos) return 0;
+    const fieldMid = FIELD_PIX_W / 2;
+    const outside = Math.abs(target.pos.x - fieldMid) > 70;
+    let leverage = Math.sign(target.pos.x - defender.pos.x);
+    if (!leverage) leverage = target.pos.x < fieldMid ? -1 : 1;
+    if (outside) leverage = target.pos.x < fieldMid ? -1 : 1;
+    if (!outside && Math.abs(target.pos.x - fieldMid) < 42) {
+        leverage = Math.sign((qbPos?.x ?? fieldMid) - defender.pos.x) || leverage;
+    }
+    return leverage;
+}
+
+function _sampleMotionFor(ctx, player, cacheKey) {
+    if (!player?.pos) return null;
+    const cache = ctx.motionCache || (ctx.motionCache = new Map());
+    const key = cacheKey || player.id || player.role || player.label;
+    if (cache.has(key)) return cache.get(key);
+
+    const now = ctx.s?.play?.elapsed ?? 0;
+    const last = player.__covLastPos;
+    const lastT = player.__covLastPosT ?? null;
+    let sampleDt = ctx.dt;
+    if (lastT != null && now != null) {
+        const elapsed = now - lastT;
+        if (elapsed > 1e-3) sampleDt = elapsed;
+    }
+    let vx = 0;
+    let vy = 0;
+    if (last) {
+        const dt = Math.max(1e-3, sampleDt || ctx.dt || 0.016);
+        vx = (player.pos.x - last.x) / dt;
+        vy = (player.pos.y - last.y) / dt;
+    }
+    player.__covLastPos = { x: player.pos.x, y: player.pos.y };
+    player.__covLastPosT = now;
+
+    const speed = Math.hypot(vx, vy);
+    let heading = null;
+    if (speed > 1e-3) {
+        heading = { x: vx / speed, y: vy / speed };
+    } else if (player._ai?.prevHeading) {
+        const prev = player._ai.prevHeading;
+        const mag = Math.hypot(prev.x, prev.y) || 1;
+        heading = { x: prev.x / mag, y: prev.y / mag };
+    } else {
+        heading = { x: 0, y: 1 };
+    }
+
+    const sample = { vx, vy, speed, heading };
+    cache.set(key, sample);
+    return sample;
+}
+
+function _snapshotManTargets(ctx) {
+    const roles = ['WR1', 'WR2', 'WR3', 'TE', 'RB'];
+    const targets = {};
+    for (const role of roles) {
+        const player = ctx.off[role];
+        if (!player?.pos || player.alive === false) continue;
+        const motion = _sampleMotionFor(ctx, player, role);
+        const leadDbDist = 26 + Math.min(32, motion.speed * 0.16);
+        const leadLbDist = 20 + Math.min(26, motion.speed * 0.14);
+        const leadDeepDist = 34 + Math.min(38, motion.speed * 0.2);
+        targets[role] = {
+            role,
+            player,
+            pos: { x: player.pos.x, y: player.pos.y },
+            depth: player.pos.y - ctx.cover.losY,
+            heading: motion.heading,
+            speed: motion.speed,
+            leadDb: {
+                x: player.pos.x + motion.heading.x * leadDbDist,
+                y: player.pos.y + motion.heading.y * leadDbDist,
+            },
+            leadLb: {
+                x: player.pos.x + motion.heading.x * leadLbDist,
+                y: player.pos.y + motion.heading.y * leadLbDist,
+            },
+            leadDeep: {
+                x: player.pos.x + motion.heading.x * leadDeepDist,
+                y: player.pos.y + motion.heading.y * leadDeepDist,
+            },
+        };
+    }
+    return targets;
+}
+
+function _scoreManCandidate(ctx, key, defender, candidate, { isCurrent = false } = {}) {
+    if (!defender?.pos || !candidate?.player?.pos) return Infinity;
+
+    const isDB = _isDefensiveBack(key);
+    const cushion = ctx.cushion * (isDB ? 1 : 0.85);
+    const lead = isDB ? candidate.leadDb : candidate.leadLb;
+    const dx = lead.x - defender.pos.x;
+    const dy = lead.y - defender.pos.y;
+    let score = Math.hypot(dx, dy);
+
+    const verticalGap = candidate.pos.y - defender.pos.y;
+    if (verticalGap > cushion) score += (verticalGap - cushion) * (isDB ? 0.72 : 0.82);
+    if (verticalGap < -cushion * 0.6) score += (-verticalGap - cushion * 0.6) * 0.32;
+
+    const lateralGap = Math.abs(candidate.pos.x - defender.pos.x);
+    score += lateralGap * 0.22;
+
+    if (candidate.role.startsWith('WR')) {
+        if (!_isDefensiveBack(key)) score += 18;
+    } else if (candidate.role === 'TE') {
+        score += isDB ? 8 : 2;
+    } else {
+        score += isDB ? 16 : 4;
+    }
+
+    const crossAway =
+        (candidate.heading.x > 0 && defender.pos.x < candidate.pos.x - 6) ||
+        (candidate.heading.x < 0 && defender.pos.x > candidate.pos.x + 6);
+    if (crossAway) score += Math.abs(candidate.heading.x) * 48;
+
+    if (isDB) {
+        score -= Math.min(Math.max(candidate.depth, 0), PX_PER_YARD * 12) * 0.12;
+    } else {
+        score -= Math.min(Math.max(candidate.depth, 0), PX_PER_YARD * 6) * 0.06;
+    }
+
+    if (defender.engagedId) score += 40;
+    if (isCurrent) score -= 12;
+
+    return score;
+}
+
+function _chooseManAssignment(ctx, key, defender) {
+    const assignedMap = ctx.cover.assigned || (ctx.cover.assigned = {});
+    const currentRole = assignedMap[key] || null;
+    const current = currentRole ? ctx.manTargets[currentRole] : null;
+    if (currentRole && !current) delete assignedMap[key];
+
+    const currentScore = current ? _scoreManCandidate(ctx, key, defender, current, { isCurrent: true }) : Infinity;
+
+    let best = null;
+    let bestScore = Infinity;
+    let stealFrom = null;
+
+    for (const candidate of Object.values(ctx.manTargets)) {
+        if (!candidate) continue;
+        const isCurrent = candidate.role === currentRole;
+        let score = _scoreManCandidate(ctx, key, defender, candidate, { isCurrent });
+        if (!isFinite(score)) continue;
+
+        const claim = ctx.roleClaims[candidate.role];
+        let consider = true;
+        let takeFrom = null;
+        if (claim && claim.key !== key) {
+            if (score + 6 < claim.score) {
+                takeFrom = claim.key;
+                score -= 4;
+            } else {
+                consider = false;
+            }
+        }
+
+        if (consider && (!best || score < bestScore)) {
+            best = candidate;
+            bestScore = score;
+            stealFrom = takeFrom;
+        }
+    }
+
+    const keepCurrent = current && (currentScore <= bestScore + 4);
+    if (keepCurrent) {
+        ctx.roleClaims[current.role] = { key, score: currentScore };
+        return current;
+    }
+
+    if (best) {
+        if (stealFrom && ctx.cover.assigned[stealFrom] === best.role) {
+            delete ctx.cover.assigned[stealFrom];
+        }
+        if (currentRole && currentRole !== best.role && ctx.cover.assigned[key] === currentRole) {
+            delete ctx.cover.assigned[key];
+        }
+        ctx.cover.assigned[key] = best.role;
+        ctx.roleClaims[best.role] = { key, score: bestScore };
+        return best;
+    }
+
+    if (currentRole && ctx.cover.assigned[key] === currentRole) delete ctx.cover.assigned[key];
+    return null;
+}
+
+function _driveManCoverage(ctx, key, defender, snapshot) {
+    const isDB = _isDefensiveBack(key);
+    const cushion = ctx.cushion * (isDB ? 1 : 0.85);
+    const leverage = _coverageLeverage(defender, snapshot.player, ctx.qbPos);
+    const cross = snapshot.heading.x;
+    const lead = isDB ? snapshot.leadDb : snapshot.leadLb;
+
+    let aimX = lead.x + leverage * (isDB ? 7 : 5) + cross * (isDB ? 5 : 3);
+    aimX = clamp(aimX, 16, FIELD_PIX_W - 16);
+
+    let aimY = lead.y - cushion;
+    const minDepth = ctx.cover.losY + PX_PER_YARD * (isDB ? 1.1 : 0.7);
+    const maxDepth = lead.y - PX_PER_YARD * 0.25;
+    aimY = clamp(aimY, minDepth, maxDepth);
+
+    const verticalGap = snapshot.pos.y - defender.pos.y;
+    let speedMul = isDB ? 1.065 : 1.0;
+    if (verticalGap > cushion * 0.9) speedMul += 0.12;
+    if (verticalGap > cushion * 1.6) speedMul += 0.12;
+    if (verticalGap < -cushion * 0.8) speedMul -= 0.08;
+
+    const spacing = dist(defender.pos, snapshot.pos);
+    if (spacing > cushion * 1.8) speedMul += 0.06;
+
+    moveToward(defender, { x: aimX, y: aimY }, ctx.dt, speedMul);
+}
+
+function _zoneHelpAnchor(ctx, defender, key) {
+    const isDB = _isDefensiveBack(key);
+    const baseDepth = ctx.cover.losY + PX_PER_YARD * (isDB ? 7.2 : 5.4);
+    let anchor = {
+        x: clamp(ctx.qbPos.x + (defender.pos.x < FIELD_PIX_W / 2 ? -26 : 26), 20, FIELD_PIX_W - 20),
+        y: baseDepth,
+    };
+    let speedMul = isDB ? 0.98 : 0.92;
+
+    const threats = Object.values(ctx.manTargets || {});
+    const options = threats.length ? threats : [];
+    const pick = options.reduce((best, cand) => {
+        if (!cand) return best;
+        const claim = ctx.roleClaims[cand.role];
+        const claimed = claim && claim.key !== key;
+        const dx = cand.pos.x - defender.pos.x;
+        const dy = cand.pos.y - defender.pos.y;
+        const distScore = Math.hypot(dx, dy) - Math.max(0, cand.pos.y - ctx.cover.losY) * (isDB ? 0.2 : 0.15);
+        const penalty = claimed ? 18 : 0;
+        const score = distScore + penalty;
+        if (!best || score < best.score) return { score, cand };
+        return best;
+    }, null);
+
+    if (pick?.cand) {
+        const cand = pick.cand;
+        const leverage = Math.sign(defender.pos.x - cand.pos.x) || (cand.pos.x < FIELD_PIX_W / 2 ? -1 : 1);
+        anchor = {
+            x: clamp(cand.pos.x + leverage * (isDB ? 12 : 8), 18, FIELD_PIX_W - 18),
+            y: Math.max(ctx.cover.losY + PX_PER_YARD * 2.4, cand.pos.y - PX_PER_YARD * (isDB ? 2.6 : 1.9)),
+        };
+        speedMul = isDB ? 1.0 : 0.95;
+    }
+
+    return { point: anchor, speedMul };
+}
+
+function _pursueCarrierIfNeeded(ctx, key, defender, assignedSnapshot) {
+    const { carrierPos, carrierRole, carrier, ball } = ctx;
+    if (!carrierPos || !carrier || ball.inAir) return false;
+
+    const release = _coverageReleaseDepthFor(ctx.cover, key);
+    const distToCarrier = dist(defender.pos, carrierPos);
+    const assigned = assignedSnapshot && carrierRole && assignedSnapshot.role === carrierRole;
+
+    if (!assigned) {
+        const releaseY = carrierRole === 'QB' ? release.qb : release.run;
+        if (carrierPos.y < releaseY && distToCarrier > 110) return false;
+        if (carrierRole === 'QB' && carrierPos.y < release.qb && distToCarrier > 80) return false;
+        if (distToCarrier > 240) return false;
+    }
+
+    const motion = _sampleMotionFor(ctx, carrier, 'carrier');
+    const leadDist = assigned ? 32 : 24;
+    const lead = {
+        x: carrier.pos.x + motion.heading.x * (leadDist + Math.min(30, motion.speed * 0.14)),
+        y: carrier.pos.y + motion.heading.y * (leadDist + Math.min(36, motion.speed * 0.18)),
+    };
+    const speedMul = CFG.PURSUIT_SPEED * (assigned ? 1.12 : 1.02);
+    moveToward(defender, lead, ctx.dt, speedMul);
+    return true;
+}
+
+function _updateManCoverageForKey(ctx, key) {
+    const defender = ctx.def[key];
+    if (!defender?.pos) return;
+
+    const snapshot = _chooseManAssignment(ctx, key, defender);
+
+    if (_pursueCarrierIfNeeded(ctx, key, defender, snapshot)) return;
+
+    if (snapshot?.player?.pos) {
+        _driveManCoverage(ctx, key, defender, snapshot);
+        return;
+    }
+
+    const zone = _zoneHelpAnchor(ctx, defender, key);
+    moveToward(defender, zone.point, ctx.dt, zone.speedMul);
+}
+
+function _updateSafetyCoverage(ctx, key, idx) {
+    const defender = ctx.def[key];
+    if (!defender?.pos) return;
+
+    if (ctx.ball.inAir) {
+        const tgt = ctx.ball.to || ctx.qbPos;
+        moveToward(defender, tgt, ctx.dt, 1.04);
+        return;
+    }
+
+    if (ctx.cover.isCover2 && ctx.cover.deepLandmarks) {
+        const landmark = idx === 0 ? ctx.cover.deepLandmarks.left : ctx.cover.deepLandmarks.right;
+        const deep = Object.values(ctx.manTargets).reduce((best, cand) => {
+            if (!cand?.player?.pos) return best;
+            const onSide = idx === 0 ? cand.pos.x <= FIELD_PIX_W / 2 : cand.pos.x >= FIELD_PIX_W / 2;
+            if (!onSide) return best;
+            if (!best || cand.pos.y > best.pos.y) return cand;
+            return best;
+        }, null);
+        if (deep) {
+            const aim = {
+                x: clamp(landmark.x * 0.4 + deep.leadDeep.x * 0.6, 20, FIELD_PIX_W - 20),
+                y: Math.max(deep.leadDeep.y - PX_PER_YARD * 4.6, ctx.cover.losY + PX_PER_YARD * 9.0),
+            };
+            moveToward(defender, aim, ctx.dt, 0.95);
+        } else {
+            moveToward(defender, landmark, ctx.dt, 0.92);
+        }
+        return;
+    }
+
+    const deepThreat = Object.values(ctx.manTargets).reduce((best, cand) => {
+        if (!cand?.player?.pos) return best;
+        if (cand.pos.y < ctx.cover.losY) return best;
+        if (!best || cand.pos.y > best.pos.y) return cand;
+        return best;
+    }, null);
+
+    if (deepThreat) {
+        const shade = _coverageLeverage(defender, deepThreat.player, ctx.qbPos);
+        const aim = {
+            x: clamp(deepThreat.leadDeep.x - shade * 12, 18, FIELD_PIX_W - 18),
+            y: Math.max(deepThreat.leadDeep.y - PX_PER_YARD * 5.0, ctx.cover.losY + PX_PER_YARD * 8.4),
+        };
+        moveToward(defender, aim, ctx.dt, 0.97);
+    } else {
+        const robber = {
+            x: clamp(ctx.qbPos.x + (defender.pos.x < FIELD_PIX_W / 2 ? -22 : 22), 20, FIELD_PIX_W - 20),
+            y: ctx.cover.losY + PX_PER_YARD * 7.2,
+        };
+        moveToward(defender, robber, ctx.dt, 0.9);
+    }
+}
+
 // Greedy nearest assignment with role weighting (CBs prefer WRs > TE > RB)
 function _computeCoverageAssignments(s) {
     const off = s.play?.formation?.off || {};
@@ -1455,11 +1819,6 @@ export function defenseLogic(s, dt) {
     const carrier = carrierInfo.player;
     const carrierRole = carrierInfo.role;
     const carrierPos = carrier?.pos || null;
-    const dbReleaseRunY = cover.losY + PX_PER_YARD * 3.2;
-    const dbReleaseQBY = cover.losY + PX_PER_YARD * 2.2;
-    const lbReleaseRunY = cover.losY + PX_PER_YARD * 1.8;
-    const lbReleaseQBY = cover.losY + PX_PER_YARD * 1.0;
-
     // 1) DL rush with shedding and lane offsets to avoid piling behind a teammate
     const rushKeys = ['LE', 'DT', 'RTk', 'RE'];
     const qbPos = _ensureVec(off.QB);
@@ -1502,99 +1861,24 @@ export function defenseLogic(s, dt) {
     });
 
     // 2) Coverage / pursuit for back seven
-    const coverables = ['WR1', 'WR2', 'WR3', 'TE', 'RB'].map(k => off[k]).filter(Boolean);
     const cushion = CFG.COVER_CUSHION_YDS * PX_PER_YARD;
-
-    const manKeys = ['CB1', 'CB2', 'NB', 'LB1', 'LB2'];
-    manKeys.forEach(k => {
-        const d = def[k]; if (!d || !d.pos) return;
-
-        const isDB = (k === 'CB1' || k === 'CB2' || k === 'NB');
-        const releaseRunY = isDB ? dbReleaseRunY : lbReleaseRunY;
-        const releaseQBY = isDB ? dbReleaseQBY : lbReleaseQBY;
-
-        const targetRole = cover.assigned[k];
-        const t = targetRole ? off[targetRole] : null;
-        const hasAssignment = !!(t && t.pos);
-        const assignedCarrier = hasAssignment && targetRole === carrierRole && carrierPos;
-
-        if (!ball.inAir && carrierPos) {
-            const dx = carrierPos.x - d.pos.x, dy = carrierPos.y - d.pos.y;
-            const dsq = dx * dx + dy * dy;
-            const closeEnough = dsq < (220 * 220);
-            const canChaseQB = carrierRole === 'QB' && carrierPos.y > releaseQBY;
-            const canChaseRun = carrierRole !== 'QB' && carrierPos.y > releaseRunY;
-            const freeHelper = !hasAssignment;
-            const shouldPursue = closeEnough && (
-                (assignedCarrier) ||
-                (freeHelper && (carrierRole !== 'QB' || canChaseQB)) ||
-                (carrierRole !== 'QB' && canChaseRun)
-            ) && (carrierRole !== 'QB' || canChaseQB);
-            if (shouldPursue) {
-                const lead = _leadPoint(carrier, CFG.PURSUIT_LEAD_T, dt);
-                moveToward(d, lead, dt, CFG.PURSUIT_SPEED);
-                return;
-            }
-        }
-
-        // Otherwise: man on assigned target
-        if (t && t.pos) {
-            // If another DB is much closer to this WR (crossers), switch
-            const nearestDB = ['CB1', 'CB2', 'NB', 'S1', 'S2', 'LB1', 'LB2']
-                .map(kk => def[kk])
-                .filter(pp => pp && pp.pos)
-                .reduce((best, pp) => {
-                    const dd = dist(pp.pos, t.pos);
-                    return (!best || dd < best.d) ? { d: dd, p: pp } : best;
-                }, null);
-            if (nearestDB && nearestDB.p === d && dist(d.pos, t.pos) > CFG.COVER_SWITCH_DIST) {
-                // keep assignment
-            } else if (nearestDB && nearestDB.d + 1 < dist(d.pos, t.pos)) {
-                // switch if someone else owns it better
-                for (const [dk, rk] of Object.entries(cover.assigned)) if (rk === targetRole) delete cover.assigned[dk];
-                cover.assigned[k] = Object.entries(def).find(([dk, pp]) => pp === nearestDB.p)?.[0] ? targetRole : cover.assigned[k];
-            }
-
-            const lead = _leadPoint(t, isDB ? 0.30 : 0.24, dt);
-            const leverage = Math.sign(d.pos.x - t.pos.x);
-            const rawCushionY = lead.y - cushion;
-            const minDepth = cover.losY + PX_PER_YARD * 0.8;
-            const maxDepth = t.pos.y + PX_PER_YARD * 0.6;
-            const cushionY = clamp(Math.min(rawCushionY, t.pos.y - PX_PER_YARD * 0.3), minDepth, maxDepth);
-            const aimX = clamp(lead.x + leverage * 6, 16, FIELD_PIX_W - 16);
-            const aim = { x: aimX, y: cushionY };
-            const speedMul = isDB ? 1.055 : 1.0;
-            moveToward(d, aim, dt, speedMul);
-            return;
-        }
-
-        // Fallback: landmark middle hook
-        const mid = { x: qbPos.x, y: cover.losY + PX_PER_YARD * 6 };
-        moveToward(d, mid, dt, 0.9);
-    });
-
-    // Safeties: Cover-2 landmarks + break on ball
-    ['S1', 'S2'].forEach((k, idx) => {
-        const d = def[k]; if (!d || !d.pos) return;
-        if (ball.inAir) {
-            const tgt = s.play.ball?.to || qbPos;
-            moveToward(d, tgt, dt, 1.04);
-            return;
-        }
-        if (cover.isCover2 && cover.deepLandmarks) {
-            moveToward(d, idx === 0 ? cover.deepLandmarks.left : cover.deepLandmarks.right, dt, 0.92);
-        } else {
-            // man/robber-ish
-            const deepest = coverables.reduce((best, p) => {
-                if (!p || !p.pos) return best;
-                return (!best || p.pos.y > best.pos.y) ? p : best;
-            }, null);
-            if (deepest) {
-                const aim = { x: deepest.pos.x * 0.65 + qbPos.x * 0.35, y: Math.max(deepest.pos.y - PX_PER_YARD * 3.5, cover.losY + PX_PER_YARD * 8) };
-                moveToward(d, aim, dt, 0.94);
-            }
-        }
-    });
+    const coverageCtx = {
+        s,
+        dt,
+        off,
+        def,
+        cover,
+        ball,
+        qbPos,
+        cushion,
+        carrier,
+        carrierRole,
+        carrierPos,
+    };
+    coverageCtx.manTargets = _snapshotManTargets(coverageCtx);
+    coverageCtx.roleClaims = {};
+    MAN_KEYS.forEach(key => _updateManCoverageForKey(coverageCtx, key));
+    ['S1', 'S2'].forEach((key, idx) => _updateSafetyCoverage(coverageCtx, key, idx));
 
     // 3) Contact & tackle logic (slightly tougher)
     if (ball.inAir) return;
