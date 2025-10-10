@@ -4,6 +4,7 @@ import Toolbar from './ui/Toolbar';
 import Scoreboard from './ui/Scoreboard';
 import { FIELD_PIX_W, FIELD_PIX_H } from './engine/constants';
 import { createInitialGameState, stepGame, betweenPlays, withForceNextOutcome, withForceNextPlay } from './engine/state';
+import { getDiagnostics } from './engine/diagnostics';
 import { TEAM_RED, TEAM_BLK } from './engine/constants';
 import { draw } from './render/draw';
 import PlayLog from './ui/PlayLog';
@@ -37,6 +38,15 @@ export default function App() {
     rafId = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(rafId);
   }, [running, simSpeed, state]);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      window.__blootyball = {
+        state,
+        diagnostics: getDiagnostics(state),
+      };
+    }
+  }, [state]);
 
   const onNextPlay = () => setState(s => betweenPlays(s));
   const onReset = () => { setState(createInitialGameState()); setRunning(false); };
