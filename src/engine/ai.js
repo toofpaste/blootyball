@@ -1099,6 +1099,16 @@ function tryThrow(s, press) {
     const checkdownGate = press.underImmediatePressure || s.play.qbMoveMode === 'SCRAMBLE' || (tNow >= ttt + CFG.CHECKDOWN_LAG);
     const losY = off.__losPixY ?? (qb.pos.y - PX_PER_YARD);
 
+    const progression = Array.isArray(s.play.qbProgressionOrder)
+        ? s.play.qbProgressionOrder
+        : [..._progressionOrder(call), 'RB'];
+    if (!Array.isArray(s.play.qbProgressionOrder)) {
+        s.play.qbProgressionOrder = progression;
+    }
+    if (typeof s.play.qbReadIdx !== 'number') {
+        s.play.qbReadIdx = 0;
+    }
+
     const wrteKeys = ['WR1', 'WR2', 'WR3', 'TE'];
     const candidates = [];
     for (const key of wrteKeys) {
@@ -1115,6 +1125,7 @@ function tryThrow(s, press) {
         bestWRTE.depthPastLOS >= wrDepthNeed ||
         (tNow >= ttt && press.underHeat && bestWRTE.separation >= CFG.WR_MIN_OPEN * 0.75)
     );
+    const targetChoice = wrAccept ? bestWRTE : null;
     let rbCand = null;
     const rbIndex = Math.max(progression.indexOf('RB'), progression.length - 1);
     if (!targetChoice && checkdownGate && s.play.qbReadIdx > rbIndex) {
