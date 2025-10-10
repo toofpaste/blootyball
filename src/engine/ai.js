@@ -1028,7 +1028,7 @@ export function qbLogic(s, dt) {
     }
 
     // Throws (unchanged scoring, just guarded inside tryThrow)
-    tryThrow(s, { underHeat, underImmediatePressure });
+    tryThrow(s, { underHeat, underImmediatePressure, lateralBias });
 }
 
 function nearestDefDist(def, pos) {
@@ -1173,16 +1173,24 @@ function tryThrow(s, press) {
                 const safeTo = { x: to.x, y: Math.max(to.y, qb.pos.y - PX_PER_YARD * 0.25) };
                 startPass(s, from, { x: safeTo.x, y: safeTo.y }, bestWRTE.r.id);
                 s.play.passRisky = bestWRTE.separation < 22;
-            } else {
-                const sidelineX = qb.pos.x < FIELD_PIX_W / 2 ? 8 : FIELD_PIX_W - 8;
-                const outY = Math.max(qb.pos.y + PX_PER_YARD * 2, losY + PX_PER_YARD);
-                startPass(s, { x: qb.pos.x, y: qb.pos.y - 2 }, { x: sidelineX, y: outY }, null);
+                return;
             }
-        } else {
-            const sidelineX = qb.pos.x < FIELD_PIX_W / 2 ? 8 : FIELD_PIX_W - 8;
-            const outY = Math.max(qb.pos.y + PX_PER_YARD * 2, losY + PX_PER_YARD);
-            startPass(s, { x: qb.pos.x, y: qb.pos.y - 2 }, { x: sidelineX, y: outY }, null);
         }
+
+        const underDuress = press.underImmediatePressure || press.underHeat;
+        if (!underDuress && s.play.qbMoveMode !== 'SCRAMBLE') {
+            s.play.qbMoveMode = 'SCRAMBLE';
+            s.play.scrambleMode = Math.random() < 0.6 ? 'FORWARD' : 'LATERAL';
+            const dir = press.lateralBias || (Math.random() < 0.5 ? -1 : 1);
+            s.play.scrambleDir = dir;
+            s.play.scrambleUntil = tNow + rand(0.45, 0.9);
+            s.play.qbMaxHold = Math.max(maxHold + 0.35, tNow + 0.6);
+            return;
+        }
+
+        const sidelineX = qb.pos.x < FIELD_PIX_W / 2 ? 8 : FIELD_PIX_W - 8;
+        const outY = Math.max(qb.pos.y + PX_PER_YARD * 2, losY + PX_PER_YARD);
+        startPass(s, { x: qb.pos.x, y: qb.pos.y - 2 }, { x: sidelineX, y: outY }, null);
     }
 
 }
