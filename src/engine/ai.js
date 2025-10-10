@@ -1768,7 +1768,6 @@ export function defenseLogic(s, dt) {
     });
 
     // 2) Coverage / pursuit for back seven
-    const coverables = ['WR1', 'WR2', 'WR3', 'TE', 'RB'].map(k => off[k]).filter(Boolean);
     const cushion = CFG.COVER_CUSHION_YDS * PX_PER_YARD;
     const coverageCtx = {
         s,
