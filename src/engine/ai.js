@@ -1557,10 +1557,13 @@ export function defenseLogic(s, dt) {
 
             const lead = _leadPoint(t, isDB ? 0.30 : 0.24, dt);
             const leverage = Math.sign(d.pos.x - t.pos.x);
-            const cushionY = Math.max(lead.y - cushion, cover.losY + PX_PER_YARD * 1.2);
+            const rawCushionY = lead.y - cushion;
+            const minDepth = cover.losY + PX_PER_YARD * 0.8;
+            const maxDepth = t.pos.y + PX_PER_YARD * 0.6;
+            const cushionY = clamp(Math.min(rawCushionY, t.pos.y - PX_PER_YARD * 0.3), minDepth, maxDepth);
             const aimX = clamp(lead.x + leverage * 6, 16, FIELD_PIX_W - 16);
             const aim = { x: aimX, y: cushionY };
-            const speedMul = isDB ? 1.035 : 1.0;
+            const speedMul = isDB ? 1.055 : 1.0;
             moveToward(d, aim, dt, speedMul);
             return;
         }
