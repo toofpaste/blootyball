@@ -1591,7 +1591,7 @@ export function defenseLogic(s, dt) {
     // 3) Contact & tackle logic (slightly tougher)
     if (ball.inAir) return;
 
-    const { role: carrierRole, player: ballCarrier, id: carrierId } = normalizeCarrier(off, ball);
+    const { player: ballCarrier, id: carrierId } = carrierInfo;
     if (!ballCarrier) return;
 
     off.__carrierWrapped = isWrapped(s, carrierId) ? (carrierRole || carrierId) : null;
