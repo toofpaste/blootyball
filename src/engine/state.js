@@ -111,7 +111,7 @@ function updateClock(s, dt) {
     }
 }
 
-function useTimeout(s, team, reason) {
+function consumeTimeout(s, team, reason) {
     if (!s.clock) return false;
     const remaining = s.clock.timeouts?.[team] ?? 0;
     if (remaining <= 0) return false;
@@ -149,7 +149,7 @@ function maybeAutoTimeout(s, ctx) {
     const clockTime = s.clock.time;
 
     const tryTimeout = (team, reason) => {
-        if (useTimeout(s, team, reason)) {
+        if (consumeTimeout(s, team, reason)) {
             pushPlayLog(s, {
                 name: 'Timeout',
                 startDown: ctx.startDown,
