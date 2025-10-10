@@ -937,6 +937,16 @@ export function qbLogic(s, dt) {
         ? Math.sign(qb.pos.x - nearestDL.t.pos.x) || (Math.random() < 0.5 ? -1 : 1)
         : (Math.random() < 0.5 ? -1 : 1);
 
+    // One-time setup for read cadence / progression
+    if (!Array.isArray(s.play.qbProgressionOrder)) {
+        s.play.qbProgressionOrder = [..._progressionOrder(call), 'RB'];
+        s.play.qbReadIdx = 0;
+        s.play.qbNextReadAt = 0;
+        s.play.qbReadyAt = null;
+        s.play.qbDropArrivedAt = null;
+        s.play.qbSettlePoint = null;
+    }
+
     // Debug hook: forced scramble
     if (s.debug?.forceNextOutcome === 'SCRAMBLE' && !s.play.__forcedScrambleArmed) {
         s.play.__forcedScrambleArmed = true;
@@ -945,12 +955,43 @@ export function qbLogic(s, dt) {
         s.play.scrambleDir = Math.random() < 0.5 ? -1 : 1;
         s.play.scrambleUntil = time + rand(0.45, 0.9);
     }
-    // Auto-scramble from pressure / timing
+
     const ttt = s.play.qbTTT || 1.6;
-    if (
-        s.play.qbMoveMode === 'DROP' &&
-        (underImmediatePressure || time > (ttt + 0.9))  // was +0.7
-    ) {
+    const dropArrived = dist(qb.pos, dropTarget) < 4 || qb.routeIdx >= (qb.targets?.length || 0);
+    if (s.play.qbMoveMode === 'DROP' && dropArrived) {
+        s.play.qbMoveMode = 'SET';
+        s.play.qbDropArrivedAt = s.play.qbDropArrivedAt ?? time;
+        s.play.qbReadyAt = Math.max(time + 0.16, Math.min(ttt - 0.05, 1.25));
+        s.play.qbSettlePoint = {
+            x: dropTarget.x,
+            y: Math.min(dropTarget.y + PX_PER_YARD * 0.6, qb.pos.y + PX_PER_YARD * 0.4),
+        };
+    }
+
+    const pressureToSet = underImmediatePressure && s.play.qbMoveMode === 'DROP' && time > ttt * 0.35;
+    if (pressureToSet) {
+        s.play.qbMoveMode = 'SET';
+        s.play.qbReadyAt = s.play.qbReadyAt || Math.max(time + 0.12, Math.min(ttt - 0.05, 1.2));
+        s.play.qbSettlePoint = {
+            x: dropTarget.x,
+            y: Math.min(dropTarget.y + PX_PER_YARD * 0.5, qb.pos.y + PX_PER_YARD * 0.3),
+        };
+    }
+
+    const minY =
+        s.play.qbDropTarget
+            ? Math.min(s.play.qbDropTarget.y - PX_PER_YARD, s.play.qbDropTarget.y)
+            : qb.pos.y;
+
+    const shouldScramble = () => {
+        if (s.play.qbMoveMode === 'SCRAMBLE') return false;
+        if (underImmediatePressure && time > (s.play.qbReadyAt ?? (ttt - 0.1))) return true;
+        if (underHeat && time > (ttt + 0.65)) return true;
+        if (time > (s.play.qbMaxHold || (ttt + 1.2))) return true;
+        return false;
+    };
+
+    if (shouldScramble()) {
         s.play.qbMoveMode = 'SCRAMBLE';
         s.play.scrambleMode = Math.random() < 0.7 ? 'LATERAL' : 'FORWARD';
         s.play.scrambleDir = lateralBias;
@@ -958,11 +999,6 @@ export function qbLogic(s, dt) {
     }
 
     // Move QB
-    const minY =
-        s.play.qbDropTarget
-            ? Math.min(s.play.qbDropTarget.y - PX_PER_YARD, s.play.qbDropTarget.y)
-            : qb.pos.y;
-
     if (s.play.qbMoveMode === 'DROP') {
         const t =
             Array.isArray(qb.targets) && qb.targets.length > 0
@@ -972,6 +1008,15 @@ export function qbLogic(s, dt) {
         if (t && dist(qb.pos, t) < 4 && Array.isArray(qb.targets)) {
             qb.routeIdx = Math.min(qb.routeIdx + 1, qb.targets.length);
         }
+    } else if (s.play.qbMoveMode === 'SET') {
+        const settle = s.play.qbSettlePoint || dropTarget;
+        const heatSlide = underHeat && nearestDL.t ? clamp((nearestDL.t.pos.x - settle.x) * 0.25, -12, 12) : 0;
+        const stepUp = underHeat ? PX_PER_YARD * 0.35 : PX_PER_YARD * 0.15;
+        const aim = {
+            x: clamp(settle.x - heatSlide, 20, FIELD_PIX_W - 20),
+            y: Math.min(settle.y + stepUp, qb.pos.y + PX_PER_YARD * 0.6),
+        };
+        moveToward(qb, aim, dt, 0.82);
     } else {
         if (!s.play.scrambleMode) s.play.scrambleMode = 'LATERAL';
         const lateral = {
@@ -1048,11 +1093,12 @@ function tryThrow(s, press) {
     const call = s.play?.playCall || {};
     if (!qb || !qb.pos) return;
     const tNow = s.play.elapsed, ttt = s.play.qbTTT || 2.5, maxHold = s.play.qbMaxHold || 4.8;
-    const minThrowGate = Math.min(ttt - 0.1, 1.6); // never earlier than ~1.5s unless quick-game changed ttt
-    if (tNow < minThrowGate) return;
+    const minThrowGate = Math.min(ttt - 0.15, 1.35);
+    const readyAt = s.play.qbReadyAt != null ? Math.max(minThrowGate * 0.85, s.play.qbReadyAt) : minThrowGate;
+    if (tNow < readyAt) return;
     const checkdownGate = press.underImmediatePressure || s.play.qbMoveMode === 'SCRAMBLE' || (tNow >= ttt + CFG.CHECKDOWN_LAG);
     const losY = off.__losPixY ?? (qb.pos.y - PX_PER_YARD);
-   
+
     const wrteKeys = ['WR1', 'WR2', 'WR3', 'TE'];
     const candidates = [];
     for (const key of wrteKeys) {
@@ -1070,7 +1116,8 @@ function tryThrow(s, press) {
         (tNow >= ttt && press.underHeat && bestWRTE.separation >= CFG.WR_MIN_OPEN * 0.75)
     );
     let rbCand = null;
-    if (!wrAccept && checkdownGate) {
+    const rbIndex = Math.max(progression.indexOf('RB'), progression.length - 1);
+    if (!targetChoice && checkdownGate && s.play.qbReadIdx > rbIndex) {
         const r = off.RB;
         if (r && r.alive) {
             const open = nearestDefDist(def, r.pos), throwLine = dist(qb.pos, r.pos);
@@ -1079,6 +1126,7 @@ function tryThrow(s, press) {
             rbCand = { key: 'RB', r, score, open, throwLine };
         }
     }
+
     const mustThrow = (tNow >= maxHold) || (tNow >= (ttt + 0.65) && press.underHeat);
     const _leadTo = (p) => {
         const v = _updateAndGetVel(p, 0.016);
@@ -1089,8 +1137,8 @@ function tryThrow(s, press) {
         return { x: raw.x, y: safeY };
     };
 
-    if (wrAccept) {
-        const to = _leadTo(bestWRTE.r);
+    if (targetChoice) {
+        const to = _leadTo(targetChoice.r);
         if (isThrowLaneClear(def, { x: qb.pos.x, y: qb.pos.y }, to, 18)) {
             const from = { x: qb.pos.x, y: qb.pos.y - 2 };
             const safeTo = { x: to.x, y: Math.max(to.y, qb.pos.y - PX_PER_YARD * 0.25) };
@@ -1098,7 +1146,6 @@ function tryThrow(s, press) {
             s.play.passRisky = bestWRTE.separation < 22;
             return;
         }
-        // lane blocked → keep reading this tick
     }
 
     if (rbCand && rbCand.open >= CFG.RB_MIN_OPEN && rbCand.throwLine <= CFG.RB_MAX_THROWLINE) {
@@ -1110,20 +1157,19 @@ function tryThrow(s, press) {
             s.play.passRisky = rbCand.open < 22;
             return;
         }
-        // lane blocked → skip this tick
     }
+
     if (mustThrow) {
-        if (bestWRTE) {
-            const to = _leadTo(bestWRTE.r);
+        if (targetChoice) {
+            const to = _leadTo(targetChoice.r);
             if (isThrowLaneClear(def, { x: qb.pos.x, y: qb.pos.y }, to, 18)) {
                 const from = { x: qb.pos.x, y: qb.pos.y - 2 };
                 const safeTo = { x: to.x, y: Math.max(to.y, qb.pos.y - PX_PER_YARD * 0.25) };
                 startPass(s, from, { x: safeTo.x, y: safeTo.y }, bestWRTE.r.id);
                 s.play.passRisky = bestWRTE.separation < 22;
             } else {
-                // Throwaway should also NEVER be backward: aim sideline but forward
                 const sidelineX = qb.pos.x < FIELD_PIX_W / 2 ? 8 : FIELD_PIX_W - 8;
-                const outY = Math.max(qb.pos.y + PX_PER_YARD * 2, losY + PX_PER_YARD); // forward/out
+                const outY = Math.max(qb.pos.y + PX_PER_YARD * 2, losY + PX_PER_YARD);
                 startPass(s, { x: qb.pos.x, y: qb.pos.y - 2 }, { x: sidelineX, y: outY }, null);
             }
         } else {
