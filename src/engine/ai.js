@@ -1451,6 +1451,14 @@ function _computeCoverageAssignments(s) {
 export function defenseLogic(s, dt) {
     const off = s.play.formation.off, def = s.play.formation.def, ball = s.play.ball;
     const cover = s.play.coverage || { assigned: {}, isCover2: false, deepLandmarks: null, losY: off.__losPixY ?? 0 };
+    const carrierInfo = normalizeCarrier(off, ball);
+    const carrier = carrierInfo.player;
+    const carrierRole = carrierInfo.role;
+    const carrierPos = carrier?.pos || null;
+    const dbReleaseRunY = cover.losY + PX_PER_YARD * 3.2;
+    const dbReleaseQBY = cover.losY + PX_PER_YARD * 2.2;
+    const lbReleaseRunY = cover.losY + PX_PER_YARD * 1.8;
+    const lbReleaseQBY = cover.losY + PX_PER_YARD * 1.0;
 
     // 1) DL rush with shedding and lane offsets to avoid piling behind a teammate
     const rushKeys = ['LE', 'DT', 'RTk', 'RE'];
@@ -1501,12 +1509,28 @@ export function defenseLogic(s, dt) {
     manKeys.forEach(k => {
         const d = def[k]; if (!d || !d.pos) return;
 
-        // If ball not in air & close to carrier → pursuit with lead
-        const { player: carrier } = normalizeCarrier(off, ball);
-        if (!ball.inAir && carrier && carrier.pos) {
-            const dx = carrier.pos.x - d.pos.x, dy = carrier.pos.y - d.pos.y;
+        const isDB = (k === 'CB1' || k === 'CB2' || k === 'NB');
+        const releaseRunY = isDB ? dbReleaseRunY : lbReleaseRunY;
+        const releaseQBY = isDB ? dbReleaseQBY : lbReleaseQBY;
+
+        const targetRole = cover.assigned[k];
+        const t = targetRole ? off[targetRole] : null;
+        const hasAssignment = !!(t && t.pos);
+        const assignedCarrier = hasAssignment && targetRole === carrierRole && carrierPos;
+
+        if (!ball.inAir && carrierPos) {
+            const dx = carrierPos.x - d.pos.x, dy = carrierPos.y - d.pos.y;
             const dsq = dx * dx + dy * dy;
-            if (dsq < (220 * 220)) {
+            const closeEnough = dsq < (220 * 220);
+            const canChaseQB = carrierRole === 'QB' && carrierPos.y > releaseQBY;
+            const canChaseRun = carrierRole !== 'QB' && carrierPos.y > releaseRunY;
+            const freeHelper = !hasAssignment;
+            const shouldPursue = closeEnough && (
+                (assignedCarrier) ||
+                (freeHelper && (carrierRole !== 'QB' || canChaseQB)) ||
+                (carrierRole !== 'QB' && canChaseRun)
+            ) && (carrierRole !== 'QB' || canChaseQB);
+            if (shouldPursue) {
                 const lead = _leadPoint(carrier, CFG.PURSUIT_LEAD_T, dt);
                 moveToward(d, lead, dt, CFG.PURSUIT_SPEED);
                 return;
@@ -1514,8 +1538,6 @@ export function defenseLogic(s, dt) {
         }
 
         // Otherwise: man on assigned target
-        const targetRole = cover.assigned[k];
-        const t = targetRole ? off[targetRole] : null;
         if (t && t.pos) {
             // If another DB is much closer to this WR (crossers), switch
             const nearestDB = ['CB1', 'CB2', 'NB', 'S1', 'S2', 'LB1', 'LB2']
@@ -1534,7 +1556,7 @@ export function defenseLogic(s, dt) {
             }
 
             const aim = { x: t.pos.x, y: Math.max(t.pos.y - cushion, cover.losY + PX_PER_YARD * 1.2) };
-            moveToward(d, aim, dt, 0.96);
+            moveToward(d, aim, dt, 0.99);
             return;
         }
 
