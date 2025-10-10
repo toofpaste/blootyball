@@ -67,6 +67,8 @@ export function startPass(s, from, to, targetId) {
         wobble: Math.random() * 0.15,
         speed,
         accuracy: acc,
+        totalDist: distance,
+        travelled: 0,
     };
     ball.shadowPos = { ...from };
     ball.renderPos = { ...from };
@@ -99,20 +101,51 @@ export function moveBall(s, dt) {
     }
 
     if (ball.inAir) {
-        const flight = ball.flight || { duration: 0.6, elapsed: 0, arc: 18, speed: 120, accuracy: 1 };
+        const flight = ball.flight || { duration: 0.6, elapsed: 0, arc: 18, speed: 120, accuracy: 1, totalDist: 1, travelled: 0 };
         flight.elapsed += dt;
-        const tRaw = clamp(flight.elapsed / Math.max(flight.duration, 0.01), 0, 1);
-        const t = tRaw * tRaw * (3 - 2 * tRaw);
-        const nx = ball.from.x + (ball.to.x - ball.from.x) * t;
-        const ny = ball.from.y + (ball.to.y - ball.from.y) * t;
+
+        const currentPos = ball.renderPos || ball.shadowPos || ball.from;
+        let targetPos = ball.to ? { ...ball.to } : { ...ball.from };
+
+        if (ball.targetId) {
+            const target = _resolveOffensivePlayer(off, ball.targetId);
+            if (target?.pos) {
+                const desired = { x: target.pos.x, y: target.pos.y };
+                const lerp = clamp(dt * 6, 0, 1);
+                targetPos = {
+                    x: targetPos.x + (desired.x - targetPos.x) * lerp,
+                    y: targetPos.y + (desired.y - targetPos.y) * lerp,
+                };
+                ball.to = { ...targetPos };
+            }
+        }
+
+        const dx = targetPos.x - currentPos.x;
+        const dy = targetPos.y - currentPos.y;
+        const distToTarget = Math.hypot(dx, dy);
+        const travelStep = flight.speed * dt;
+        const step = distToTarget > 0 ? Math.min(travelStep, distToTarget) : 0;
+        const nx = currentPos.x + (distToTarget > 0 ? (dx / distToTarget) * step : 0);
+        const ny = currentPos.y + (distToTarget > 0 ? (dy / distToTarget) * step : 0);
         const safeX = clamp(nx, 6, FIELD_PIX_W - 6);
         const safeY = clamp(ny, 0, FIELD_PIX_H);
-        const arcHeight = Math.sin(Math.PI * t) * (flight.arc || 0);
+
+        const travelledNow = Math.hypot(safeX - currentPos.x, safeY - currentPos.y);
+        flight.travelled = (flight.travelled || 0) + travelledNow;
+        const remaining = Math.max(0, distToTarget - travelledNow);
+        const inferredTotal = flight.travelled + remaining;
+        flight.totalDist = Math.max(flight.totalDist || inferredTotal, inferredTotal);
+        const progress = flight.totalDist > 0 ? clamp(flight.travelled / flight.totalDist, 0, 1) : 1;
+        const eased = progress * progress * (3 - 2 * progress);
+        const arcHeight = Math.sin(Math.PI * eased) * (flight.arc || 0);
+
         ball.renderPos = { x: safeX, y: safeY };
         ball.shadowPos = { x: safeX, y: safeY };
         if (ball.flight) ball.flight.height = arcHeight;
 
-        if (tRaw >= 1) {
+        const reached = distToTarget <= Math.max(6, travelStep * 0.6);
+
+        if (reached) {
             if (!ball.targetId) {
                 s.play.deadAt = s.play.elapsed;
                 s.play.phase = 'DEAD';
