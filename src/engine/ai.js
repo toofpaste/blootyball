@@ -1769,6 +1769,12 @@ export function defenseLogic(s, dt) {
 
     // 2) Coverage / pursuit for back seven
     const cushion = CFG.COVER_CUSHION_YDS * PX_PER_YARD;
+    const coverables = ['WR1', 'WR2', 'WR3', 'TE', 'RB']
+        .map(role => off[role])
+        .filter(player => player?.pos && player.alive !== false);
+    if (carrier?.pos && !coverables.includes(carrier)) {
+        coverables.push(carrier);
+    }
     const coverageCtx = {
         s,
         dt,
