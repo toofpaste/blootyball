@@ -1,17 +1,16 @@
 import {
-    FIELD_PIX_W, ENDZONE_YARDS, PLAYING_YARDS_H, PX_PER_YARD,
+    FIELD_PIX_W, ENDZONE_YARDS, PLAYING_YARDS_H,
     TEAM_RED, TEAM_BLK, PLAYBOOK
 } from './constants';
 import { clamp, yardsToPixY, pixYToYards } from './helpers';
-import { createTeams, rosterForPossession, createRosters, lineUpFormation } from './rosters';
+import { createTeams, rosterForPossession, lineUpFormation } from './rosters';
 import { initRoutesAfterSnap, moveOL, moveReceivers, moveTE, qbLogic, rbLogic, defenseLogic } from './ai';
 import { moveBall, getBallPix } from './ball';
+import { beginFrame, endFrame } from './motion';
 
 /* =========================================================
    Utilities / guards
    ========================================================= */
-function otherTeam(t) { return t === TEAM_RED ? TEAM_BLK : TEAM_RED; }
-
 function ensureDrive(s) {
     if (!s.drive || typeof s.drive.losYards !== 'number') {
         s.drive = { losYards: 25, down: 1, toGo: 10 };
@@ -70,6 +69,13 @@ function recordTraceSample(s) {
     if (s.trace.length > 2000) s.trace.shift();
 }
 
+function gatherActivePlayers(play) {
+    if (!play || !play.formation) return [];
+    const off = Object.values(play.formation.off || {});
+    const def = Object.values(play.formation.def || {});
+    return [...off, ...def].filter(p => p && p.pos);
+}
+
 /* =========================================================
    Game state factories
    ========================================================= */
@@ -123,7 +129,19 @@ export function createPlayState(roster, drive) {
             : { name: 'Run Middle', type: 'RUN' };
     }
 
-    const ball = { inAir: false, carrierId: 'QB', from: { x: 0, y: 0 }, to: { x: 0, y: 0 }, t: 0, targetId: null };
+    const qbPos = formation.off?.QB?.pos || { x: FIELD_PIX_W / 2, y: losPixY - yardsToPixY(3) };
+    const ball = {
+        inAir: false,
+        carrierId: 'QB',
+        lastCarrierId: 'QB',
+        from: { x: qbPos.x, y: qbPos.y },
+        to: { x: qbPos.x, y: qbPos.y },
+        t: 0,
+        targetId: null,
+        renderPos: { x: qbPos.x, y: qbPos.y },
+        shadowPos: { x: qbPos.x, y: qbPos.y },
+        flight: null,
+    };
 
     return {
         phase: 'PRESNAP',
@@ -177,6 +195,9 @@ export function stepGame(state, dt) {
             off.__carrierWrapped = null;
             off.__carrierWrappedId = null;
 
+            const activePlayers = gatherActivePlayers(s.play);
+            beginFrame(activePlayers);
+
             moveOL(s.play.formation.off, s.play.formation.def, dt);
             moveReceivers(s.play.formation.off, dt, s);
             moveTE(s.play.formation.off, dt, s);
@@ -190,8 +211,10 @@ export function stepGame(state, dt) {
 
             if (s.play.phase === 'DEAD' && s.play.deadAt == null) s.play.deadAt = s.play.elapsed;
             if (s.play.phase === 'DEAD' && s.play.elapsed > s.play.deadAt + 1.0) {
+                endFrame(activePlayers);
                 return betweenPlays(s);
             }
+            endFrame(activePlayers);
             return s;
         }
         case 'DEAD': {
@@ -284,7 +307,6 @@ export function betweenPlays(s) {
             down = startDown + 1;
             if (down > 4) {
                 // Safety net: if we somehow get here, treat as turnover on downs
-                const spot = clamp(endYd, 1, 99);
                 s.possession = (s.possession === TEAM_RED ? TEAM_BLK : TEAM_RED);
                 s.teams = s.teams || createTeams();
                 s.roster = rosterForPossession(s.teams, s.possession);

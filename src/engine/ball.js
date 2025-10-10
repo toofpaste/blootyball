@@ -1,6 +1,7 @@
 // ⬇️ UPDATE your imports at the top of this file
 import { clamp, dist, yardsToPixY } from './helpers';
-import { FIELD_PIX_W } from './constants';
+import { FIELD_PIX_W, FIELD_PIX_H } from './constants';
+import { mphToPixelsPerSecond } from './motion';
 
 // ⬇️ ADD this small helper near the top (below the imports)
 function _resolveOffensivePlayer(off, idOrRole) {
@@ -43,12 +44,32 @@ export function getBallPix(s) {
     return { x: FIELD_PIX_W / 2, y: yardsToPixY(25) };
 }
 export function startPass(s, from, to, targetId) {
-    s.play.ball.inAir = true;
-    s.play.ball.carrierId = null;
-    s.play.ball.from = { ...from };
-    s.play.ball.to = { ...to };
-    s.play.ball.t = 0;
-    s.play.ball.targetId = targetId; // null means throw-away
+    const ball = s.play.ball;
+    const qb = s.play?.formation?.off?.QB;
+    const arm = clamp(qb?.attrs?.throwPow ?? 1, 0.5, 1.4);
+    const acc = clamp(qb?.attrs?.throwAcc ?? 1, 0.4, 1.4);
+    const distance = Math.max(1, dist(from, to));
+    const mph = clamp(48 + (arm - 1) * 18, 42, 64);
+    const speed = Math.max(60, mphToPixelsPerSecond(mph));
+    const duration = clamp(distance / speed, 0.35, 1.85);
+
+    ball.inAir = true;
+    ball.lastCarrierId = ball.carrierId || ball.lastCarrierId || qb?.id || 'QB';
+    ball.carrierId = null;
+    ball.from = { ...from };
+    ball.to = { ...to };
+    ball.t = 0;
+    ball.flight = {
+        duration,
+        elapsed: 0,
+        arc: clamp(distance * 0.18, 10, 60),
+        wobble: Math.random() * 0.15,
+        speed,
+        accuracy: acc,
+    };
+    ball.shadowPos = { ...from };
+    ball.renderPos = { ...from };
+    ball.targetId = targetId; // null means throw-away
 }
 
 export function moveBall(s, dt) {
@@ -67,18 +88,27 @@ export function moveBall(s, dt) {
     }
 
     if (ball.inAir) {
-        const speed = 420;
-        ball.t += dt * speed / Math.max(1, dist(ball.from, ball.to));
-        const t = clamp(ball.t, 0, 1);
+        const flight = ball.flight || { duration: 0.6, elapsed: 0, arc: 18, speed: 120, accuracy: 1 };
+        flight.elapsed += dt;
+        const tRaw = clamp(flight.elapsed / Math.max(flight.duration, 0.01), 0, 1);
+        const t = tRaw * tRaw * (3 - 2 * tRaw);
         const nx = ball.from.x + (ball.to.x - ball.from.x) * t;
         const ny = ball.from.y + (ball.to.y - ball.from.y) * t;
-        ball.renderPos = { x: nx, y: ny };
+        const safeX = clamp(nx, 6, FIELD_PIX_W - 6);
+        const safeY = clamp(ny, 0, FIELD_PIX_H);
+        const arcHeight = Math.sin(Math.PI * t) * (flight.arc || 0);
+        const offsetY = arcHeight * 0.08;
+        ball.renderPos = { x: safeX, y: safeY - offsetY };
+        ball.shadowPos = { x: safeX, y: safeY };
+        if (ball.flight) ball.flight.height = arcHeight;
 
-        if (t >= 1) {
+        if (tRaw >= 1) {
             if (!ball.targetId) {
                 s.play.deadAt = s.play.elapsed;
                 s.play.phase = 'DEAD';
                 s.play.resultWhy = 'Throw away';
+                ball.inAir = false;
+                ball.flight = null;
                 return;
             }
 
@@ -101,6 +131,7 @@ export function moveBall(s, dt) {
                     const wrHands = (r.attrs.catch ?? 0.9);
                     let pickProb = 0.08 + defenderIQ * 0.12 - qbAcc * 0.08 - wrHands * 0.04;
                     if (s.play.passRisky) pickProb += 0.08;
+                    pickProb += (1 - (ball.flight?.accuracy ?? 1)) * 0.05;
                     pickProb = clamp(pickProb, 0.02, 0.25);
                     picked = Math.random() < pickProb;
                 }
@@ -110,27 +141,52 @@ export function moveBall(s, dt) {
                     s.play.phase = 'DEAD';
                     s.play.resultWhy = 'Interception';
                     s.play.turnover = true;
+                    ball.inAir = false;
+                    ball.flight = null;
+                    ball.renderPos = { ...r.pos };
+                    ball.shadowPos = { ...r.pos };
                     return;
                 }
 
                 const catchChance = r.attrs.catch * 0.6 + Math.random() * 0.5 - 0.15;
                 if (catchChance > 0.5) {
-                    s.play.ball.inAir = false;
-                    s.play.ball.carrierId = r.id;
+                    ball.inAir = false;
+                    ball.carrierId = r.id;
+                    ball.flight = null;
+                    ball.renderPos = { ...r.pos };
+                    ball.shadowPos = { ...r.pos };
                 } else {
                     s.play.deadAt = s.play.elapsed;
                     s.play.phase = 'DEAD';
                     s.play.resultWhy = 'Incomplete';
+                    ball.inAir = false;
+                    ball.flight = null;
+                    ball.renderPos = { ...ball.to };
+                    ball.shadowPos = { ...ball.to };
                 }
             } else {
                 s.play.deadAt = s.play.elapsed;
                 s.play.phase = 'DEAD';
                 s.play.resultWhy = 'Incomplete';
+                ball.inAir = false;
+                ball.flight = null;
+                ball.renderPos = { ...ball.to };
+                ball.shadowPos = { ...ball.to };
             }
         }
     } else {
         const carrier = s.play.ball.carrierId ? off[s.play.ball.carrierId] : null;
-        if (carrier) s.play.ball.renderPos = { ...carrier.pos };
+        if (carrier) {
+            ball.renderPos = { ...carrier.pos };
+            ball.shadowPos = { ...carrier.pos };
+        } else {
+            const fallback = _resolveOffensivePlayer(off, ball.lastCarrierId) || off.QB;
+            if (fallback?.pos) {
+                ball.renderPos = { ...fallback.pos };
+                ball.shadowPos = { ...fallback.pos };
+            }
+        }
+        ball.flight = null;
     }
 }
 

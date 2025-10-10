@@ -1,6 +1,7 @@
 // src/engine/ai.js
 import { clamp, dist, rand, yardsToPixY } from './helpers';
 import { FIELD_PIX_W, PX_PER_YARD } from './constants';
+import { steerPlayer, dampMotion, applyCollisionSlowdown } from './motion';
 import { startPass } from './ball';
 
 /* =========================================================
@@ -10,13 +11,6 @@ function _ensureAI(player) {
     if (!player) return null;
     if (!player._ai) player._ai = {};
     return player._ai;
-}
-
-function _clearTransientAI(player) {
-    const ai = _ensureAI(player);
-    if (!ai) return;
-    ai.prevPos = { x: player.pos.x, y: player.pos.y };
-    ai.prevHeading = ai.prevHeading || { x: 0, y: 1 };
 }
 
 function _blendHeading(prev, next, smooth = 0.82) {
@@ -285,13 +279,12 @@ export function initRoutesAfterSnap(s) {
    Shared helpers
    ========================================================= */
 export function moveToward(p, target, dt, speedMul = 1) {
-    const dx = target.x - p.pos.x;
-    const dy = target.y - p.pos.y;
-    const d = Math.hypot(dx, dy) || 1;
-    const maxV = (p.attrs.speed || 5.5) * 30 * speedMul;
-    const step = Math.min(d, maxV * dt);
-    p.pos.x += (dx / d) * step;
-    p.pos.y += (dy / d) * step;
+    if (!p) return;
+    if (!target || Number.isNaN(target.x) || Number.isNaN(target.y)) {
+        dampMotion(p, dt);
+        return;
+    }
+    steerPlayer(p, target, dt, { speedMultiplier: speedMul });
 }
 
 function _olKeys(off) { return ['LT', 'LG', 'C', 'RG', 'RT'].filter(k => off[k]); }
@@ -546,6 +539,8 @@ function repelTeammates(players, R, push) {
                 a.pos.y -= ny * k;
                 b.pos.x += nx * k;
                 b.pos.y += ny * k;
+                applyCollisionSlowdown(a, 0.4);
+                applyCollisionSlowdown(b, 0.4);
             }
         }
     }
@@ -710,7 +705,7 @@ function _selectRunBlockTarget(ol, context) {
 }
 
 function _updateRunBlocker(ol, key, context, dt) {
-    const { runHoleX, runLaneY, def } = context;
+    const { runHoleX, runLaneY } = context;
     const target = _selectRunBlockTarget(ol, context);
     const laneX = runHoleX ?? ol.pos.x;
     const laneY = runLaneY ?? (ol.pos.y + PX_PER_YARD * 2);
@@ -1433,7 +1428,6 @@ export function defenseLogic(s, dt) {
     // 1) DL rush with shedding and lane offsets to avoid piling behind a teammate
     const rushKeys = ['LE', 'DT', 'RTk', 'RE'];
     const qbPos = _ensureVec(off.QB);
-    const midX = qbPos.x;
 
     rushKeys.forEach((k, i) => {
         const d = def[k]; if (!d || !d.pos) return;
