@@ -269,12 +269,15 @@ export function betweenPlays(s) {
     let toGo = s.drive.toGo;
     let turnover = !!s.play.turnover;
 
-    // Touchdown: keep same offense, reset to 25
-    // Touchdown: add score, keep same offense, reset to 25
+    // Touchdown: add score, then hand the ball to the other team at the 25
     if (why === 'Touchdown') {
         if (!s.scores) s.scores = { [TEAM_RED]: 0, [TEAM_BLK]: 0 };
-        s.scores[s.possession] = (s.scores[s.possession] ?? 0) + 6;
+        const scoringTeam = offenseAtSnap;
+        s.scores[scoringTeam] = (s.scores[scoringTeam] ?? 0) + 6;
 
+        s.possession = (scoringTeam === TEAM_RED ? TEAM_BLK : TEAM_RED);
+        s.teams = s.teams || createTeams();
+        s.roster = rosterForPossession(s.teams, s.possession);
         los = 25; down = 1; toGo = 10;
         pushPlayLog(s, {
             name: call.name,
@@ -359,6 +362,9 @@ export function betweenPlays(s) {
         endLos: los,
         turnover,
     });
+
+    // Ensure the active roster knows which state owns it for debug hooks
+    if (s.roster) s.roster.__ownerState = s;
 
     // Start next play for whoever now has the ball
     s.play = createPlayState(s.roster, s.drive);

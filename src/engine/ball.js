@@ -108,8 +108,7 @@ export function moveBall(s, dt) {
         const safeX = clamp(nx, 6, FIELD_PIX_W - 6);
         const safeY = clamp(ny, 0, FIELD_PIX_H);
         const arcHeight = Math.sin(Math.PI * t) * (flight.arc || 0);
-        const offsetY = arcHeight * 0.08;
-        ball.renderPos = { x: safeX, y: safeY - offsetY };
+        ball.renderPos = { x: safeX, y: safeY };
         ball.shadowPos = { x: safeX, y: safeY };
         if (ball.flight) ball.flight.height = arcHeight;
 
