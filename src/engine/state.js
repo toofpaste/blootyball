@@ -353,6 +353,7 @@ export function betweenPlays(s) {
    ========================================================= */
 function checkDeadBall(s) {
     if (!s?.play || !s.play.formation) return;
+    if (s.play.phase !== 'LIVE') return;
     if (s.play.ball?.inAir) return; // pass resolution decides incomplete/INT
 
     const pos = getBallPix(s);
