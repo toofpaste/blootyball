@@ -137,14 +137,14 @@ function _computeLaneForRB(off, def, rb, losY) {
 const CFG = {
     // ---- QB reads (unchanged except slightly tighter WR windows) ----
     // ---- QB reads ----
-    CHECKDOWN_LAG: 1.0,
+    CHECKDOWN_LAG: 0.85,
     PRIMARY_MAX_BONUS: 18,
     PRIMARY_DECAY_AFTER: 0.4,
-    WR_MIN_OPEN: 16,
+    WR_MIN_OPEN: 14,
     WR_MIN_DEPTH_YARDS: 3.0,
     RB_EARLY_PENALTY: 12,
-    RB_MIN_OPEN: 16,
-    RB_MAX_THROWLINE: 200,
+    RB_MIN_OPEN: 14,
+    RB_MAX_THROWLINE: 230,
 
 
     // ---- OL / DL interaction (OL less bulldozy, DL moves better while engaged) ----
@@ -1123,7 +1123,9 @@ function tryThrow(s, press) {
     const targetChoice = wrAccept ? bestWRTE : null;
     let rbCand = null;
     const rbIndex = Math.max(progression.indexOf('RB'), progression.length - 1);
-    if (!targetChoice && checkdownGate && s.play.qbReadIdx > rbIndex) {
+    const progressedPastRB = s.play.qbReadIdx > rbIndex;
+    const forceCheckdown = press.underHeat && tNow >= ttt;
+    if (checkdownGate && (!targetChoice || forceCheckdown || progressedPastRB)) {
         const r = off.RB;
         if (r && r.alive) {
             const open = nearestDefDist(def, r.pos), throwLine = dist(qb.pos, r.pos);
@@ -1133,7 +1135,10 @@ function tryThrow(s, press) {
         }
     }
 
-    const mustThrow = (tNow >= maxHold) || (tNow >= (ttt + 0.65) && press.underHeat);
+    const mustThrow =
+        (press.underImmediatePressure && tNow >= maxHold) ||
+        (press.underHeat && tNow >= (ttt + 0.85)) ||
+        (tNow >= maxHold + 0.35);
     const _leadTo = (p) => {
         const v = _updateAndGetVel(p, 0.016);
         const leadT = 0.62; // keep your current lead
@@ -1143,38 +1148,52 @@ function tryThrow(s, press) {
         return { x: raw.x, y: safeY };
     };
 
-    if (targetChoice) {
-        const to = _leadTo(targetChoice.r);
-        if (isThrowLaneClear(def, { x: qb.pos.x, y: qb.pos.y }, to, 18)) {
-            const from = { x: qb.pos.x, y: qb.pos.y - 2 };
-            const safeTo = { x: to.x, y: Math.max(to.y, qb.pos.y - PX_PER_YARD * 0.25) };
-            startPass(s, from, { x: safeTo.x, y: safeTo.y }, bestWRTE.r.id);
-            s.play.passRisky = bestWRTE.separation < 22;
-            return;
-        }
-    }
+    const tryPassTo = (cand, corridor = 18, opts = {}) => {
+        if (!cand) return false;
+        const { allowContest = false, contestThreshold = CFG.WR_MIN_OPEN, riskThreshold = 22 } = opts;
+        const to = _leadTo(cand.r);
+        const laneClear = isThrowLaneClear(def, { x: qb.pos.x, y: qb.pos.y }, to, corridor);
+        const separationMetric = cand.separation ?? cand.open ?? 0;
+        if (!laneClear && (!allowContest || separationMetric < contestThreshold)) return false;
+        const from = { x: qb.pos.x, y: qb.pos.y - 2 };
+        const safeTo = { x: to.x, y: Math.max(to.y, qb.pos.y - PX_PER_YARD * 0.25) };
+        startPass(s, from, { x: safeTo.x, y: safeTo.y }, cand.r.id);
+        s.play.passRisky = separationMetric < riskThreshold;
+        return true;
+    };
 
-    if (rbCand && rbCand.open >= CFG.RB_MIN_OPEN && rbCand.throwLine <= CFG.RB_MAX_THROWLINE) {
-        const to = _leadTo(rbCand.r);
-        if (isThrowLaneClear(def, { x: qb.pos.x, y: qb.pos.y }, to, 16)) {
-            const from = { x: qb.pos.x, y: qb.pos.y - 2 };
-            const safeTo = { x: to.x, y: Math.max(to.y, qb.pos.y - PX_PER_YARD * 0.25) };
-            startPass(s, from, { x: safeTo.x, y: safeTo.y }, rbCand.r.id);
-            s.play.passRisky = rbCand.open < 22;
-            return;
-        }
+    if (tryPassTo(targetChoice, 16)) return;
+
+    if (
+        rbCand &&
+        rbCand.open >= CFG.RB_MIN_OPEN &&
+        rbCand.throwLine <= CFG.RB_MAX_THROWLINE &&
+        tryPassTo(rbCand, 14, {
+            allowContest: true,
+            contestThreshold: CFG.RB_MIN_OPEN * 0.9,
+            riskThreshold: 20,
+        })
+    ) {
+        return;
     }
 
     if (mustThrow) {
-        if (targetChoice) {
-            const to = _leadTo(targetChoice.r);
-            if (isThrowLaneClear(def, { x: qb.pos.x, y: qb.pos.y }, to, 18)) {
-                const from = { x: qb.pos.x, y: qb.pos.y - 2 };
-                const safeTo = { x: to.x, y: Math.max(to.y, qb.pos.y - PX_PER_YARD * 0.25) };
-                startPass(s, from, { x: safeTo.x, y: safeTo.y }, bestWRTE.r.id);
-                s.play.passRisky = bestWRTE.separation < 22;
-                return;
-            }
+        if (tryPassTo(targetChoice, 14, {
+            allowContest: true,
+            contestThreshold: CFG.WR_MIN_OPEN * 0.75,
+        })) {
+            return;
+        }
+
+        if (
+            rbCand &&
+            tryPassTo(rbCand, 12, {
+                allowContest: true,
+                contestThreshold: CFG.RB_MIN_OPEN * 0.75,
+                riskThreshold: 18,
+            })
+        ) {
+            return;
         }
 
         const underDuress = press.underImmediatePressure || press.underHeat;
