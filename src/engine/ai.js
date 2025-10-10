@@ -4,6 +4,139 @@ import { FIELD_PIX_W, PX_PER_YARD } from './constants';
 import { startPass } from './ball';
 
 /* =========================================================
+   AI state helpers
+   ========================================================= */
+function _ensureAI(player) {
+    if (!player) return null;
+    if (!player._ai) player._ai = {};
+    return player._ai;
+}
+
+function _clearTransientAI(player) {
+    const ai = _ensureAI(player);
+    if (!ai) return;
+    ai.prevPos = { x: player.pos.x, y: player.pos.y };
+    ai.prevHeading = ai.prevHeading || { x: 0, y: 1 };
+}
+
+function _blendHeading(prev, next, smooth = 0.82) {
+    const x = prev.x * smooth + next.x * (1 - smooth);
+    const y = prev.y * smooth + next.y * (1 - smooth);
+    const mag = Math.hypot(x, y) || 1;
+    return { x: x / mag, y: y / mag };
+}
+
+function _lerp(a, b, t) {
+    return a + (b - a) * clamp(t, 0, 1);
+}
+
+function _routeTargetsFromPath(startPos, path = [], { releaseDepthYards = 2 } = {}) {
+    const targets = [];
+    let cursor = { x: startPos.x, y: startPos.y };
+    let totalDepth = 0;
+    path.forEach((step, idx) => {
+        const dx = (step.dx || 0) * PX_PER_YARD;
+        const dy = (step.dy || 0) * PX_PER_YARD;
+        cursor = {
+            x: clamp(cursor.x + dx, 16, FIELD_PIX_W - 16),
+            y: cursor.y + dy,
+        };
+        totalDepth += Math.max(0, dy);
+        targets.push({
+            x: cursor.x,
+            y: cursor.y,
+            break: step.break || null,
+            settle: !!step.settle,
+            label: step.label || null,
+            option: step.option || null,
+            speed: step.speed || 1,
+            depth: totalDepth,
+            raw: { ...step },
+            idx,
+        });
+    });
+
+    if (!targets.length) {
+        targets.push({
+            x: clamp(startPos.x, 16, FIELD_PIX_W - 16),
+            y: startPos.y + releaseDepthYards * PX_PER_YARD,
+            break: null,
+            settle: false,
+            label: 'auto-release',
+            option: null,
+            speed: 1,
+            depth: releaseDepthYards * PX_PER_YARD,
+            raw: {},
+            idx: 0,
+        });
+    }
+
+    return targets;
+}
+
+function _assignRoute(player, path, options = {}) {
+    if (!player?.pos) return;
+    const ai = _ensureAI(player);
+    const targets = _routeTargetsFromPath(player.pos, path, options);
+    player.targets = targets;
+    player.routeIdx = 0;
+    ai.type = 'route';
+    ai.route = {
+        targets,
+        finished: false,
+        scrambleTimer: 0,
+        settleHold: 0,
+        allowScrambleAdjust: options.allowScramble !== false,
+        releaseDepth: options.releaseDepthYards || 2,
+        name: options.name || player.role || player.label || 'WR',
+        throttle: options.speed || 1,
+    };
+    ai.prevHeading = { x: 0, y: 1 };
+}
+
+function _markRouteFinished(player, aiRoute) {
+    if (!aiRoute) return;
+    aiRoute.finished = true;
+    aiRoute.scrambleTimer = 0;
+}
+
+function _nearestAssignmentDefender(def, player) {
+    if (!player) return null;
+    let best = null;
+    for (const d of Object.values(def || {})) {
+        if (!d?.pos) continue;
+        const dd = dist(d.pos, player.pos);
+        if (!best || dd < best.dist) best = { dist: dd, defender: d };
+    }
+    return best;
+}
+
+function _laneSample(off, def, yDepth) {
+    const samples = [];
+    for (let x = 24; x <= FIELD_PIX_W - 24; x += 12) {
+        const point = { x, y: yDepth };
+        const offHelp = Object.values(off || {}).reduce((acc, p) => {
+            if (!p?.pos) return acc;
+            const d = dist(p.pos, point);
+            return d < 18 ? acc + (18 - d) : acc;
+        }, 0);
+        const defThreat = Object.values(def || {}).reduce((acc, p) => {
+            if (!p?.pos) return acc;
+            const d = dist(p.pos, point);
+            return d < 24 ? acc + (24 - d) : acc;
+        }, 0);
+        samples.push({ x, score: offHelp - defThreat, point });
+    }
+    samples.sort((a, b) => b.score - a.score);
+    return samples;
+}
+
+function _computeLaneForRB(off, def, rb, losY) {
+    const firstBand = _laneSample(off, def, Math.max(losY + PX_PER_YARD * 2, rb.pos.y + PX_PER_YARD * 2));
+    return firstBand.length ? firstBand[0] : { x: rb.pos.x, score: 0 };
+}
+
+/* =========================================================
    Tunables
    ========================================================= */
 // ---- Tunables (defense strengthened) ----
@@ -74,6 +207,8 @@ export function initRoutesAfterSnap(s) {
     const off = (s.play && s.play.formation && s.play.formation.off) || {};
     const call = (s.play && s.play.playCall) || {};
 
+    off.__playCall = call;
+
     s.play.routeTargets = {};
 
     // ---- WR routes ----
@@ -81,25 +216,17 @@ export function initRoutesAfterSnap(s) {
         const player = off[wr];
         if (!player || !player.pos) return;
         const path = (call.wrRoutes && call.wrRoutes[wr]) || [{ dx: 0, dy: 4 }];
-        const targets = path.map((step) => ({
-            x: clamp((player.pos.x) + (step.dx || 0) * PX_PER_YARD, 20, FIELD_PIX_W - 20),
-            y: (player.pos.y) + (step.dy || 0) * PX_PER_YARD,
-        }));
+        const targets = _routeTargetsFromPath(player.pos, path, { name: wr });
         s.play.routeTargets[wr] = targets;
-        player.targets = targets;
-        player.routeIdx = 0;
+        _assignRoute(player, path, { name: wr });
     });
 
     // ---- TE ----
     if (off.TE && off.TE.pos) {
         const tePath = call.teRoute || [{ dx: 0, dy: 4 }];
-        const teTargets = tePath.map((step) => ({
-            x: clamp(off.TE.pos.x + (step.dx || 0) * PX_PER_YARD, 20, FIELD_PIX_W - 20),
-            y: off.TE.pos.y + (step.dy || 0) * PX_PER_YARD,
-        }));
+        const teTargets = _routeTargetsFromPath(off.TE.pos, tePath, { name: 'TE' });
         s.play.teTargets = teTargets;
-        off.TE.targets = teTargets;
-        off.TE.routeIdx = 0;
+        _assignRoute(off.TE, tePath, { name: 'TE' });
     } else {
         s.play.teTargets = [];
     }
@@ -107,14 +234,10 @@ export function initRoutesAfterSnap(s) {
     // ---- RB ----
     if (off.RB && off.RB.pos) {
         const rbPath = (call.rbPath || call.rbCheckdown || [{ dx: 0, dy: 2 }]);
-        const rbTargets = rbPath.map((step) => ({
-            x: clamp(off.RB.pos.x + (step.dx || 0) * PX_PER_YARD, 20, FIELD_PIX_W - 20),
-            y: off.RB.pos.y + (step.dy || 0) * PX_PER_YARD,
-        }));
+        const rbTargets = _routeTargetsFromPath(off.RB.pos, rbPath, { name: 'RB' });
         s.play.rbTargets = rbTargets;
         if (call.type === 'PASS') {
-            off.RB.targets = rbTargets;
-            off.RB.routeIdx = 0;
+            _assignRoute(off.RB, rbPath, { name: 'RB', releaseDepthYards: 1.5, speed: 0.9 });
         }
     } else {
         s.play.rbTargets = [];
@@ -127,9 +250,13 @@ export function initRoutesAfterSnap(s) {
         s.play.runHoleX = first ? clamp(first.x, 24, FIELD_PIX_W - 24) : clamp((off.QB?.pos?.x ?? FIELD_PIX_W / 2), 24, FIELD_PIX_W - 24);
         const baseY = off.C?.pos?.y ?? off.QB?.pos?.y ?? yardsToPixY(25);
         s.play.runLaneY = baseY + yardsToPixY(2.5);
+        off.__runHoleX = s.play.runHoleX;
+        off.__runLaneY = s.play.runLaneY;
     } else {
         s.play.runHoleX = null;
         s.play.runLaneY = null;
+        off.__runHoleX = null;
+        off.__runLaneY = null;
     }
 
     // ---- QB timings ----
@@ -235,6 +362,141 @@ function _racAdvance(off, def, p, dt) {
     moveToward(p, stepTarget, dt, CFG.RAC_SPEED);
 }
 
+function _readOptionBreak(baseTarget, player, def, losY) {
+    if (!baseTarget?.option) return baseTarget;
+    const option = baseTarget.option;
+    const clone = { ...baseTarget };
+    const nearest = _nearestAssignmentDefender(def, player);
+    if (!nearest) return clone;
+    const defender = nearest.defender;
+    if (!defender?.pos) return clone;
+
+    const leverageInside = defender.pos.x < player.pos.x;
+    const leverageOverTop = defender.pos.y < player.pos.y - PX_PER_YARD;
+    if (option === 'in-or-out') {
+        const breakOut = leverageInside || !leverageOverTop;
+        clone.x = clamp(player.pos.x + (breakOut ? 12 : -12), 18, FIELD_PIX_W - 18);
+        clone.y = Math.max(baseTarget.y, player.pos.y + PX_PER_YARD * 2);
+    } else if (option === 'settle-hook') {
+        if (nearest.dist > 18 && player.pos.y >= losY + PX_PER_YARD * 4) {
+            clone.settle = true;
+            clone.y = player.pos.y + PX_PER_YARD * 0.2;
+        }
+    }
+    return clone;
+}
+
+function _routeScrambleTarget(player, aiRoute, context) {
+    const qb = context.qb;
+    const losY = context.losY;
+    const scrambleDir = player.pos.x < qb.pos.x ? -1 : 1;
+    const depth = Math.max(losY + PX_PER_YARD * 3, qb.pos.y + PX_PER_YARD * 4);
+    const width = 42;
+    const x = clamp(qb.pos.x + scrambleDir * width, 16, FIELD_PIX_W - 16);
+    const y = Math.max(depth, player.pos.y - PX_PER_YARD * 0.5);
+    return { x, y };
+}
+
+function _updateRouteRunner(player, context, dt) {
+    const ai = _ensureAI(player);
+    if (!ai || ai.type !== 'route' || !ai.route) return false;
+    const { route } = ai;
+    const def = context.def || {};
+    const qb = context.qb;
+    const losY = context.losY;
+
+    // Already finished? work scramble drill
+    if (route.finished) {
+        if (!route.allowScrambleAdjust || !qb?.pos) return false;
+        route.scrambleTimer += dt;
+        const tgt = _routeScrambleTarget(player, route, context);
+        const blend = _blendHeading(ai.prevHeading || { x: 0, y: 1 }, {
+            x: tgt.x - player.pos.x,
+            y: tgt.y - player.pos.y,
+        }, 0.65);
+        const look = 34;
+        const stepTarget = {
+            x: clamp(player.pos.x + blend.x * look, 16, FIELD_PIX_W - 16),
+            y: player.pos.y + blend.y * look,
+        };
+        moveToward(player, stepTarget, dt, 0.95);
+        ai.prevHeading = blend;
+        return true;
+    }
+
+    const idx = Math.min(player.routeIdx || 0, route.targets.length - 1);
+    const baseTarget = route.targets[idx];
+    if (!baseTarget) { _markRouteFinished(player, route); return false; }
+
+    const adjusted = _readOptionBreak(baseTarget, player, def, losY);
+    let aim = { x: adjusted.x, y: adjusted.y };
+
+    // Keep spacing away from sideline
+    if (player.pos.x < 32) aim.x = Math.max(aim.x, 36);
+    if (player.pos.x > FIELD_PIX_W - 32) aim.x = Math.min(aim.x, FIELD_PIX_W - 36);
+
+    // Fight leverage with assigned defender
+    const nearest = _nearestAssignmentDefender(def, player);
+    if (nearest && nearest.dist < 30 && nearest.defender?.pos) {
+        const shadeX = Math.sign(player.pos.x - nearest.defender.pos.x) || 0;
+        const shadeY = Math.sign(player.pos.y - nearest.defender.pos.y) || 0;
+        aim.x += shadeX * clamp(28 - nearest.dist, 0, 8);
+        if (adjusted.depth < PX_PER_YARD * 6 && shadeY < 0) {
+            // work vertical stem before break if DB squatting
+            aim.y = Math.max(aim.y, player.pos.y + PX_PER_YARD * 1.6);
+        }
+    }
+
+    // Smooth heading and lead a little
+    const dx = aim.x - player.pos.x;
+    const dy = aim.y - player.pos.y;
+    const mag = Math.hypot(dx, dy) || 1;
+    const want = { x: dx / mag, y: dy / mag };
+    const heading = _blendHeading(ai.prevHeading || want, want, 0.78);
+    ai.prevHeading = heading;
+
+    const lookAhead = 30 + Math.min(65, adjusted.depth * 0.25);
+    const stepTarget = {
+        x: clamp(player.pos.x + heading.x * lookAhead, 16, FIELD_PIX_W - 16),
+        y: player.pos.y + heading.y * lookAhead,
+    };
+
+    const speedMul = clamp((adjusted.speed || 1) * (route.throttle || 1), 0.6, 1.15);
+    moveToward(player, stepTarget, dt, speedMul);
+
+    const closeEnough = dist(player.pos, aim) < 6 + Math.min(8, Math.max(0, (nearest?.dist || 40) - 18) * 0.1);
+    if (closeEnough) {
+        player.routeIdx = Math.min((player.routeIdx || 0) + 1, route.targets.length);
+        if (adjusted.settle) {
+            route.settleHold += dt;
+            if (route.settleHold > 0.35) {
+                _markRouteFinished(player, route);
+            }
+        } else {
+            route.settleHold = 0;
+        }
+        if (player.routeIdx >= route.targets.length) {
+            _markRouteFinished(player, route);
+        }
+    } else if (adjusted.settle) {
+        // Sit between zones by drifting from defenders
+        route.settleHold += dt;
+        const away = _nearestDefender(def, player.pos, 60);
+        if (away?.p) {
+            const sdx = player.pos.x - away.p.pos.x;
+            const sdy = player.pos.y - away.p.pos.y;
+            const sm = Math.hypot(sdx, sdy) || 1;
+            player.pos.x += (sdx / sm) * dt * 20;
+            player.pos.y += (sdy / sm) * dt * 12;
+        }
+        if (route.settleHold > 0.6) _markRouteFinished(player, route);
+    } else {
+        route.settleHold = 0;
+    }
+
+    return true;
+}
+
 /* =========================================================
    Offensive Line — assignments, spacing, pass sets, pushback
    ========================================================= */
@@ -289,92 +551,243 @@ function repelTeammates(players, R, push) {
     }
 }
 
-export function moveOL(off, def, dt) {
-    const olKeys = _olKeys(off);
-    const dlKeys = _dlKeys(def);
-    if (!olKeys.length || !dlKeys.length) return;
+function _chooseRunBlockTarget(player, off, def, context) {
+    const ai = _ensureAI(player);
+    const { runHoleX, losY } = context;
+    const rb = off.RB;
+    const laneX = runHoleX ?? rb?.pos?.x ?? player.pos.x;
+    let current = ai.blockTargetId ? Object.values(def).find(d => d && d.id === ai.blockTargetId) : null;
+    if (current && (!current.pos || dist(current.pos, player.pos) > 120)) current = null;
+    if (!current) {
+        const ahead = Object.values(def || {}).filter(d => d?.pos && d.pos.y <= player.pos.y + PX_PER_YARD * 4);
+        let best = null;
+        ahead.forEach((d) => {
+            const toLane = Math.abs((d.pos.x || laneX) - laneX);
+            const downfield = Math.max(0, d.pos.y - losY);
+            const score = downfield * 0.7 - toLane * 1.2 - dist(player.pos, d.pos) * 0.6;
+            if (!best || score > best.score) best = { score, target: d };
+        });
+        if (best) current = best.target;
+    }
+    ai.blockTargetId = current?.id || null;
+    return current;
+}
 
-    const suggested = pickAssignments(off, def);
+function _runSupportReceiver(player, off, def, dt, context) {
+    const target = _chooseRunBlockTarget(player, off, def, context);
+    if (!target) {
+        const seal = { x: context.runHoleX ?? player.pos.x, y: player.pos.y + PX_PER_YARD * 2.5 };
+        moveToward(player, seal, dt, 0.92);
+        return;
+    }
+    const leverage = Math.sign((context.runHoleX ?? player.pos.x) - target.pos.x) || (player.pos.x < target.pos.x ? -1 : 1);
+    const fit = {
+        x: clamp(target.pos.x + leverage * 8, 18, FIELD_PIX_W - 18),
+        y: target.pos.y - PX_PER_YARD * 0.8,
+    };
+    moveToward(player, fit, dt, 0.96);
+}
 
-    const qb = off.QB;
-    const losY = off.__losPixY ?? (qb.pos.y - PX_PER_YARD);
+function _runSupportTightEnd(player, off, def, dt, context) {
+    const ai = _ensureAI(player);
+    const rightSide = player.pos.x > FIELD_PIX_W / 2;
+    const edgeKeys = rightSide ? ['RE', 'LB2'] : ['LE', 'LB1'];
+    let target = ai.blockTargetId ? Object.values(def).find(d => d && d.id === ai.blockTargetId) : null;
+    if (!target || !target.pos) {
+        for (const k of edgeKeys) {
+            const d = def[k];
+            if (d?.pos) { target = d; break; }
+        }
+        if (!target) {
+            target = _nearestDefender(def, player.pos, 160)?.p || null;
+        }
+    }
+    ai.blockTargetId = target?.id || null;
+    if (!target?.pos) {
+        moveToward(player, { x: context.runHoleX ?? player.pos.x, y: player.pos.y + PX_PER_YARD * 1.5 }, dt, 0.95);
+        return;
+    }
+    const leverage = rightSide ? -1 : 1;
+    const fit = {
+        x: clamp(target.pos.x + leverage * 6, 16, FIELD_PIX_W - 16),
+        y: target.pos.y - PX_PER_YARD * 0.6,
+    };
+    moveToward(player, fit, dt, 0.98);
+}
+
+function _updatePassBlocker(ol, key, context, dt) {
+    const { qb, losY, assignments, def } = context;
+    const homeX = ol.home?.x ?? ol.pos.x;
+    const baseX = clamp(homeX, 20, FIELD_PIX_W - 20);
+    const minX = baseX - CFG.GAP_GUARDRAIL_X;
+    const maxX = baseX + CFG.GAP_GUARDRAIL_X;
     const passSetDepth = CFG.PASS_SET_DEPTH_YDS * PX_PER_YARD;
     const setY = Math.max(losY - passSetDepth, qb.pos.y - passSetDepth);
 
-    for (const key of olKeys) {
-        const ol = off[key];
-        const homeX = ol.home?.x ?? ol.pos.x;
-        const baseX = clamp(homeX, 20, FIELD_PIX_W - 20);
-        const minX = baseX - CFG.GAP_GUARDRAIL_X;
-        const maxX = baseX + CFG.GAP_GUARDRAIL_X;
-
-        // Assignment stickiness (per-OL timer)
-        ol._stickTimer = (ol._stickTimer || 0) - dt;
-        let desiredId = suggested[key] || null;
-
-        let currentDef = ol._assignId ? Object.values(def).find(d => d && d.id === ol._assignId) : null;
-        if (ol._assignId && ol._stickTimer > 0 && currentDef) {
-            const far = dist(ol.pos, currentDef.pos) > 140;
-            if (far) { currentDef = null; ol._assignId = null; }
-        }
-        if (!ol._assignId && desiredId) {
-            ol._assignId = desiredId;
-            ol._stickTimer = CFG.OL_STICK_TIME;
-            currentDef = Object.values(def).find(d => d && d.id === desiredId) || null;
-        }
-
-        // Base pass set spot (stagger slightly by role)
-        const roleBias = (key === 'LT' ? -6 : key === 'RT' ? 6 : 0);
-        const baseSet = { x: clamp(baseX + roleBias, minX, maxX), y: setY };
-
-        // Mirror between DL and QB so OL stands in the way
-        let target = baseSet;
-        if (currentDef) {
-            const vx = qb.pos.x - currentDef.pos.x;
-            const vy = qb.pos.y - currentDef.pos.y || 1e-6;
-            const t = (baseSet.y - currentDef.pos.y) / vy;
-            let ix = currentDef.pos.x + vx * t;
-            ix = clamp(ix, minX, maxX);
-            target = { x: ix, y: baseSet.y };
-
-            const dd = dist(ol.pos, currentDef.pos);
-            const blend = clamp(1 - (dd / 60), 0, 1) * CFG.OL_BLOCK_MIRROR;
-            target.x = clamp(target.x * (1 - blend) + baseSet.x * blend, minX, maxX);
-        }
-
-        moveToward(ol, target, dt, CFG.OL_REACH_SPEED);
-
-        // Engage if close; push DL back and keep OL in front
-        if (currentDef) {
-            const d = dist(ol.pos, currentDef.pos);
-            if (d < CFG.OL_ENGAGE_R) {
-                ol.engagedId = currentDef.id;
-                currentDef.engagedId = ol.id;
-
-                // Push DL back toward LOS / QB
-                const toQBdx = qb.pos.x - currentDef.pos.x;
-                const toQBdy = qb.pos.y - currentDef.pos.y || 1e-6;
-                const mag = Math.hypot(toQBdx, toQBdy) || 1;
-                const pushV = CFG.OL_BLOCK_PUSHBACK * dt;
-                currentDef.pos.x -= (toQBdx / mag) * (pushV * 0.35);
-                currentDef.pos.y -= (toQBdy / mag) * pushV;
-
-                if (ol.pos.y < currentDef.pos.y - 4) ol.pos.y = currentDef.pos.y - 4;
-            } else if (ol.engagedId === currentDef.id) {
-                ol.engagedId = null;
-                if (currentDef.engagedId === ol.id) currentDef.engagedId = null;
-            }
-        }
-
-        // Guardrails
-        if (ol.pos.x < minX) ol.pos.x = minX;
-        if (ol.pos.x > maxX) ol.pos.x = maxX;
-        if (ol.pos.y < setY - PX_PER_YARD * 0.5) ol.pos.y = setY - PX_PER_YARD * 0.5;
+    // Assignment stickiness
+    ol._stickTimer = (ol._stickTimer || 0) - dt;
+    const desiredId = assignments[key] || null;
+    let currentDef = ol._assignId ? Object.values(def).find(d => d && d.id === ol._assignId) : null;
+    if (ol._assignId && ol._stickTimer > 0 && currentDef) {
+        const far = dist(ol.pos, currentDef.pos) > 150;
+        if (far) { currentDef = null; ol._assignId = null; }
+    }
+    if (!ol._assignId && desiredId) {
+        ol._assignId = desiredId;
+        ol._stickTimer = CFG.OL_STICK_TIME;
+        currentDef = Object.values(def).find(d => d && d.id === desiredId) || null;
     }
 
-    // Separation to prevent bunching
-    repelTeammates(olKeys.map(k => off[k]), CFG.OL_SEPARATION_R, CFG.OL_SEPARATION_PUSH);
-    repelTeammates(dlKeys.map(k => def[k]), CFG.DL_SEPARATION_R, CFG.DL_SEPARATION_PUSH);
+    const roleBias = (key === 'LT' ? -8 : key === 'RT' ? 8 : key === 'LG' ? -3 : key === 'RG' ? 3 : 0);
+    const baseSet = { x: clamp(baseX + roleBias, minX, maxX), y: setY };
+    let target = baseSet;
+    if (currentDef) {
+        const vx = qb.pos.x - currentDef.pos.x;
+        const vy = qb.pos.y - currentDef.pos.y || 1e-6;
+        const t = (baseSet.y - currentDef.pos.y) / vy;
+        let ix = currentDef.pos.x + vx * t;
+        ix = clamp(ix, minX, maxX);
+        const blend = clamp(1 - (dist(ol.pos, currentDef.pos) / 70), 0, 1) * CFG.OL_BLOCK_MIRROR;
+        target = {
+            x: clamp(ix * (1 - blend) + baseSet.x * blend, minX, maxX),
+            y: baseSet.y,
+        };
+    }
+
+    moveToward(ol, target, dt, CFG.OL_REACH_SPEED);
+
+    if (currentDef) {
+        const d = dist(ol.pos, currentDef.pos);
+        if (d < CFG.OL_ENGAGE_R) {
+            ol.engagedId = currentDef.id;
+            currentDef.engagedId = ol.id;
+
+            const toQBdx = qb.pos.x - currentDef.pos.x;
+            const toQBdy = qb.pos.y - currentDef.pos.y || 1e-6;
+            const mag = Math.hypot(toQBdx, toQBdy) || 1;
+            const pushV = CFG.OL_BLOCK_PUSHBACK * dt;
+            currentDef.pos.x -= (toQBdx / mag) * (pushV * 0.3);
+            currentDef.pos.y -= (toQBdy / mag) * pushV;
+
+            if (ol.pos.y < currentDef.pos.y - 4) ol.pos.y = currentDef.pos.y - 4;
+        } else if (ol.engagedId === currentDef.id) {
+            ol.engagedId = null;
+            if (currentDef.engagedId === ol.id) currentDef.engagedId = null;
+        }
+    }
+
+    if (ol.pos.x < minX) ol.pos.x = minX;
+    if (ol.pos.x > maxX) ol.pos.x = maxX;
+    if (ol.pos.y < setY - PX_PER_YARD * 0.5) ol.pos.y = setY - PX_PER_YARD * 0.5;
+}
+
+function _selectRunBlockTarget(ol, context) {
+    const { def, runHoleX } = context;
+    const ai = _ensureAI(ol);
+    let target = ai.blockTargetId ? Object.values(def).find(d => d && d.id === ai.blockTargetId) : null;
+    if (target && (!target.pos || dist(target.pos, ol.pos) > 150)) target = null;
+    if (!target) {
+        const primary = ['LE', 'DT', 'RTk', 'RE'];
+        let best = null;
+        primary.forEach((k) => {
+            const d = def[k];
+            if (!d?.pos) return;
+            const laneBias = Math.abs((runHoleX ?? ol.pos.x) - d.pos.x);
+            const score = -laneBias - dist(ol.pos, d.pos) * 0.4 + (d.pos.y - ol.pos.y) * 0.2;
+            if (!best || score > best.score) best = { score, target: d };
+        });
+        if (!best) {
+            Object.values(def || {}).forEach((d) => {
+                if (!d?.pos) return;
+                const score = -dist(ol.pos, d.pos);
+                if (!best || score > best.score) best = { score, target: d };
+            });
+        }
+        target = best?.target || null;
+    }
+    ai.blockTargetId = target?.id || null;
+    return target;
+}
+
+function _updateRunBlocker(ol, key, context, dt) {
+    const { runHoleX, runLaneY, def } = context;
+    const target = _selectRunBlockTarget(ol, context);
+    const laneX = runHoleX ?? ol.pos.x;
+    const laneY = runLaneY ?? (ol.pos.y + PX_PER_YARD * 2);
+
+    const baseFit = {
+        x: clamp(laneX + (key === 'LT' || key === 'LG' ? -8 : key === 'RT' || key === 'RG' ? 8 : 0), 16, FIELD_PIX_W - 16),
+        y: laneY,
+    };
+
+    if (!target?.pos) {
+        moveToward(ol, baseFit, dt, 1.02);
+        return;
+    }
+
+    const leverage = Math.sign((laneX) - target.pos.x) || (key === 'LT' || key === 'LG' ? 1 : -1);
+    const fit = {
+        x: clamp(target.pos.x + leverage * 6, 16, FIELD_PIX_W - 16),
+        y: Math.min(target.pos.y + PX_PER_YARD * 0.6, laneY),
+    };
+    moveToward(ol, fit, dt, 1.08);
+
+    const d = dist(ol.pos, target.pos);
+    if (d < CFG.OL_ENGAGE_R + 2) {
+        ol.engagedId = target.id;
+        target.engagedId = ol.id;
+
+        const drive = { x: -leverage * 0.6, y: 1 };
+        const mag = Math.hypot(drive.x, drive.y) || 1;
+        const pushV = CFG.OL_BLOCK_PUSHBACK * dt * 0.85;
+        target.pos.x += (drive.x / mag) * pushV;
+        target.pos.y += (drive.y / mag) * pushV;
+        if (target.pos.y > laneY + PX_PER_YARD * 1.2) target.pos.y = laneY + PX_PER_YARD * 1.2;
+    } else if (ol.engagedId === target.id) {
+        ol.engagedId = null;
+        if (target.engagedId === ol.id) target.engagedId = null;
+    }
+
+    // climb after a beat if defender displaced
+    const ai = _ensureAI(ol);
+    ai.comboTimer = (ai.comboTimer || 0) + dt;
+    if (ai.comboTimer > 0.9 && dist(target.pos, { x: laneX, y: laneY }) > 18) {
+        ai.blockTargetId = null;
+        moveToward(ol, { x: laneX, y: laneY + PX_PER_YARD * 1.2 }, dt, 1.02);
+    }
+}
+
+export function moveOL(off, def, dt) {
+    const olKeys = _olKeys(off);
+    const dlKeys = _dlKeys(def);
+    if (!olKeys.length) return;
+
+    const qb = off.QB;
+    const losY = off.__losPixY ?? (qb?.pos?.y ?? yardsToPixY(25)) - PX_PER_YARD;
+    const assignments = pickAssignments(off, def);
+    const context = {
+        qb,
+        losY,
+        def,
+        assignments,
+        runHoleX: off.__runHoleX,
+        runLaneY: off.__runLaneY,
+    };
+
+    const isRun = !!off.__runFlag;
+
+    for (const key of olKeys) {
+        const ol = off[key];
+        if (!ol) continue;
+        if (isRun) {
+            _updateRunBlocker(ol, key, context, dt);
+        } else {
+            _updatePassBlocker(ol, key, context, dt);
+        }
+    }
+
+    repelTeammates(olKeys.map(k => off[k]).filter(Boolean), CFG.OL_SEPARATION_R, CFG.OL_SEPARATION_PUSH);
+    repelTeammates(dlKeys.map(k => def[k]).filter(Boolean), CFG.DL_SEPARATION_R, CFG.DL_SEPARATION_PUSH);
 }
 
 /* =========================================================
@@ -384,6 +797,16 @@ export function moveReceivers(off, dt, s = null) {
     const qb = off.QB;
     const def = s?.play?.formation?.def || null;
     const ball = s?.play?.ball || null;
+    const losY = off.__losPixY ?? (qb?.pos?.y ?? yardsToPixY(25)) - PX_PER_YARD;
+    const context = {
+        qb,
+        def,
+        losY,
+        runHoleX: s?.play?.runHoleX ?? null,
+        scrambleMode: s?.play?.qbMoveMode,
+        off,
+        play: s?.play,
+    };
 
     ['WR1', 'WR2', 'WR3'].forEach((key) => {
         const p = off[key];
@@ -392,55 +815,28 @@ export function moveReceivers(off, dt, s = null) {
         // If this WR currently has the ball, switch to RAC logic
         if (s && _isCarrier(off, ball, p)) { _racAdvance(off, def, p, dt); return; }
 
-        // stop if this WR is wrapped
         if (off.__carrierWrapped === key) return;
 
         if (off.__runFlag) {
-            const aim = { x: p.pos.x, y: p.pos.y + PX_PER_YARD };
-            moveToward(p, aim, dt, 0.9);
+            _runSupportReceiver(p, off, def || {}, dt, context);
             return;
         }
 
-        // called route
-        if (p.targets && p.routeIdx != null) {
-            const t = p.targets[p.routeIdx];
-            if (t) {
-                moveToward(p, t, dt, 0.95);
-                if (dist(p.pos, t) < 6) p.routeIdx = Math.min(p.routeIdx + 1, p.targets.length);
-                return;
-            }
+        const followedRoute = _updateRouteRunner(p, context, dt);
+        if (followedRoute) return;
+
+        // scramble drill fallback if QB extends play
+        const ai = _ensureAI(p);
+        ai._scrClock = (ai._scrClock || 0) + dt;
+        const retarget = !ai._scrTarget || ai._scrClock > (ai._scrUntil || 0);
+        if (retarget) {
+            const deepY = Math.max(losY + PX_PER_YARD * 3, qb?.pos?.y ?? p.pos.y) + PX_PER_YARD * 2;
+            const laneX = clamp((qb?.pos?.x ?? p.pos.x) + rand(-80, 80), 24, FIELD_PIX_W - 24);
+            ai._scrTarget = { x: laneX, y: deepY };
+            ai._scrUntil = ai._scrClock + rand(0.5, 0.9);
         }
-
-        // scramble drill
-        const nowRetarget = !p._scrUntil || (p._scrUntil <= (p._scrClock = (p._scrClock || 0) + dt));
-        if (nowRetarget || !p._scrTarget) {
-            const losY = off.__losPixY ?? (qb.pos.y - PX_PER_YARD);
-            const wantMinY = Math.max(losY + PX_PER_YARD * 3, qb.pos.y + PX_PER_YARD * 5);
-            const deepY = Math.max(wantMinY, p.pos.y + PX_PER_YARD * 2);
-
-            const leftLaneX = 40;
-            const rightLaneX = FIELD_PIX_W - 40;
-            let laneX;
-            if (key === 'WR1') laneX = leftLaneX + rand(-18, 18);
-            else if (key === 'WR2') laneX = rightLaneX + rand(-18, 18);
-            else laneX = clamp(qb.pos.x + rand(-120, 120), 20, FIELD_PIX_W - 20);
-
-            const allowComeback = (p._scrClockTotal = (p._scrClockTotal || 0) + dt) > 2.2 && Math.random() < 0.10;
-
-            if (allowComeback) {
-                const backY = Math.max(losY + PX_PER_YARD, qb.pos.y + PX_PER_YARD, p.pos.y - PX_PER_YARD * 1.2);
-                p._scrTarget = { x: clamp(qb.pos.x + rand(-60, 60), 20, FIELD_PIX_W - 20), y: backY };
-            } else {
-                p._scrTarget = { x: clamp(laneX, 20, FIELD_PIX_W - 20), y: deepY };
-            }
-            p._scrUntil = (p._scrClock || 0) + rand(0.4, 0.8);
-        }
-
-        const target = { ...p._scrTarget };
-        const maxBackward = PX_PER_YARD;
-        if (target.y < p.pos.y - maxBackward) target.y = p.pos.y - maxBackward;
-
-        moveToward(p, target, dt, 0.95);
+        const target = ai._scrTarget || { x: p.pos.x, y: p.pos.y + PX_PER_YARD * 2 };
+        moveToward(p, target, dt, 0.96);
     });
 }
 
@@ -457,32 +853,35 @@ export function moveTE(off, dt, s = null) {
     // If TE is the ball carrier, use RAC logic
     if (s && _isCarrier(off, ball, p)) { _racAdvance(off, def, p, dt); return; }
 
+    const qb = off.QB;
+    const losY = off.__losPixY ?? (qb?.pos?.y ?? yardsToPixY(25)) - PX_PER_YARD;
+    const context = {
+        qb,
+        def,
+        losY,
+        runHoleX: s?.play?.runHoleX ?? null,
+        scrambleMode: s?.play?.qbMoveMode,
+        off,
+        play: s?.play,
+    };
+
     if (off.__runFlag) {
-        const aim = { x: p.pos.x + (Math.random() < 0.5 ? -4 : 4), y: p.pos.y + PX_PER_YARD };
-        moveToward(p, aim, dt, 0.93);
+        _runSupportTightEnd(p, off, def || {}, dt, context);
         return;
     }
 
-    if (p.targets && p.routeIdx != null) {
-        const t = p.targets[p.routeIdx];
-        if (t) {
-            moveToward(p, t, dt, 0.9);
-            if (dist(p.pos, t) < 6) p.routeIdx = Math.min(p.routeIdx + 1, p.targets.length);
-            return;
-        }
+    const followedRoute = _updateRouteRunner(p, context, dt);
+    if (followedRoute) return;
+
+    const ai = _ensureAI(p);
+    ai._scrClock = (ai._scrClock || 0) + dt;
+    if (!ai._scrTarget || ai._scrClock > (ai._scrUntil || 0)) {
+        const settleY = Math.max(losY + PX_PER_YARD * 2, qb?.pos?.y ?? p.pos.y) + PX_PER_YARD * 1.5;
+        const settleX = clamp((qb?.pos?.x ?? p.pos.x) + rand(-28, 28), 24, FIELD_PIX_W - 24);
+        ai._scrTarget = { x: settleX, y: settleY };
+        ai._scrUntil = ai._scrClock + rand(0.45, 0.8);
     }
-
-    const qb = off.QB;
-    const losY = off.__losPixY ?? (qb.pos.y - PX_PER_YARD);
-    const deepY = Math.max(losY + PX_PER_YARD * 2.4, qb.pos.y + PX_PER_YARD * 3, p.pos.y + PX_PER_YARD * 1.2);
-    const midLane = clamp(qb.pos.x + rand(-40, 40), 20, FIELD_PIX_W - 20);
-
-    const allowComeback = Math.random() < 0.08;
-    const target = allowComeback
-        ? { x: clamp(qb.pos.x + rand(-30, 30), 20, FIELD_PIX_W - 20), y: Math.max(losY + PX_PER_YARD, qb.pos.y + PX_PER_YARD, p.pos.y - PX_PER_YARD) }
-        : { x: midLane, y: deepY };
-
-    moveToward(p, target, dt, 0.95);
+    moveToward(p, ai._scrTarget, dt, 0.94);
 }
 
 /* =========================================================
@@ -601,6 +1000,47 @@ function nearestDefDist(def, pos) {
     }
     return best;
 }
+
+function _progressionOrder(call) {
+    const order = [];
+    if (call.primary) order.push(call.primary);
+    if (call.secondary && !order.includes(call.secondary)) order.push(call.secondary);
+    ['WR1', 'WR2', 'WR3', 'TE'].forEach((key) => {
+        if (!order.includes(key)) order.push(key);
+    });
+    return order;
+}
+
+function _evaluateReceivingTarget(s, key, r, qb, def, losY, call) {
+    const coverage = s.play.coverage || { assigned: {} };
+    const ai = _ensureAI(r);
+    const route = ai?.route;
+    const routeProgress = route && route.targets?.length ? ((r.routeIdx || 0) / route.targets.length) : 1;
+    const stage = route?.finished ? 1.1 : routeProgress;
+    const nearest = _nearestAssignmentDefender(def, r);
+    const separation = nearest ? nearest.dist : 60;
+    const throwLine = dist(qb.pos, r.pos);
+    const depthPastLOS = Math.max(0, r.pos.y - losY);
+    const leverageBonus = nearest?.defender?.pos ? clamp((r.pos.y - nearest.defender.pos.y) / PX_PER_YARD, -4, 6) : 0;
+    const progression = _progressionOrder(call);
+    const progressionIdx = progression.indexOf(key);
+    const progressionBonus = progressionIdx >= 0 ? (progression.length - progressionIdx) * 1.8 : 0;
+    const scrambleBonus = s.play.qbMoveMode === 'SCRAMBLE' ? 4 : 0;
+    const timingBonus = stage > 0.65 ? stage * 6 : stage * 2 - 3;
+    const coverageHelp = coverage.assigned && Object.values(coverage.assigned).some(v => v === key) ? 1 : 0;
+    const score = separation * 1.25 + depthPastLOS * 0.14 - throwLine * 0.09 + timingBonus + progressionBonus + leverageBonus + scrambleBonus - coverageHelp * 2;
+    return {
+        key,
+        r,
+        score,
+        separation,
+        throwLine,
+        depthPastLOS,
+        stage,
+        routeFinished: route?.finished || false,
+    };
+}
+
 function tryThrow(s, press) {
     const off = s.play?.formation?.off || {};
     const def = s.play?.formation?.def || {};
@@ -614,28 +1054,20 @@ function tryThrow(s, press) {
     const losY = off.__losPixY ?? (qb.pos.y - PX_PER_YARD);
    
     const wrteKeys = ['WR1', 'WR2', 'WR3', 'TE'];
-    let bestWRTE = null;
+    const candidates = [];
     for (const key of wrteKeys) {
-        const r = off[key]; if (!r || !r.alive) continue; if (r.pos.y < losY) continue;
-        const open = nearestDefDist(def, r.pos);                      // bigger is better
-        const throwLine = dist(qb.pos, r.pos);                        // shorter is better
-        const depthPastLOS = r.pos.y - losY;                          // downfield progress
-        let primaryBonus = 0;
-        if (key === call.primary) {
-            const endBonusT = ttt + CFG.PRIMARY_DECAY_AFTER;
-            const k = clamp((endBonusT - tNow) / Math.max(0.001, CFG.PRIMARY_DECAY_AFTER + ttt), 0, 1);
-            primaryBonus = CFG.PRIMARY_MAX_BONUS * k;
-        }
-        const score = open * 1.35 + depthPastLOS * 0.12 + primaryBonus - throwLine * 0.10;
-        const cand = { key, r, score, open, depthPastLOS, throwLine };
-        if (!bestWRTE || score > bestWRTE.score) bestWRTE = cand;
+        const r = off[key];
+        if (!r || !r.alive || r.pos.y < losY) continue;
+        candidates.push(_evaluateReceivingTarget(s, key, r, qb, def, losY, call));
     }
+    candidates.sort((a, b) => b.score - a.score);
+    const bestWRTE = candidates[0] || null;
     const wrDepthNeed = CFG.WR_MIN_DEPTH_YARDS * PX_PER_YARD;
-    
+
     const wrAccept = bestWRTE && (
-    bestWRTE.open >= CFG.WR_MIN_OPEN ||
+        bestWRTE.separation >= CFG.WR_MIN_OPEN ||
         bestWRTE.depthPastLOS >= wrDepthNeed ||
-        (tNow >= ttt && press.underHeat && bestWRTE.open >= CFG.WR_MIN_OPEN * 0.75)
+        (tNow >= ttt && press.underHeat && bestWRTE.separation >= CFG.WR_MIN_OPEN * 0.75)
     );
     let rbCand = null;
     if (!wrAccept && checkdownGate) {
@@ -663,7 +1095,7 @@ function tryThrow(s, press) {
             const from = { x: qb.pos.x, y: qb.pos.y - 2 };
             const safeTo = { x: to.x, y: Math.max(to.y, qb.pos.y - PX_PER_YARD * 0.25) };
             startPass(s, from, { x: safeTo.x, y: safeTo.y }, bestWRTE.r.id);
-            s.play.passRisky = bestWRTE.open < 22;
+            s.play.passRisky = bestWRTE.separation < 22;
             return;
         }
         // lane blocked → keep reading this tick
@@ -687,7 +1119,7 @@ function tryThrow(s, press) {
                 const from = { x: qb.pos.x, y: qb.pos.y - 2 };
                 const safeTo = { x: to.x, y: Math.max(to.y, qb.pos.y - PX_PER_YARD * 0.25) };
                 startPass(s, from, { x: safeTo.x, y: safeTo.y }, bestWRTE.r.id);
-                s.play.passRisky = bestWRTE.open < 22;
+                s.play.passRisky = bestWRTE.separation < 22;
             } else {
                 // Throwaway should also NEVER be backward: aim sideline but forward
                 const sidelineX = qb.pos.x < FIELD_PIX_W / 2 ? 8 : FIELD_PIX_W - 8;
@@ -732,6 +1164,65 @@ function isThrowLaneClear(defMap, from, to, corridorPx = 16) {
 /* =========================================================
    Running back
    ========================================================= */
+function _rbPassProtect(rb, off, def, dt, context) {
+    const qb = context.qb;
+    const ai = _ensureAI(rb);
+    ai.passClock = (ai.passClock || 0) + dt;
+    const rushers = ['LE', 'RE', 'DT', 'RTk', 'LB1', 'LB2', 'NB'].map(k => def[k]).filter(Boolean);
+    let target = ai.blockTargetId ? rushers.find(r => r.id === ai.blockTargetId) : null;
+    const losY = context.losY;
+
+    const findThreat = () => {
+        let best = null;
+        rushers.forEach((r) => {
+            if (!r.pos) return;
+            if (r.pos.y > qb.pos.y + PX_PER_YARD * 2) return;
+            const towardQB = dist(r.pos, qb.pos);
+            const towardRB = dist(r.pos, rb.pos);
+            const engaged = !!r.engagedId;
+            const score = -towardQB * 0.7 - towardRB * 0.4 + (engaged ? -12 : 0);
+            if (!best || score > best.score) best = { score, target: r };
+        });
+        return best?.target || null;
+    };
+
+    if (!target || !target.pos || dist(target.pos, rb.pos) > 120) {
+        target = findThreat();
+        ai.blockTargetId = target?.id || null;
+    }
+
+    if (target) {
+        const meet = {
+            x: clamp(target.pos.x + (qb.pos.x - target.pos.x) * 0.3, 20, FIELD_PIX_W - 20),
+            y: Math.min(qb.pos.y - PX_PER_YARD * 0.6, losY + PX_PER_YARD * 0.5),
+        };
+        moveToward(rb, meet, dt, 1.05);
+        const d = dist(rb.pos, target.pos);
+        if (d < CFG.OL_ENGAGE_R) {
+            rb.engagedId = target.id;
+            target.engagedId = rb.id;
+            const push = CFG.OL_BLOCK_PUSHBACK * dt * 0.8;
+            const dir = {
+                x: qb.pos.x - target.pos.x,
+                y: (qb.pos.y - PX_PER_YARD) - target.pos.y,
+            };
+            const mag = Math.hypot(dir.x, dir.y) || 1;
+            target.pos.x -= (dir.x / mag) * push * 0.4;
+            target.pos.y -= (dir.y / mag) * push;
+        }
+        ai.passClock = Math.min(ai.passClock, 0.6);
+        return true;
+    }
+
+    if (ai.passClock < 0.45) {
+        const settle = { x: rb.pos.x, y: Math.min(rb.pos.y, losY + PX_PER_YARD * 0.6) };
+        moveToward(rb, settle, dt, 0.9);
+        return true;
+    }
+    ai.blockTargetId = null;
+    return false;
+}
+
 export function rbLogic(s, dt) {
     const off = s.play.formation.off, call = s.play.playCall, rb = off.RB;
     const def = s.play.formation.def;
@@ -740,27 +1231,55 @@ export function rbLogic(s, dt) {
     // If RB has the ball (after catch or handoff), use RAC logic
     if (_isCarrier(off, s.play.ball, rb)) { _racAdvance(off, def, rb, dt); return; }
 
-    if (call.type === 'RUN') {
-        // aim deeper and a touch wider to find daylight, then hit it harder
-        const baseLaneY = rb.pos.y + PX_PER_YARD * 6; // was 3
-        const losBuffer = (off.__losPixY || rb.pos.y) + PX_PER_YARD * 2;
-        const laneY = Math.max(baseLaneY, losBuffer);
+    const qb = off.QB;
+    const losY = off.__losPixY ?? (qb?.pos?.y ?? yardsToPixY(25)) - PX_PER_YARD;
+    const context = {
+        qb,
+        def,
+        losY,
+        runHoleX: off.__runHoleX,
+        runLaneY: off.__runLaneY,
+    };
 
-        const laneX = s.play.runHoleX ?? rb.pos.x;
-        const aim = { x: clamp(laneX + rand(-8, 8), 18, FIELD_PIX_W - 18), y: laneY };
-
-        // slightly faster through the hole to beat first contact
-        moveToward(rb, aim, dt, 1.18); // was 1.08
-    }
-    if (call.type === 'PASS' && rb.targets && rb.routeIdx != null) {
-        const t = rb.targets[rb.routeIdx];
-        if (t) { moveToward(rb, t, dt, 0.9); if (dist(rb.pos, t) < 6) rb.routeIdx = Math.min(rb.routeIdx + 1, rb.targets.length); return; }
-    }
     if (call.type === 'RUN') {
-        const laneX = s.play.runHoleX ?? rb.pos.x, laneY = s.play.runLaneY ?? (rb.pos.y + PX_PER_YARD * 3);
-        const aim = { x: clamp(laneX + rand(-6, 6), 20, FIELD_PIX_W - 20), y: laneY };
-        moveToward(rb, aim, dt, 1.08);
+        const ai = _ensureAI(rb);
+        ai.patience = ai.patience ?? rand(0.18, 0.32);
+        ai.patienceClock = (ai.patienceClock || 0) + dt;
+        const patiencePhase = ai.patienceClock < ai.patience;
+
+        const lane = _computeLaneForRB(off, def, rb, losY);
+        const laneX = clamp(_lerp(rb.pos.x, lane.x, patiencePhase ? 0.45 : 0.8), 18, FIELD_PIX_W - 18);
+        const laneY = Math.max(off.__runLaneY ?? (rb.pos.y + PX_PER_YARD * 2.5), losY + PX_PER_YARD * 2.2);
+        const depthTarget = { x: laneX, y: laneY };
+
+        if (patiencePhase) {
+            const settle = { x: laneX, y: Math.min(rb.pos.y + PX_PER_YARD, losY + PX_PER_YARD * 0.8) };
+            moveToward(rb, settle, dt, 0.8);
+        } else {
+            moveToward(rb, depthTarget, dt, 1.18);
+        }
+
+        if (s.play.rbTargets && s.play.rbTargets.length > 1 && ai.patienceClock < ai.patience + 0.35) {
+            const next = s.play.rbTargets[Math.min(1, s.play.rbTargets.length - 1)];
+            moveToward(rb, next, dt, 1.05);
+        }
+        return;
     }
+
+    const protect = _rbPassProtect(rb, off, def, dt, context);
+    if (protect) return;
+
+    if (rb.targets && rb.routeIdx != null) {
+        const routeContext = { ...context, qb, def, losY };
+        const followed = _updateRouteRunner(rb, routeContext, dt);
+        if (followed) return;
+    }
+
+    const check = {
+        x: clamp(qb.pos.x + rand(-28, 28), 24, FIELD_PIX_W - 24),
+        y: qb.pos.y + PX_PER_YARD * 2.4,
+    };
+    moveToward(rb, check, dt, 0.92);
 }
 
 /* =========================================================
