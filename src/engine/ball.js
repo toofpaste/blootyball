@@ -112,7 +112,7 @@ export function moveBall(s, dt) {
                 return;
             }
 
-            const r = off[ball.targetId];
+            const r = _resolveOffensivePlayer(off, ball.targetId);
             if (r) {
                 const nearestDef = Object.values(def).reduce((best, d) => {
                     const dd = Math.hypot(d.pos.x - r.pos.x, d.pos.y - r.pos.y);
@@ -148,7 +148,13 @@ export function moveBall(s, dt) {
                     return;
                 }
 
-                const catchChance = r.attrs.catch * 0.6 + Math.random() * 0.5 - 0.15;
+                const hands = clamp(r.attrs.catch ?? 0.8, 0.4, 1.3);
+                const qbAccBoost = clamp(off?.QB?.attrs?.throwAcc ?? 0.9, 0.4, 1.3);
+                const ballAcc = clamp(ball.flight?.accuracy ?? 1, 0.6, 1.4);
+                const separation = nearestDef.d;
+                const sepFactor = clamp(((separation ?? 28) - 6) / 18, 0.35, 1.08);
+                const accuracyBlend = hands * 0.45 + qbAccBoost * 0.18 + ballAcc * 0.15;
+                const catchChance = accuracyBlend * sepFactor + Math.random() * 0.16 - 0.08;
                 if (catchChance > 0.5) {
                     ball.inAir = false;
                     ball.carrierId = r.id;
