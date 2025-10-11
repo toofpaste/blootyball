@@ -1,6 +1,6 @@
 // ⬇️ UPDATE your imports at the top of this file
 import { clamp, dist, yardsToPixY } from './helpers';
-import { FIELD_PIX_W, FIELD_PIX_H } from './constants';
+import { FIELD_PIX_W, FIELD_PIX_H, PX_PER_YARD } from './constants';
 import { mphToPixelsPerSecond } from './motion';
 import { recordPlayEvent } from './diagnostics';
 
@@ -203,13 +203,18 @@ export function moveBall(s, dt) {
                 const separation = nearestDef.d;
                 const sepFactor = clamp(((separation ?? 28) - 6) / 18, 0.35, 1.08);
                 const accuracyBlend = hands * 0.45 + qbAccBoost * 0.18 + ballAcc * 0.15;
-                const catchChance = accuracyBlend * sepFactor + Math.random() * 0.16 - 0.08;
+                const throwDistPx = ball.flight?.totalDist || dist(ball.from, ball.to);
+                const throwDistYards = clamp((throwDistPx || 0) / PX_PER_YARD, 0, 80);
+                const shortBonus = throwDistYards <= 7 ? (7 - throwDistYards) * 0.04 : 0;
+                const deepPenalty = throwDistYards > 10 ? (throwDistYards - 10) * 0.035 : 0;
+                const catchChance = accuracyBlend * sepFactor + Math.random() * 0.16 - 0.08 + shortBonus - deepPenalty;
                 if (catchChance > 0.5) {
                     const dropBase = 0.08;
                     const dropHands = clamp(1.15 - hands, 0, 0.75) * 0.16;
                     const dropContact = clamp((14 - (separation ?? 18)) / 26, 0, 0.22);
                     const dropRisk = s.play.passRisky ? 0.05 : 0;
-                    const dropProb = clamp(dropBase + dropHands + dropContact + dropRisk, 0.04, 0.38);
+                    const depthDrop = clamp((throwDistYards - 12) * 0.015, 0, 0.14);
+                    const dropProb = clamp(dropBase + dropHands + dropContact + dropRisk + depthDrop, 0.04, 0.45);
 
                     if (Math.random() < dropProb) {
                         s.play.deadAt = s.play.elapsed;

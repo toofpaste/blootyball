@@ -1061,6 +1061,8 @@ function _evaluateReceivingTarget(s, key, r, qb, def, losY, call) {
     const separation = nearest ? nearest.dist : 60;
     const throwLine = dist(qb.pos, r.pos);
     const depthPastLOS = Math.max(0, r.pos.y - losY);
+    const depthYards = depthPastLOS / PX_PER_YARD;
+    const throwYards = throwLine / PX_PER_YARD;
     const leverageBonus = nearest?.defender?.pos ? clamp((r.pos.y - nearest.defender.pos.y) / PX_PER_YARD, -4, 6) : 0;
     const progression = _progressionOrder(call);
     const progressionIdx = progression.indexOf(key);
@@ -1074,7 +1076,23 @@ function _evaluateReceivingTarget(s, key, r, qb, def, losY, call) {
         const diff = depthPastLOS - needDepth;
         sticksBonus = diff >= -PX_PER_YARD ? diff * 0.18 + 4 : diff * 0.25;
     }
-    const score = separation * 1.25 + depthPastLOS * 0.14 - throwLine * 0.09 + timingBonus + progressionBonus + leverageBonus + scrambleBonus - coverageHelp * 2 + sticksBonus;
+    let score = separation * 1.25 + depthPastLOS * 0.14 - throwLine * 0.09 + timingBonus + progressionBonus + leverageBonus + scrambleBonus - coverageHelp * 2 + sticksBonus;
+
+    // Bias reads toward quick-hitting options under ~10 yards
+    if (depthYards <= 4) {
+        score += 6 - depthYards * 0.5;
+    } else if (depthYards <= 8) {
+        score += 3 - (depthYards - 4) * 0.9;
+    } else {
+        score -= (depthYards - 8) * 2.4;
+    }
+
+    if (throwYards <= 12) {
+        score += (12 - throwYards) * 0.35;
+    } else {
+        score -= (throwYards - 12) * 1.5;
+    }
+
     return {
         key,
         r,
