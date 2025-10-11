@@ -68,6 +68,7 @@ export function summarizeDiagnostics(state, limit = 10) {
         plays: plays.length,
         completions: 0,
         incompletions: 0,
+        drops: 0,
         throwaways: 0,
         interceptions: 0,
         fumbles: 0,
@@ -79,6 +80,10 @@ export function summarizeDiagnostics(state, limit = 10) {
             switch (evt.type) {
                 case 'pass:complete': totals.completions += 1; break;
                 case 'pass:incomplete': totals.incompletions += 1; break;
+                case 'pass:drop':
+                    totals.incompletions += 1;
+                    totals.drops += 1;
+                    break;
                 case 'pass:throwaway': totals.throwaways += 1; break;
                 case 'pass:interception': totals.interceptions += 1; break;
                 case 'ball:fumble': totals.fumbles += 1; break;

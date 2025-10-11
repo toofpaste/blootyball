@@ -140,7 +140,7 @@ const CFG = {
     CHECKDOWN_LAG: 0.85,
     PRIMARY_MAX_BONUS: 18,
     PRIMARY_DECAY_AFTER: 0.4,
-    WR_MIN_OPEN: 14,
+    WR_MIN_OPEN: 16,
     WR_MIN_DEPTH_YARDS: 3.0,
     RB_EARLY_PENALTY: 12,
     RB_MIN_OPEN: 14,
@@ -179,16 +179,16 @@ const CFG = {
 
     // ---- Run-after-catch (tone down open-field burst a touch) ----
     RAC_TURN_SMOOTH: 0.86,
-    RAC_LOOKAHEAD: 110,
+    RAC_LOOKAHEAD: 96,
     RAC_AVOID_R: 20,
     RAC_SIDESTEP: 8,
-    RAC_SPEED: 0.95,
+    RAC_SPEED: 0.9,
 
     // ---- Coverage & pursuit (new) ----
     COVER_CUSHION_YDS: 2.8,     // desired vertical cushion in man
     COVER_SWITCH_DIST: 26,      // when crossers get closer to another DB, switch
     PURSUIT_LEAD_T: 0.28,       // seconds to lead the carrier
-    PURSUIT_SPEED: 1.06,        // defenders run a bit hotter in pursuit
+    PURSUIT_SPEED: 1.12,        // defenders run a bit hotter in pursuit
 };
 
 
