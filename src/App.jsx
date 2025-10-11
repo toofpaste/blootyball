@@ -60,7 +60,14 @@ export default function App() {
   };
 
   return (
-    <div style={{ display: 'grid', gridTemplateRows: 'auto 1fr', height: '100vh', background: '#0b3d0b' }}>
+    <div
+      style={{
+        display: 'grid',
+        gridTemplateRows: 'auto auto 1fr',
+        height: '100vh',
+        background: '#0b3d0b',
+      }}
+    >
       <Toolbar
         running={running}
         setRunning={setRunning}
@@ -96,6 +103,7 @@ export default function App() {
           padding: '8px',
           gap: '12px',
           overflowY: 'auto',
+          minHeight: 0,
         }}
       >
         <canvas
