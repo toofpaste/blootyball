@@ -3,12 +3,13 @@ import {
     TEAM_RED, TEAM_BLK, PLAYBOOK, PX_PER_YARD,
 } from './constants';
 import { clamp, yardsToPixY, pixYToYards } from './helpers';
-import { createTeams, rosterForPossession, lineUpFormation } from './rosters';
+import { createTeams, rosterForPossession, lineUpFormation, buildPlayerDirectory } from './rosters';
 import { initRoutesAfterSnap, moveOL, moveReceivers, moveTE, qbLogic, rbLogic, defenseLogic } from './ai';
 import { moveBall, getBallPix } from './ball';
 import { beginFrame, endFrame } from './motion';
 import { beginPlayDiagnostics, finalizePlayDiagnostics, recordPlayEvent } from './diagnostics';
 import { pickFormations, PLAYBOOK_PLUS, pickPlayCall } from './playbooks';
+import { createInitialPlayerStats, createPlayStatContext, finalizePlayStats } from './stats';
 
 /* =========================================================
    Utilities / guards
@@ -292,12 +293,14 @@ function gatherActivePlayers(play) {
 export function createInitialGameState() {
     // Keep both: teams (persistent) + current roster view (for compatibility)
     const teams = createTeams();
+    const playerDirectory = buildPlayerDirectory(teams);
     const possession = TEAM_RED; // RED starts with ball
     const roster = rosterForPossession(teams, possession);
     const drive = { losYards: 25, down: 1, toGo: 10 };
     roster.__ownerState = null; // ensure field exists
     const play = createPlayState(roster, drive);
     const clock = createClock();
+    const playerStats = createInitialPlayerStats(playerDirectory);
 
     const state = {
         teams,
@@ -306,6 +309,8 @@ export function createInitialGameState() {
         drive,
         play,
         clock,
+        playerDirectory,
+        playerStats,
         playLog: [],
         scores: { [TEAM_RED]: 0, [TEAM_BLK]: 0 },
         debug: { trace: false },
@@ -378,7 +383,7 @@ export function createPlayState(roster, drive) {
         flight: null,
     };
 
-    return {
+    const play = {
         phase: 'PRESNAP',
         elapsed: 0,
         resultText: '',
@@ -392,6 +397,8 @@ export function createPlayState(roster, drive) {
         mustReachSticks: safeDrive.down === 4 && safeDrive.toGo > 1,
         sticksDepthPx: safeDrive.toGo * PX_PER_YARD,
     };
+    play.statContext = createPlayStatContext();
+    return play;
 }
 
 
@@ -483,6 +490,10 @@ export function betweenPlays(s) {
     const offenseAtSnap = s.possession; // who ran the play
     const call = s.play.playCall || { name: 'Play' };
     let resultWhy = s.play.resultWhy || 'Tackled';
+
+    if (!s.teams) s.teams = createTeams();
+    if (!s.playerDirectory) s.playerDirectory = buildPlayerDirectory(s.teams);
+    if (!s.playerStats) s.playerStats = createInitialPlayerStats(s.playerDirectory);
 
     const startLos = s.play.startLos ?? s.drive.losYards;
     const startDown = s.play.startDown ?? s.drive.down;
@@ -623,6 +634,15 @@ export function betweenPlays(s) {
     let summaryText = baseSummary;
     if (penaltyInfo?.text) summaryText = penaltyInfo.text;
     else if (s.play.resultText && /timeout/i.test(s.play.resultText)) summaryText = s.play.resultText;
+
+    finalizePlayStats(s, {
+        offense: offenseAtSnap,
+        defense: otherTeam(offenseAtSnap),
+        gained,
+        result: resultWhy,
+        callType: call.type,
+        carrierId: s.play?.ball?.lastCarrierId || null,
+    });
 
     finalizePlayDiagnostics(s, {
         result: resultWhy,

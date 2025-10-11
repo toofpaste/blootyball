@@ -93,7 +93,11 @@ export default function App() {
           ref={canvasRef}
           style={{ borderRadius: 12, boxShadow: '0 6px 24px rgba(0,0,0,0.4)', background: '#0a7f2e' }}
         />
-        <PlayLog items={state.playLog.slice(-10)} />
+        <PlayLog
+          items={state.playLog.slice(-10)}
+          playerStats={state.playerStats}
+          playerDirectory={state.playerDirectory}
+        />
       </div>
     </div>
   );

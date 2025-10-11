@@ -127,7 +127,21 @@ function _laneSample(off, def, yDepth) {
 
 function _computeLaneForRB(off, def, rb, losY) {
     const firstBand = _laneSample(off, def, Math.max(losY + PX_PER_YARD * 2, rb.pos.y + PX_PER_YARD * 2));
-    return firstBand.length ? firstBand[0] : { x: rb.pos.x, score: 0 };
+    if (!firstBand.length) return { x: rb.pos.x, score: 0 };
+    const vision = clamp((rb?.modifiers?.vision ?? 0.5) - 0.5, -0.4, 0.4);
+    if (vision <= 0) {
+        const conservative = firstBand.reduce((best, lane) => {
+            const distPenalty = Math.abs(lane.x - rb.pos.x) * (0.4 + (-vision) * 0.6);
+            const score = lane.score - distPenalty;
+            return (!best || score > best.score) ? { score, lane } : best;
+        }, null);
+        return conservative?.lane || firstBand[0];
+    }
+    const aggressive = firstBand.reduce((best, lane) => {
+        const score = lane.score + vision * 6 - Math.abs(lane.x - rb.pos.x) * 0.1;
+        return (!best || score > best.score) ? { score, lane } : best;
+    }, null);
+    return aggressive?.lane || firstBand[0];
 }
 
 /* =========================================================
@@ -259,8 +273,14 @@ export function initRoutesAfterSnap(s) {
     const quick = !!call.quickGame;
     const baseTTT = quick ? rand(1.0, 1.7) : rand(1.6, 3.0);
     const iqAdj = clamp((1.0 - qbIQ) * 0.4 - (qbIQ - 1.0) * 0.2, -0.3, 0.3);
-    s.play.qbTTT = clamp(baseTTT + iqAdj, 0.9, 3.2);
-    s.play.qbMaxHold = s.play.qbTTT + rand(1.2, 1.9);
+    const qbMods = qb?.modifiers || {};
+    const release = clamp((qbMods.releaseQuickness ?? 0.5), 0, 1);
+    const poise = clamp((qbMods.pocketPoise ?? 0.5), 0, 1);
+    const releaseAdj = (0.5 - release) * 0.6;
+    const poiseAdj = (poise - 0.5) * 0.8;
+    s.play.qbTTT = clamp(baseTTT + iqAdj + releaseAdj + poiseAdj, 0.8, 3.4);
+    const holdBonus = (poise - 0.5) * 1.2;
+    s.play.qbMaxHold = s.play.qbTTT + rand(1.2, 1.9) + holdBonus;
     const qbPos = qb?.pos || { x: FIELD_PIX_W / 2, y: yardsToPixY(25) };
     s.play.qbDropTarget = { x: qbPos.x, y: qbPos.y - (call.qbDrop || 3) * PX_PER_YARD };
 
@@ -887,6 +907,8 @@ export function qbLogic(s, dt) {
     const def = s.play?.formation?.def || {};
     const call = s.play?.playCall || {};
     const qb = off.QB;
+    const qbMods = qb?.modifiers || {};
+    const scrambleAggro = clamp(qbMods.scrambleAggression ?? 0.26, 0, 1);
 
     // If we don't have a QB or a position yet, bail safely.
     if (!qb || !qb.pos) return;
@@ -987,10 +1009,16 @@ export function qbLogic(s, dt) {
     };
 
     if (shouldScramble()) {
-        s.play.qbMoveMode = 'SCRAMBLE';
-        s.play.scrambleMode = Math.random() < 0.7 ? 'LATERAL' : 'FORWARD';
-        s.play.scrambleDir = lateralBias;
-        s.play.scrambleUntil = time + rand(0.45, 0.9);
+        const scrambleGate = clamp(scrambleAggro + (underImmediatePressure ? 0.25 : 0) + (underHeat ? 0.12 : 0), 0.08, 0.9);
+        if (Math.random() < scrambleGate) {
+            s.play.qbMoveMode = 'SCRAMBLE';
+            s.play.scrambleMode = Math.random() < 0.7 ? 'LATERAL' : 'FORWARD';
+            s.play.scrambleDir = lateralBias;
+            s.play.scrambleUntil = time + rand(0.45, 0.9);
+        } else {
+            s.play.qbMoveMode = 'SET';
+            s.play.qbReadyAt = Math.min(s.play.qbReadyAt ?? (time + 0.2), time + 0.35);
+        }
     }
 
     // Move QB
@@ -1091,6 +1119,28 @@ function _evaluateReceivingTarget(s, key, r, qb, def, losY, call) {
         score += (12 - throwYards) * 0.35;
     } else {
         score -= (throwYards - 12) * 1.5;
+    }
+
+    const qbMods = qb?.modifiers || {};
+    const tendencies = qbMods.passTendencies || {};
+    const depthKey = depthYards <= 5 ? 'short' : depthYards <= 15 ? 'intermediate' : 'deep';
+    const aliasKey = depthKey === 'intermediate' ? 'medium' : depthKey;
+    const pref = typeof tendencies[depthKey] === 'number'
+        ? tendencies[depthKey]
+        : (typeof tendencies[aliasKey] === 'number' ? tendencies[aliasKey] : null);
+    if (pref != null) {
+        score *= 1 + clamp(pref - 0.33, -0.25, 0.25);
+    }
+
+    const recMods = r.modifiers || {};
+    if (recMods.routePrecision != null) {
+        score += clamp((recMods.routePrecision - 0.5) * 12, -6, 6);
+    }
+    if (recMods.release != null && depthYards <= 12) {
+        score += clamp((recMods.release - 0.5) * 8, -4, 4);
+    }
+    if (recMods.deepThreat != null && depthYards > 12) {
+        score += clamp((recMods.deepThreat - 0.5) * 10, -5, 5);
     }
 
     return {
@@ -1336,6 +1386,9 @@ export function rbLogic(s, dt) {
     const off = s.play.formation.off, call = s.play.playCall, rb = off.RB;
     const def = s.play.formation.def;
     if (!rb || !rb.alive) return;
+    const mods = rb.modifiers || {};
+    const burst = clamp(1 + ((mods.burst ?? 0.5) - 0.5) * 0.4, 0.7, 1.4);
+    const patienceBase = clamp(0.22 + ((mods.patience ?? 0.5) - 0.5) * 0.18, 0.1, 0.42);
 
     // If RB has the ball (after catch or handoff), use RAC logic
     if (_isCarrier(off, s.play.ball, rb)) { _racAdvance(off, def, rb, dt); return; }
@@ -1352,25 +1405,27 @@ export function rbLogic(s, dt) {
 
     if (call.type === 'RUN') {
         const ai = _ensureAI(rb);
-        ai.patience = ai.patience ?? rand(0.18, 0.32);
+        ai.patience = ai.patience ?? patienceBase;
         ai.patienceClock = (ai.patienceClock || 0) + dt;
         const patiencePhase = ai.patienceClock < ai.patience;
 
         const lane = _computeLaneForRB(off, def, rb, losY);
-        const laneX = clamp(_lerp(rb.pos.x, lane.x, patiencePhase ? 0.45 : 0.8), 18, FIELD_PIX_W - 18);
+        const vision = clamp((mods.vision ?? 0.5) - 0.5, -0.3, 0.3);
+        const blendBase = patiencePhase ? 0.45 : 0.8;
+        const laneX = clamp(_lerp(rb.pos.x, lane.x, clamp(blendBase + vision * 0.25, 0.2, 1.0)), 18, FIELD_PIX_W - 18);
         const laneY = Math.max(off.__runLaneY ?? (rb.pos.y + PX_PER_YARD * 2.5), losY + PX_PER_YARD * 2.2);
         const depthTarget = { x: laneX, y: laneY };
 
         if (patiencePhase) {
             const settle = { x: laneX, y: Math.min(rb.pos.y + PX_PER_YARD, losY + PX_PER_YARD * 0.8) };
-            moveToward(rb, settle, dt, 0.8);
+            moveToward(rb, settle, dt, 0.8 * burst);
         } else {
-            moveToward(rb, depthTarget, dt, 1.18);
+            moveToward(rb, depthTarget, dt, 1.18 * burst);
         }
 
         if (s.play.rbTargets && s.play.rbTargets.length > 1 && ai.patienceClock < ai.patience + 0.35) {
             const next = s.play.rbTargets[Math.min(1, s.play.rbTargets.length - 1)];
-            moveToward(rb, next, dt, 1.05);
+            moveToward(rb, next, dt, 1.05 * burst);
         }
         return;
     }
@@ -1388,7 +1443,7 @@ export function rbLogic(s, dt) {
         x: clamp(qb.pos.x + rand(-28, 28), 24, FIELD_PIX_W - 24),
         y: qb.pos.y + PX_PER_YARD * 2.4,
     };
-    moveToward(rb, check, dt, 0.92);
+    moveToward(rb, check, dt, 0.92 * burst);
 }
 
 /* =========================================================
@@ -1854,7 +1909,11 @@ export function defenseLogic(s, dt) {
                 (s.play.events ||= []).push({ t: s.play.elapsed, type: 'tackle:wrapHold', carrierId, byId: wr.byId }); endWrap(s); return;
             }
             const tacklerSkill = (tackler?.attrs?.tackle ?? 0.9), carStr = (ballCarrier.attrs?.strength ?? 0.85), carIQ = clamp(ballCarrier.attrs?.awareness ?? 1.0, 0.4, 1.3);
+            const tackleTrait = clamp((tackler?.modifiers?.tackle ?? 0.5) - 0.5, -0.3, 0.3);
+            const breakTrait = clamp((ballCarrier?.modifiers?.breakTackle ?? 0.5) - 0.5, -0.3, 0.3);
             let tackleChance = 0.66 + (tacklerSkill - carStr) * 0.22 - (carIQ - 1.0) * 0.10 + assistants * 0.08 + (Math.random() * 0.10 - 0.05);
+            tackleChance += tackleTrait * 0.25;
+            tackleChance -= breakTrait * 0.22;
             if (tackleChance > 0.5) {
                 s.play.deadAt = s.play.elapsed; s.play.phase = 'DEAD'; s.play.resultWhy = (carrierRole === 'QB') ? 'Sack' : 'Tackled';
                 (s.play.events ||= []).push({ t: s.play.elapsed, type: 'tackle:wrapHoldWin', carrierId, byId: wr.byId }); endWrap(s); return;

@@ -50,7 +50,8 @@ export function startPass(s, from, to, targetId) {
     const arm = clamp(qb?.attrs?.throwPow ?? 1, 0.5, 1.4);
     const acc = clamp(qb?.attrs?.throwAcc ?? 1, 0.4, 1.4);
     const distance = Math.max(1, dist(from, to));
-    const mph = clamp(48 + (arm - 1) * 18, 42, 64);
+    const velocityTrait = clamp((qb?.modifiers?.throwVelocity ?? 0.5) - 0.5, -0.3, 0.3);
+    const mph = clamp(48 + (arm - 1) * 18 + velocityTrait * 12, 40, 66);
     const speed = Math.max(60, mphToPixelsPerSecond(mph));
     const duration = clamp(distance / speed, 0.35, 1.85);
 
@@ -173,7 +174,11 @@ export function moveBall(s, dt) {
                     const defenderIQ = (nearestDef.t.attrs.awareness ?? 0.9);
                     const qbAcc = (off.QB.attrs.throwAcc ?? 0.9);
                     const wrHands = (r.attrs.catch ?? 0.9);
+                    const hawkTrait = clamp((nearestDef.t.modifiers?.ballHawk ?? 0.5) - 0.5, -0.3, 0.3);
+                    const wrHandsTrait = clamp((r.modifiers?.hands ?? 0.5) - 0.5, -0.3, 0.3);
                     let pickProb = 0.08 + defenderIQ * 0.12 - qbAcc * 0.08 - wrHands * 0.04;
+                    pickProb += hawkTrait * 0.05;
+                    pickProb -= wrHandsTrait * 0.03;
                     if (s.play.passRisky) pickProb += 0.08;
                     pickProb += (1 - (ball.flight?.accuracy ?? 1)) * 0.05;
                     pickProb = clamp(pickProb, 0.02, 0.25);
@@ -197,8 +202,12 @@ export function moveBall(s, dt) {
                     return;
                 }
 
-                const hands = clamp(r.attrs.catch ?? 0.8, 0.4, 1.3);
-                const qbAccBoost = clamp(off?.QB?.attrs?.throwAcc ?? 0.9, 0.4, 1.3);
+                const handsTrait = clamp((r.modifiers?.hands ?? 0.5) - 0.5, -0.4, 0.4);
+                const precisionTrait = clamp((r.modifiers?.routePrecision ?? 0.5) - 0.5, -0.3, 0.3);
+                const hands = clamp((r.attrs.catch ?? 0.8) + handsTrait * 0.2 + precisionTrait * 0.1, 0.4, 1.4);
+                const qbAccMods = off?.QB?.modifiers || {};
+                const qbAccTrait = clamp((qbAccMods.releaseQuickness ?? 0.5) - 0.5, -0.3, 0.3);
+                const qbAccBoost = clamp((off?.QB?.attrs?.throwAcc ?? 0.9) + qbAccTrait * 0.08, 0.4, 1.35);
                 const ballAcc = clamp(ball.flight?.accuracy ?? 1, 0.6, 1.4);
                 const separation = nearestDef.d;
                 const sepFactor = clamp(((separation ?? 28) - 6) / 18, 0.35, 1.08);
@@ -214,7 +223,8 @@ export function moveBall(s, dt) {
                     const dropContact = clamp((14 - (separation ?? 18)) / 26, 0, 0.22);
                     const dropRisk = s.play.passRisky ? 0.05 : 0;
                     const depthDrop = clamp((throwDistYards - 12) * 0.015, 0, 0.14);
-                    const dropProb = clamp(dropBase + dropHands + dropContact + dropRisk + depthDrop, 0.04, 0.45);
+                    const traitDrop = clamp(-handsTrait * 0.08, -0.08, 0.08);
+                    const dropProb = clamp(dropBase + dropHands + dropContact + dropRisk + depthDrop + traitDrop, 0.03, 0.45);
 
                     if (Math.random() < dropProb) {
                         s.play.deadAt = s.play.elapsed;
