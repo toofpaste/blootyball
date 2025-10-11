@@ -127,18 +127,38 @@ export function pickPlayCall(allPlays, ctx) {
     const long = toGo >= 7;
     const short = toGo <= 2;
     const redzone = yardline >= 80;
+    const firstDown = down === 1;
+    const medium = !long && !short;
 
     // Score each play for the situation
     function score(p) {
         let s = 0;
         if (p.type === 'RUN') {
-            s += short ? 12 : long ? -8 : 2;
+            s += 4; // baseline preference to keep the ground game alive
+            if (short) s += 10;
+            else if (medium) s += 5;
+            if (firstDown && !long) s += 4;
+            if (long) s -= 5;
             if (p.name.includes('Stretch') || p.name.includes('Outside')) s += 2;
             if (redzone) s += 3;
         } else { // PASS
-            s += long ? 12 : short ? -4 : 2;
-            if (p.quickGame) s += short ? 4 : (long ? -2 : 1);
-            if (p.playAction) s += (!long && !short) ? 3 : (short ? 2 : 0);
+            s += long ? 10 : short ? -4 : 0;
+            if (firstDown && !long) s -= 3;
+
+            const drop = typeof p.qbDrop === 'number' ? p.qbDrop : 5;
+            const deepPenalty = Math.max(0, drop - 5) * (medium ? 3 : 2);
+            const isShotPlay = /Shot|Post|Dagger|Cross|Levels/i.test(p.name || '');
+
+            if (p.quickGame) {
+                s += short ? 7 : medium ? 5 : 1;
+            } else {
+                if (short) s -= 5;
+                if (medium) s -= 3;
+            }
+
+            s -= deepPenalty;
+            if (isShotPlay && !long) s -= 4;
+            if (p.playAction) s += (!long && !short) ? 2 : (short ? 1 : -2);
             if (redzone) s += p.name.includes('Smash') || p.name.includes('Spacing') ? 3 : 0;
         }
         // small randomness
@@ -151,6 +171,6 @@ export function pickPlayCall(allPlays, ctx) {
 
     // IQ nudges: higher IQ → pick closer to top
     const r = Math.random() ** (1 / Math.max(0.01, Math.min(1.6, offenseIQ)));
-    const idx = Math.floor(r * Math.min(6, plays.length)); // choose among top 6
+    const idx = Math.floor(r * Math.min(8, plays.length)); // choose among top 8 to let runs bubble up
     return plays[idx];
 }
