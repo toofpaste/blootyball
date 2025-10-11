@@ -88,7 +88,16 @@ export default function App() {
               down={state.drive.down}
              toGo={state.drive.toGo}
       />
-      <div style={{ display: 'grid', placeItems: 'center', padding: '8px', overflow: 'auto' }}>
+      <div
+        style={{
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          padding: '8px',
+          gap: '12px',
+          overflowY: 'auto',
+        }}
+      >
         <canvas
           ref={canvasRef}
           style={{ borderRadius: 12, boxShadow: '0 6px 24px rgba(0,0,0,0.4)', background: '#0a7f2e' }}
