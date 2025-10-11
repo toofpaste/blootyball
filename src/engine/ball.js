@@ -205,17 +205,38 @@ export function moveBall(s, dt) {
                 const accuracyBlend = hands * 0.45 + qbAccBoost * 0.18 + ballAcc * 0.15;
                 const catchChance = accuracyBlend * sepFactor + Math.random() * 0.16 - 0.08;
                 if (catchChance > 0.5) {
-                    ball.inAir = false;
-                    ball.carrierId = r.id;
-                    ball.lastCarrierId = r.id;
-                    ball.flight = null;
-                    ball.renderPos = { ...r.pos };
-                    ball.shadowPos = { ...r.pos };
-                    recordPlayEvent(s, {
-                        type: 'pass:complete',
-                        targetId: r.id,
-                        separation: nearestDef.d,
-                    });
+                    const dropBase = 0.08;
+                    const dropHands = clamp(1.15 - hands, 0, 0.75) * 0.16;
+                    const dropContact = clamp((14 - (separation ?? 18)) / 26, 0, 0.22);
+                    const dropRisk = s.play.passRisky ? 0.05 : 0;
+                    const dropProb = clamp(dropBase + dropHands + dropContact + dropRisk, 0.04, 0.38);
+
+                    if (Math.random() < dropProb) {
+                        s.play.deadAt = s.play.elapsed;
+                        s.play.phase = 'DEAD';
+                        s.play.resultWhy = 'Drop';
+                        ball.inAir = false;
+                        ball.flight = null;
+                        ball.renderPos = { ...ball.to };
+                        ball.shadowPos = { ...ball.to };
+                        recordPlayEvent(s, {
+                            type: 'pass:drop',
+                            targetId: r.id,
+                            separation: nearestDef.d,
+                        });
+                    } else {
+                        ball.inAir = false;
+                        ball.carrierId = r.id;
+                        ball.lastCarrierId = r.id;
+                        ball.flight = null;
+                        ball.renderPos = { ...r.pos };
+                        ball.shadowPos = { ...r.pos };
+                        recordPlayEvent(s, {
+                            type: 'pass:complete',
+                            targetId: r.id,
+                            separation: nearestDef.d,
+                        });
+                    }
                 } else {
                     s.play.deadAt = s.play.elapsed;
                     s.play.phase = 'DEAD';
