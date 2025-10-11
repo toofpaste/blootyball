@@ -2,37 +2,56 @@ import { TEAM_RED, TEAM_BLK, ROLES_OFF, ROLES_DEF } from './constants';
 import { clamp, rand, yardsToPixY } from './helpers';
 import { ENDZONE_YARDS, FIELD_PIX_W } from './constants';
 import { resetMotion } from './motion';
+import teamRedData from './data/team-red.json';
+import teamBlackData from './data/team-black.json';
 
 /* =========================================================
    Player factories (persistent per-team pools)
    ========================================================= */
-let _pid = 0;
+const TEAM_DATA = {
+    [TEAM_RED]: teamRedData,
+    [TEAM_BLK]: teamBlackData,
+};
 
-function makeAttrs(role) {
+function normaliseAttrs(ratings = {}, role) {
     return {
-        speed: clamp(rand(4.5, 6.0) + (role.startsWith('WR') ? 0.25 : 0), 4.0, 8.0),
-        accel: clamp(rand(10, 20), 8, 25),
-        agility: clamp(rand(0.6, 1.0), 0.5, 1.2),
-        strength: clamp(rand(0.5, 1.0), 0.5, 1.2),
-        awareness: clamp(rand(0.6, 1.1), 0.4, 1.3),
-        catch: clamp(rand(0.5, 1.05), 0.4, 1.2),
-        throwPow: clamp(rand(0.6, 1.1), 0.5, 1.2),
-        throwAcc: clamp(rand(0.5, 1.0), 0.4, 1.2),
-        tackle: clamp(rand(0.6, 1.2), 0.5, 1.3),
+        speed: clamp(ratings.speed ?? (role.startsWith('WR') ? 5.8 : 5.4), 4.2, 7.2),
+        accel: clamp(ratings.accel ?? rand(12, 17), 10, 22),
+        agility: clamp(ratings.agility ?? rand(0.7, 1.0), 0.5, 1.25),
+        strength: clamp(ratings.strength ?? rand(0.7, 1.05), 0.5, 1.3),
+        awareness: clamp(ratings.awareness ?? rand(0.8, 1.05), 0.4, 1.35),
+        catch: clamp(ratings.catch ?? rand(0.6, 1.0), 0.4, 1.3),
+        throwPow: clamp(ratings.throwPow ?? rand(0.5, 1.0), 0.4, 1.3),
+        throwAcc: clamp(ratings.throwAcc ?? rand(0.5, 1.0), 0.4, 1.3),
+        tackle: clamp(ratings.tackle ?? rand(0.6, 1.1), 0.4, 1.35),
     };
 }
 
-function makePlayer(team, role) {
+function makePlayer(team, role, data = {}) {
+    const firstName = data.firstName || role;
+    const lastName = data.lastName || '';
+    const id = data.id || `${team}-${role}`;
+    const profile = {
+        firstName,
+        lastName,
+        fullName: `${firstName}${lastName ? ` ${lastName}` : ''}`,
+        number: data.number ?? null,
+    };
+
     const player = {
-        id: `${team}-${role}-${_pid++}`,
+        id,
         team,
         role,
-        attrs: makeAttrs(role),
+        attrs: normaliseAttrs(data.ratings || {}, role),
+        modifiers: { ...(data.modifiers || {}) },
+        profile,
+        number: profile.number,
         pos: { x: FIELD_PIX_W / 2, y: yardsToPixY(ENDZONE_YARDS + 20) },
         v: { x: 0, y: 0 },
         home: null,
         alive: true,
     };
+
     resetMotion(player);
     return player;
 }
@@ -44,15 +63,47 @@ function makePlayer(team, role) {
 /** Build both full team pools once */
 export function createTeams() {
     const buildSide = (team) => {
+        const teamData = TEAM_DATA[team] || {};
         const off = {}; const def = {};
-        ROLES_OFF.forEach(r => { off[r] = makePlayer(team, r); });
-        ROLES_DEF.forEach(r => { def[r] = makePlayer(team, r); });
+        ROLES_OFF.forEach((r) => {
+            const data = teamData.offense?.[r] || {};
+            off[r] = makePlayer(team, r, data);
+        });
+        ROLES_DEF.forEach((r) => {
+            const data = teamData.defense?.[r] || {};
+            def[r] = makePlayer(team, r, data);
+        });
         return { off, def };
     };
     return {
         [TEAM_RED]: buildSide(TEAM_RED),
         [TEAM_BLK]: buildSide(TEAM_BLK),
     };
+}
+
+export function buildPlayerDirectory(teams) {
+    const dir = {};
+    if (!teams) return dir;
+    Object.entries(teams).forEach(([team, group]) => {
+        if (!group) return;
+        const register = (collection, side) => {
+            Object.entries(collection || {}).forEach(([role, player]) => {
+                if (!player) return;
+                dir[player.id] = {
+                    team,
+                    role,
+                    side,
+                    firstName: player.profile?.firstName || role,
+                    lastName: player.profile?.lastName || '',
+                    fullName: player.profile?.fullName || role,
+                    number: player.profile?.number ?? null,
+                };
+            });
+        };
+        register(group.off, 'offense');
+        register(group.def, 'defense');
+    });
+    return dir;
 }
 
 /**

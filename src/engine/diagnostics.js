@@ -1,4 +1,5 @@
 // src/engine/diagnostics.js
+import { applyStatEvent } from './stats';
 
 const MAX_STORED_PLAYS = 40;
 
@@ -44,6 +45,7 @@ export function recordPlayEvent(state, event) {
         ...event,
     });
     if (play.events.length > 400) play.events.shift();
+    applyStatEvent(state, event);
 }
 
 export function finalizePlayDiagnostics(state, summary = {}) {
