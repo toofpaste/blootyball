@@ -62,10 +62,12 @@ export default function App() {
   return (
     <div
       style={{
-        display: 'grid',
-        gridTemplateRows: 'auto auto 1fr',
-        height: '100vh',
+        minHeight: '100vh',
         background: '#0b3d0b',
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        paddingBottom: 24,
       }}
     >
       <Toolbar
@@ -88,22 +90,22 @@ export default function App() {
         forceOutcome={state.debug?.forceNextOutcome || null}
       />
       <Scoreboard
-    redScore={state.scores?.[TEAM_RED] ?? 0}
-              blkScore={state.scores?.[TEAM_BLK] ?? 0}
-              quarter={state.clock.quarter}
-            timeLeftText={fmtClock(state.clock.time)}
-              down={state.drive.down}
-             toGo={state.drive.toGo}
+        redScore={state.scores?.[TEAM_RED] ?? 0}
+        blkScore={state.scores?.[TEAM_BLK] ?? 0}
+        quarter={state.clock.quarter}
+        timeLeftText={fmtClock(state.clock.time)}
+        down={state.drive.down}
+        toGo={state.drive.toGo}
       />
       <div
         style={{
+          width: '100%',
           display: 'flex',
           flexDirection: 'column',
           alignItems: 'center',
           padding: '8px',
           gap: '12px',
-          overflowY: 'auto',
-          minHeight: 0,
+          boxSizing: 'border-box',
         }}
       >
         <canvas
