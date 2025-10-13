@@ -56,6 +56,28 @@ function makePlayer(team, role, data = {}) {
     return player;
 }
 
+function makeKicker(team, data = {}) {
+    const firstName = data.firstName || 'Kicker';
+    const lastName = data.lastName || '';
+    const id = data.id || `${team}-K`;
+    const profile = {
+        firstName,
+        lastName,
+        fullName: `${firstName}${lastName ? ` ${lastName}` : ''}`,
+        number: data.number ?? null,
+    };
+
+    return {
+        id,
+        team,
+        role: 'K',
+        profile,
+        number: profile.number,
+        maxDistance: clamp(data.maxDistance ?? 50, 30, 70),
+        accuracy: clamp(data.accuracy ?? 0.75, 0.4, 0.99),
+    };
+}
+
 /* =========================================================
    Public API (kept compatible) + new helpers for possession
    ========================================================= */
@@ -73,7 +95,9 @@ export function createTeams() {
             const data = teamData.defense?.[r] || {};
             def[r] = makePlayer(team, r, data);
         });
-        return { off, def };
+        const kickerData = teamData.specialTeams?.K || {};
+        const special = { K: makeKicker(team, kickerData) };
+        return { off, def, special };
     };
     return {
         [TEAM_RED]: buildSide(TEAM_RED),
@@ -102,6 +126,18 @@ export function buildPlayerDirectory(teams) {
         };
         register(group.off, 'offense');
         register(group.def, 'defense');
+        if (group.special?.K) {
+            const k = group.special.K;
+            dir[k.id] = {
+                team,
+                role: 'K',
+                side: 'special',
+                firstName: k.profile?.firstName || 'Kicker',
+                lastName: k.profile?.lastName || '',
+                fullName: k.profile?.fullName || 'Kicker',
+                number: k.profile?.number ?? null,
+            };
+        }
     });
     return dir;
 }
@@ -123,7 +159,12 @@ export function rosterForPossession(teams, offenseTeam) {
         def[r] = { ...base, pos: { ...base.pos }, home: base.home ? { ...base.home } : null };
         resetMotion(def[r]);
     });
-    return { off, def };
+    const special = {};
+    if (teams[offenseTeam].special?.K) {
+        const base = teams[offenseTeam].special.K;
+        special.K = { ...base };
+    }
+    return { off, def, special };
 }
 
 /**

@@ -262,6 +262,16 @@
       }
     }
   },
+  "specialTeams": {
+    "K": {
+      "id": "BLK-K",
+      "firstName": "Mateo",
+      "lastName": "Vega",
+      "number": 9,
+      "maxDistance": 52,
+      "accuracy": 0.8
+    }
+  },
   "defense": {
     "LE": {
       "id": "BLK-LE",

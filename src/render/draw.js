@@ -139,6 +139,9 @@ function drawField(ctx) {
         drawNumber(ctx, leftNumX, y - 10, seq[i], 'left');
         drawNumber(ctx, rightNumX, y + 10, seq[i], 'right');
     }
+
+    drawGoalPost(ctx, yardsToPixY(ENDZONE_YARDS), -1);
+    drawGoalPost(ctx, yardsToPixY(ENDZONE_YARDS + PLAYING_YARDS_H), 1);
 }
 
 function drawNumber(ctx, x, y, num, align) {
@@ -149,6 +152,23 @@ function drawNumber(ctx, x, y, num, align) {
 
 function line(ctx, x1, y1, x2, y2) { ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke(); }
 function dashLine(ctx, x1, y1, x2, y2, dash = [6, 4]) { ctx.save(); ctx.setLineDash(dash); line(ctx, x1, y1, x2, y2); ctx.restore(); }
+
+function drawGoalPost(ctx, goalLineY, dir = 1) {
+    const centerX = FIELD_PIX_W / 2;
+    const crossbarHalf = 38;
+    const uprightHeight = 70;
+    const offset = 8 * dir;
+    const uprightEnd = goalLineY + offset + uprightHeight * dir;
+
+    ctx.save();
+    ctx.strokeStyle = '#f8e27d';
+    ctx.lineWidth = 3;
+    line(ctx, centerX, goalLineY, centerX, goalLineY + offset);
+    line(ctx, centerX - crossbarHalf, goalLineY + offset, centerX + crossbarHalf, goalLineY + offset);
+    line(ctx, centerX - crossbarHalf, goalLineY + offset, centerX - crossbarHalf, uprightEnd);
+    line(ctx, centerX + crossbarHalf, goalLineY + offset, centerX + crossbarHalf, uprightEnd);
+    ctx.restore();
+}
 
 /* ----------------- Entities ----------------- */
 function drawPlayer(ctx, p, color) {
@@ -193,7 +213,7 @@ function shortRole(r) {
         QB: 'QB', RB: 'RB', WR1: 'W1', WR2: 'W2', WR3: 'W3', TE: 'TE',
         LT: 'LT', LG: 'LG', C: 'C', RG: 'RG', RT: 'RT',
         LE: 'LE', DT: 'DT', RTk: 'NT', RE: 'RE',
-        LB1: 'LB', LB2: 'LB', CB1: 'C1', CB2: 'C2', S1: 'S1', S2: 'S2', NB: 'NB'
+        LB1: 'LB', LB2: 'LB', CB1: 'C1', CB2: 'C2', S1: 'S1', S2: 'S2', NB: 'NB', K: 'K'
     };
     return map[r] || (r || '?');
 }
