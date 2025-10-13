@@ -24,4 +24,28 @@ describe('generateSeasonSchedule', () => {
 
     expect(schedule).toHaveLength(64);
   });
+
+  it('ensures each team appears only once per week', () => {
+    const schedule = generateSeasonSchedule();
+    const weeks = new Map();
+
+    schedule.forEach((game) => {
+      const weekGames = weeks.get(game.week) || [];
+      weekGames.push(game);
+      weeks.set(game.week, weekGames);
+    });
+
+    expect(weeks.size).toBe(16);
+
+    weeks.forEach((games) => {
+      const seen = new Set();
+      games.forEach(({ homeTeam, awayTeam }) => {
+        expect(seen.has(homeTeam)).toBe(false);
+        expect(seen.has(awayTeam)).toBe(false);
+        seen.add(homeTeam);
+        seen.add(awayTeam);
+      });
+      expect(seen.size).toBe(TEAM_IDS.length);
+    });
+  });
 });

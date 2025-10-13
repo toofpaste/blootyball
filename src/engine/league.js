@@ -17,36 +17,66 @@ export function formatRecord(record) {
 
 export function generateSeasonSchedule(teamIds = TEAM_IDS) {
   const ids = [...teamIds];
-  const games = [];
+  if (!ids.length) return [];
 
-  for (let i = 0; i < ids.length; i += 1) {
-    for (let j = i + 1; j < ids.length; j += 1) {
-      games.push({ homeTeam: ids[i], awayTeam: ids[j], tag: 'double-a' });
-      games.push({ homeTeam: ids[j], awayTeam: ids[i], tag: 'double-b' });
+  const circle = [...ids];
+  const totalTeams = circle.length;
+  const half = totalTeams / 2;
+  const rounds = totalTeams - 1;
+  const firstLegWeeks = [];
+
+  let rotation = [...circle];
+  for (let round = 0; round < rounds; round += 1) {
+    const games = [];
+    for (let i = 0; i < half; i += 1) {
+      const teamA = rotation[i];
+      const teamB = rotation[totalTeams - 1 - i];
+      const swap = round % 2 === 1;
+      const homeTeam = swap ? teamB : teamA;
+      const awayTeam = swap ? teamA : teamB;
+      games.push({ homeTeam, awayTeam, tag: 'regular-season' });
     }
+    firstLegWeeks.push(games);
+
+    const fixed = rotation[0];
+    const rest = rotation.slice(1);
+    const last = rest.pop();
+    rotation = [fixed, last, ...rest];
   }
 
-  const extraPairs = [
-    [ids[0], ids[1]],
-    [ids[2], ids[3]],
-    [ids[4], ids[5]],
-    [ids[6], ids[7]],
-    [ids[0], ids[2]],
-    [ids[1], ids[3]],
-    [ids[4], ids[6]],
-    [ids[5], ids[7]],
+  const rematchWeeks = firstLegWeeks.map((week) => week.map((game) => ({
+    homeTeam: game.awayTeam,
+    awayTeam: game.homeTeam,
+    tag: 'regular-season-rematch',
+  })));
+
+  const safePair = (aIndex, bIndex) => {
+    const home = ids[aIndex];
+    const away = ids[bIndex];
+    if (!home || !away) return null;
+    return [home, away];
+  };
+
+  const extraWeekPairs = [
+    [safePair(0, 1), safePair(2, 3), safePair(4, 5), safePair(6, 7)].filter(Boolean),
+    [safePair(0, 2), safePair(1, 3), safePair(4, 6), safePair(5, 7)].filter(Boolean),
   ];
 
-  extraPairs.forEach((pair, idx) => {
-    const [a, b] = pair;
-    if (idx < extraPairs.length / 2) {
-      games.push({ homeTeam: a, awayTeam: b, tag: 'extra-home' });
-    } else {
-      games.push({ homeTeam: b, awayTeam: a, tag: 'extra-away' });
-    }
-  });
+  const extraWeeks = extraWeekPairs
+    .filter((pairs) => pairs.length)
+    .map((pairs, idx) => pairs.map(([a, b]) => ({
+      homeTeam: idx % 2 === 0 ? a : b,
+      awayTeam: idx % 2 === 0 ? b : a,
+      tag: 'rivalry-week',
+    })));
 
-  return games.map((game, index) => ({
+  const weeks = [...firstLegWeeks, ...rematchWeeks, ...extraWeeks];
+
+  return weeks.flatMap((games, weekIndex) => games.map((game, slotIndex) => ({
+    ...game,
+    week: weekIndex + 1,
+    slot: slotIndex,
+  }))).map((game, index) => ({
     ...game,
     id: `G${String(index + 1).padStart(3, '0')}`,
     index,
@@ -109,9 +139,34 @@ export function createMatchupFromGame(game) {
   };
 }
 
-function ensureSeasonPlayerEntry(season, playerId) {
-  if (!season.playerStats[playerId]) {
-    season.playerStats[playerId] = {
+function cloneTeamSeasonEntry(team) {
+  if (!team) return null;
+  const record = team.record || {};
+  const stats = team.stats || {};
+  return {
+    ...team,
+    record: {
+      wins: record.wins ?? 0,
+      losses: record.losses ?? 0,
+      ties: record.ties ?? 0,
+    },
+    stats: {
+      passingYards: stats.passingYards ?? 0,
+      passingTD: stats.passingTD ?? 0,
+      rushingYards: stats.rushingYards ?? 0,
+      rushingTD: stats.rushingTD ?? 0,
+      receivingYards: stats.receivingYards ?? 0,
+      receivingTD: stats.receivingTD ?? 0,
+      tackles: stats.tackles ?? 0,
+      sacks: stats.sacks ?? 0,
+      interceptions: stats.interceptions ?? 0,
+    },
+  };
+}
+
+function clonePlayerSeasonEntry(entry) {
+  if (!entry) {
+    return {
       passing: { attempts: 0, completions: 0, yards: 0, touchdowns: 0, interceptions: 0, sacks: 0, sackYards: 0 },
       rushing: { attempts: 0, yards: 0, touchdowns: 0, fumbles: 0 },
       receiving: { targets: 0, receptions: 0, yards: 0, touchdowns: 0, drops: 0 },
@@ -120,7 +175,59 @@ function ensureSeasonPlayerEntry(season, playerId) {
       kicking: { attempts: 0, made: 0, long: 0, patAttempts: 0, patMade: 0 },
     };
   }
-  return season.playerStats[playerId];
+
+  return {
+    passing: {
+      attempts: entry.passing?.attempts ?? 0,
+      completions: entry.passing?.completions ?? 0,
+      yards: entry.passing?.yards ?? 0,
+      touchdowns: entry.passing?.touchdowns ?? 0,
+      interceptions: entry.passing?.interceptions ?? 0,
+      sacks: entry.passing?.sacks ?? 0,
+      sackYards: entry.passing?.sackYards ?? 0,
+    },
+    rushing: {
+      attempts: entry.rushing?.attempts ?? 0,
+      yards: entry.rushing?.yards ?? 0,
+      touchdowns: entry.rushing?.touchdowns ?? 0,
+      fumbles: entry.rushing?.fumbles ?? 0,
+    },
+    receiving: {
+      targets: entry.receiving?.targets ?? 0,
+      receptions: entry.receiving?.receptions ?? 0,
+      yards: entry.receiving?.yards ?? 0,
+      touchdowns: entry.receiving?.touchdowns ?? 0,
+      drops: entry.receiving?.drops ?? 0,
+    },
+    defense: {
+      tackles: entry.defense?.tackles ?? 0,
+      sacks: entry.defense?.sacks ?? 0,
+      interceptions: entry.defense?.interceptions ?? 0,
+    },
+    misc: {
+      fumbles: entry.misc?.fumbles ?? 0,
+    },
+    kicking: {
+      attempts: entry.kicking?.attempts ?? 0,
+      made: entry.kicking?.made ?? 0,
+      long: entry.kicking?.long ?? 0,
+      patAttempts: entry.kicking?.patAttempts ?? 0,
+      patMade: entry.kicking?.patMade ?? 0,
+    },
+  };
+}
+
+function ensureSeasonPlayerEntry(season, playerId) {
+  season.playerStats ||= {};
+  const existing = season.playerStats[playerId];
+  if (existing) {
+    season.playerStats[playerId] = clonePlayerSeasonEntry(existing);
+    return season.playerStats[playerId];
+  }
+
+  const fresh = clonePlayerSeasonEntry(null);
+  season.playerStats[playerId] = fresh;
+  return fresh;
 }
 
 function mergeCategory(target, source, keys) {
@@ -132,6 +239,7 @@ function mergeCategory(target, source, keys) {
 }
 
 export function mergePlayerStatsIntoSeason(season, playerStats = {}) {
+  season.playerStats ||= {};
   Object.entries(playerStats).forEach(([playerId, stat]) => {
     const entry = ensureSeasonPlayerEntry(season, playerId);
     if (!entry) return;
@@ -169,20 +277,20 @@ export function accumulateTeamStatsFromPlayers(season, directory = {}, playerSta
 }
 
 export function applyGameResultToSeason(season, game, scores, directory, playerStats, playLog = []) {
-  if (!season || !game) return;
+  if (!season || !game) return season;
   const homeId = game.homeTeam;
   const awayId = game.awayTeam;
   const homeScore = scores?.[TEAM_RED] ?? 0;
   const awayScore = scores?.[TEAM_BLK] ?? 0;
 
-  const homeEntry = season.teams[homeId];
-  const awayEntry = season.teams[awayId];
-  if (!homeEntry || !awayEntry) return;
+  const homeEntry = cloneTeamSeasonEntry(season.teams[homeId]);
+  const awayEntry = cloneTeamSeasonEntry(season.teams[awayId]);
+  if (!homeEntry || !awayEntry) return season;
 
-  homeEntry.pointsFor += homeScore;
-  homeEntry.pointsAgainst += awayScore;
-  awayEntry.pointsFor += awayScore;
-  awayEntry.pointsAgainst += homeScore;
+  homeEntry.pointsFor = (homeEntry.pointsFor || 0) + homeScore;
+  homeEntry.pointsAgainst = (homeEntry.pointsAgainst || 0) + awayScore;
+  awayEntry.pointsFor = (awayEntry.pointsFor || 0) + awayScore;
+  awayEntry.pointsAgainst = (awayEntry.pointsAgainst || 0) + homeScore;
 
   if (homeScore > awayScore) {
     homeEntry.record.wins += 1;
@@ -195,8 +303,22 @@ export function applyGameResultToSeason(season, game, scores, directory, playerS
     awayEntry.record.ties += 1;
   }
 
-  accumulateTeamStatsFromPlayers(season, directory, playerStats);
-  mergePlayerStatsIntoSeason(season, playerStats);
+  const updatedTeams = {
+    ...season.teams,
+    [homeId]: homeEntry,
+    [awayId]: awayEntry,
+  };
+
+  const nextSeason = {
+    ...season,
+    teams: updatedTeams,
+    schedule: [...season.schedule],
+    results: [...(season.results || [])],
+    playerStats: { ...(season.playerStats || {}) },
+  };
+
+  accumulateTeamStatsFromPlayers(nextSeason, directory, playerStats);
+  mergePlayerStatsIntoSeason(nextSeason, playerStats);
 
   const result = {
     gameId: game.id,
@@ -207,9 +329,11 @@ export function applyGameResultToSeason(season, game, scores, directory, playerS
     winner: homeScore === awayScore ? null : (homeScore > awayScore ? homeId : awayId),
     playLog: Array.isArray(playLog) ? [...playLog] : [],
   };
-  season.results.push(result);
-  season.schedule[game.index] = { ...game, played: true, result };
-  season.completedGames += 1;
+  nextSeason.results.push(result);
+  nextSeason.schedule[game.index] = { ...game, played: true, result };
+  nextSeason.completedGames = (season.completedGames || 0) + 1;
+
+  return nextSeason;
 }
 
 export function prepareSeasonMatchup(season) {
