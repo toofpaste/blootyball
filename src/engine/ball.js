@@ -220,8 +220,8 @@ export function moveBall(s, dt) {
                 const baseCatchChance = clamp(0.28 + accuracyBlend * 0.32 + sepBonus + shortBonus - deepPenalty, 0.1, 0.6);
                 const separationYards = (separation ?? 0) / PX_PER_YARD;
                 const openRatio = clamp((separationYards - 1.5) / 6, 0, 1);
-                const openBonus = openRatio * 0.15;
-                const catchProbability = clamp(baseCatchChance + openBonus, 0.05, 0.75);
+                const openBonus = openRatio * 0.22;
+                const catchProbability = clamp(baseCatchChance + openBonus, 0.05, 0.8);
 
                 if (Math.random() < catchProbability) {
                     const dropBase = 0.08;
@@ -230,7 +230,8 @@ export function moveBall(s, dt) {
                     const dropRisk = s.play.passRisky ? 0.05 : 0;
                     const depthDrop = clamp((throwDistYards - 12) * 0.015, 0, 0.14);
                     const traitDrop = clamp(-handsTrait * 0.08, -0.08, 0.08);
-                    const dropProb = clamp(dropBase + dropHands + dropContact + dropRisk + depthDrop + traitDrop, 0.03, 0.45);
+                    const openDropRelief = openRatio * 0.14;
+                    const dropProb = clamp(dropBase + dropHands + dropContact + dropRisk + depthDrop + traitDrop - openDropRelief, 0.02, 0.42);
 
                     if (Math.random() < dropProb) {
                         s.play.deadAt = s.play.elapsed;
