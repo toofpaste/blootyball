@@ -1055,6 +1055,35 @@ export function qbLogic(s, dt) {
         if (time > (s.play.scrambleUntil || 0)) s.play.scrambleMode = 'FORWARD';
     }
 
+    if (call.type === 'RUN') {
+        const role = typeof call.handoffTo === 'string' ? call.handoffTo : 'RB';
+        const runner = (role && off[role]) || off.RB;
+        if (!runner || !runner.pos) return;
+
+        const exchangeRadius = PX_PER_YARD * 1.35;
+        const meshDist = dist(qb.pos, runner.pos);
+        const atMeshPoint = dropArrived || meshDist <= exchangeRadius * 0.75;
+        const meshReady = s.play.elapsed >= (call.handoffDelay ?? 0.6);
+
+        if (!s.play.handed && atMeshPoint && meshDist <= exchangeRadius && meshReady) {
+            const carrierKey = runner.id || role || 'RB';
+            s.play.ball.inAir = false;
+            s.play.ball.targetId = null;
+            s.play.ball.flight = null;
+            s.play.ball.carrierId = carrierKey;
+            s.play.ball.lastCarrierId = carrierKey;
+            s.play.handed = true;
+            s.play.handoffTime = s.play.elapsed;
+            s.play.qbMoveMode = 'SET';
+            if (Array.isArray(s.play.rbTargets) && s.play.rbTargets.length) {
+                runner.targets = s.play.rbTargets;
+                runner.routeIdx = 0;
+            }
+        }
+
+        return;
+    }
+
     // Throws (unchanged scoring, just guarded inside tryThrow)
     tryThrow(s, { underHeat, underImmediatePressure, lateralBias });
 }
