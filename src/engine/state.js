@@ -1511,7 +1511,12 @@ export function stepGame(state, dt) {
    ========================================================= */
 // REPLACE your betweenPlays with this version
 // --- DROP-IN REPLACEMENT ---
-export function betweenPlays(s) {
+export function betweenPlays(prevState) {
+    const s = {
+        ...prevState,
+        playLog: Array.isArray(prevState.playLog) ? [...prevState.playLog] : [],
+    };
+
     ensureDrive(s); // keep a valid drive object around
     const offenseAtSnap = s.possession; // who ran the play
     const call = s.play.playCall || { name: 'Play' };
