@@ -186,17 +186,22 @@ export function moveBall(s, dt) {
                 }
 
                 if (picked) {
+                    const picker = nearestDef.t || null;
+                    const pickPos = picker?.pos ? { x: picker.pos.x, y: picker.pos.y } : { ...r.pos };
+
                     s.play.deadAt = s.play.elapsed;
                     s.play.phase = 'DEAD';
                     s.play.resultWhy = 'Interception';
                     s.play.turnover = true;
                     ball.inAir = false;
                     ball.flight = null;
-                    ball.renderPos = { ...r.pos };
-                    ball.shadowPos = { ...r.pos };
+                    ball.carrierId = picker?.id || null;
+                    ball.lastCarrierId = picker?.id || ball.lastCarrierId || null;
+                    ball.renderPos = pickPos;
+                    ball.shadowPos = pickPos;
                     recordPlayEvent(s, {
                         type: 'pass:interception',
-                        by: nearestDef.t?.id || null,
+                        by: picker?.id || null,
                         targetId: r.id,
                     });
                     return;
