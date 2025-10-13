@@ -34,7 +34,7 @@ function ensureDrive(s) {
 function isNoAdvance(why) {
     if (!why) return false;
     const w = String(why).toLowerCase();
-    return w === 'incomplete' || w === 'throwaway' || w === 'throw away' || w === 'spike';
+    return w === 'incomplete' || w === 'throwaway' || w === 'throw away' || w === 'spike' || w === 'drop';
 }
 
 function pushPlayLog(state, entry) {
@@ -129,6 +129,7 @@ function shouldStopClockForResult(why, turnover = false) {
     return (
         w.includes('out of bounds') ||
         w.includes('incomplete') ||
+        w.includes('drop') ||
         w.includes('touchdown') ||
         w.includes('interception') ||
         w.includes('turnover') ||

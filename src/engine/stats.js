@@ -167,7 +167,12 @@ export function applyStatEvent(state, event) {
 function isPassResult(resultWhy) {
     if (!resultWhy) return false;
     const txt = String(resultWhy).toLowerCase();
-    return txt.includes('incomplete') || txt.includes('throw away') || txt.includes('throwaway');
+    return (
+        txt.includes('incomplete') ||
+        txt.includes('throw away') ||
+        txt.includes('throwaway') ||
+        txt.includes('drop')
+    );
 }
 
 export function finalizePlayStats(state, summary) {
