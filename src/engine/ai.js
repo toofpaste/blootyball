@@ -215,6 +215,8 @@ export function initRoutesAfterSnap(s) {
     const off = (s.play && s.play.formation && s.play.formation.off) || {};
     const call = (s.play && s.play.playCall) || {};
 
+    s.play.defFormation = s.play.formation?.defFormation || s.play.defFormation || '';
+
     off.__playCall = call;
 
     s.play.routeTargets = {};
@@ -1526,9 +1528,11 @@ function _isDefensiveBack(key) {
 
 function _coverageReleaseDepthFor(cover, key) {
     const isDB = _isDefensiveBack(key);
+    const releaseBoost = cover?.releaseBoost || {};
+    const boost = isDB ? (releaseBoost.db ?? 0) : (releaseBoost.lb ?? 0);
     return {
-        run: cover.losY + PX_PER_YARD * (isDB ? 3.2 : 1.8),
-        qb: cover.losY + PX_PER_YARD * (isDB ? 2.2 : 1.0),
+        run: cover.losY + PX_PER_YARD * ((isDB ? 3.2 : 1.8) + boost),
+        qb: cover.losY + PX_PER_YARD * ((isDB ? 2.2 : 1.0) + boost * 0.6),
     };
 }
 
@@ -1641,14 +1645,14 @@ function _coverageLeverage(defender, target, qbPos) {
     return leverage;
 }
 
-function _computeManAim(ctx, defender, target, { isDB, cushion }) {
+function _computeManAim(ctx, defender, target, { isDB, cushion, zoneDrop = null }) {
     const lead = _leadPoint(target, isDB ? 0.32 : 0.26, ctx.dt);
     const leverage = _coverageLeverage(defender, target, ctx.qbPos);
     const minDepth = ctx.cover.losY + PX_PER_YARD * (isDB ? 1.2 : 0.8);
     const desiredDepth = Math.max(minDepth, lead.y - cushion);
     const maxDepth = Math.max(desiredDepth, target.pos.y - PX_PER_YARD * 0.25);
     let aimY = clamp(desiredDepth, minDepth, maxDepth);
-    const aimX = clamp(lead.x + leverage * (isDB ? 6 : 4), 16, FIELD_PIX_W - 16);
+    let aimX = clamp(lead.x + leverage * (isDB ? 6 : 4), 16, FIELD_PIX_W - 16);
 
     const trailing = defender.pos.y > target.pos.y - PX_PER_YARD * 0.6;
     const spacing = dist(defender.pos, target.pos);
@@ -1659,11 +1663,26 @@ function _computeManAim(ctx, defender, target, { isDB, cushion }) {
     }
     if (spacing > cushion * 1.8) speedMul += 0.05;
 
+    if (zoneDrop) {
+        const dropY = zoneDrop.y ?? aimY;
+        aimY = Math.max(aimY, dropY);
+        const dropX = zoneDrop.x ?? aimX;
+        aimX = clamp(_lerp(dropX, aimX, 0.55), 16, FIELD_PIX_W - 16);
+        if (zoneDrop.speed) speedMul = speedMul * zoneDrop.speed;
+    }
+
     return { point: { x: aimX, y: aimY }, speedMul };
 }
 
 function _findZoneHelpAim(ctx, defender, key) {
     const isDB = _isDefensiveBack(key);
+    const zoneDrop = ctx.cover.zoneDrops?.[key];
+    if (zoneDrop) {
+        return {
+            point: { x: zoneDrop.x, y: zoneDrop.y },
+            speedMul: zoneDrop.speed ?? (isDB ? 0.96 : 0.9),
+        };
+    }
     const baseDepth = ctx.cover.losY + PX_PER_YARD * (isDB ? 7.0 : 5.2);
     let anchor = {
         x: clamp(ctx.qbPos.x + (defender.pos.x < FIELD_PIX_W / 2 ? -28 : 28), 20, FIELD_PIX_W - 20),
@@ -1719,11 +1738,16 @@ function _updateManCoverageForKey(ctx, key) {
 
     const targetRole = _resolveManAssignment(ctx, key);
     const target = targetRole ? ctx.off[targetRole] : null;
+    const zoneDrop = ctx.cover.zoneDrops?.[key] || null;
 
     if (_pursueCarrierIfNeeded(ctx, key, defender, targetRole)) return;
 
     if (target?.pos) {
-        const aim = _computeManAim(ctx, defender, target, { isDB: _isDefensiveBack(key), cushion: ctx.cushion });
+        const aim = _computeManAim(ctx, defender, target, {
+            isDB: _isDefensiveBack(key),
+            cushion: ctx.cushion,
+            zoneDrop,
+        });
         moveToward(defender, aim.point, ctx.dt, aim.speedMul);
         return;
     }
@@ -1742,24 +1766,114 @@ function _updateSafetyCoverage(ctx, key, idx, coverables) {
         return;
     }
 
-    if (ctx.cover.isCover2 && ctx.cover.deepLandmarks) {
-        const landmark = idx === 0 ? ctx.cover.deepLandmarks.left : ctx.cover.deepLandmarks.right;
-        const deep = coverables.reduce((best, p) => {
+    const shell = ctx.cover.shell || 'default';
+    const drop = ctx.cover.safetyDrops?.[key] || null;
+    const isLeft = idx === 0;
+
+    if (shell === 'cover3') {
+        if (isLeft) {
+            const landmark = drop || ctx.cover.deepLandmarks?.middle || {
+                x: ctx.qbPos.x,
+                y: ctx.cover.losY + PX_PER_YARD * 13.4,
+            };
+            const threat = coverables.reduce((best, p) => {
+                if (!p?.pos) return best;
+                if (p.pos.y < ctx.cover.losY + PX_PER_YARD * 5) return best;
+                const lateral = Math.abs(p.pos.x - landmark.x);
+                const depth = p.pos.y - ctx.cover.losY;
+                const score = depth * 1.15 - lateral * 0.4;
+                return (!best || score > best.score) ? { score, player: p } : best;
+            }, null);
+            if (threat?.player) {
+                const lead = _leadPoint(threat.player, 0.34, ctx.dt);
+                const aim = {
+                    x: clamp(_lerp(landmark.x, lead.x, 0.6), 20, FIELD_PIX_W - 20),
+                    y: Math.max(landmark.y, lead.y - PX_PER_YARD * 5.2),
+                };
+                moveToward(defender, aim, ctx.dt, 0.95);
+            } else {
+                moveToward(defender, landmark, ctx.dt, 0.92);
+            }
+        } else {
+            const landmark = drop || {
+                x: clamp(ctx.qbPos.x + (defender.pos.x < FIELD_PIX_W / 2 ? -32 : 32), 22, FIELD_PIX_W - 22),
+                y: ctx.cover.losY + PX_PER_YARD * 7.2,
+            };
+            const side = landmark.x >= FIELD_PIX_W / 2 ? 1 : -1;
+            const threat = coverables.reduce((best, p) => {
+                if (!p?.pos) return best;
+                if (p.pos.y < ctx.cover.losY + PX_PER_YARD * 3.5) return best;
+                const onSide = side > 0 ? p.pos.x >= FIELD_PIX_W / 2 - 8 : p.pos.x <= FIELD_PIX_W / 2 + 8;
+                if (!onSide) return best;
+                const depth = p.pos.y - ctx.cover.losY;
+                const lateral = Math.abs(p.pos.x - landmark.x);
+                const score = depth * 0.85 - lateral * 0.25;
+                return (!best || score > best.score) ? { score, player: p } : best;
+            }, null);
+            if (threat?.player) {
+                const lead = _leadPoint(threat.player, 0.3, ctx.dt);
+                const aim = {
+                    x: clamp(_lerp(landmark.x, lead.x, 0.6), 20, FIELD_PIX_W - 20),
+                    y: Math.max(landmark.y, Math.min(landmark.y + PX_PER_YARD * 4.2, lead.y - PX_PER_YARD * 2.2)),
+                };
+                moveToward(defender, aim, ctx.dt, 0.96);
+            } else {
+                moveToward(defender, landmark, ctx.dt, 0.9);
+            }
+        }
+        return;
+    }
+
+    if (shell === 'cover4' && ctx.cover.deepLandmarks) {
+        const landmark = drop || (isLeft ? ctx.cover.deepLandmarks.left : ctx.cover.deepLandmarks.right) || {
+            x: ctx.qbPos.x + (isLeft ? -60 : 60),
+            y: ctx.cover.losY + PX_PER_YARD * 13.6,
+        };
+        const threat = coverables.reduce((best, p) => {
             if (!p?.pos) return best;
-            const onSide = idx === 0 ? p.pos.x <= FIELD_PIX_W / 2 : p.pos.x >= FIELD_PIX_W / 2;
+            const onSide = isLeft ? p.pos.x <= FIELD_PIX_W / 2 + 12 : p.pos.x >= FIELD_PIX_W / 2 - 12;
             if (!onSide) return best;
             const depth = p.pos.y - ctx.cover.losY;
-            if (!best || depth > best.depth) return { depth, player: p };
-            return best;
+            const lateral = Math.abs(p.pos.x - landmark.x);
+            const score = depth * 1.1 - lateral * 0.35;
+            return (!best || score > best.score) ? { score, player: p } : best;
         }, null);
-        if (deep?.player) {
-            const lead = _leadPoint(deep.player, 0.36, ctx.dt);
+        if (threat?.player) {
+            const lead = _leadPoint(threat.player, 0.34, ctx.dt);
             const aim = {
-                x: clamp(landmark.x * 0.4 + lead.x * 0.6, 20, FIELD_PIX_W - 20),
-                y: Math.max(lead.y - PX_PER_YARD * 4.6, ctx.cover.losY + PX_PER_YARD * 9.0),
+                x: clamp(_lerp(landmark.x, lead.x, 0.55), 20, FIELD_PIX_W - 20),
+                y: Math.max(landmark.y, lead.y - PX_PER_YARD * 5.2),
             };
             moveToward(defender, aim, ctx.dt, 0.94);
         } else {
+            moveToward(defender, landmark, ctx.dt, 0.92);
+        }
+        return;
+    }
+
+    if ((ctx.cover.isCover2 || ctx.cover.isTwoMan) && ctx.cover.deepLandmarks) {
+        const landmark = drop || (isLeft ? ctx.cover.deepLandmarks.left : ctx.cover.deepLandmarks.right);
+        const threat = coverables.reduce((best, p) => {
+            if (!p?.pos) return best;
+            const onSide = isLeft ? p.pos.x <= FIELD_PIX_W / 2 : p.pos.x >= FIELD_PIX_W / 2;
+            if (!onSide && !ctx.cover.isTwoMan) return best;
+            const depth = p.pos.y - ctx.cover.losY;
+            const lateral = Math.abs(p.pos.x - landmark.x);
+            const score = ctx.cover.isTwoMan
+                ? depth * 1.1 - lateral * 0.25
+                : depth * 1.0 - lateral * 0.3;
+            return (!best || score > best.score) ? { score, player: p } : best;
+        }, null);
+        if (threat?.player) {
+            const lead = _leadPoint(threat.player, ctx.cover.isTwoMan ? 0.38 : 0.36, ctx.dt);
+            const mix = ctx.cover.isTwoMan ? 0.5 : 0.6;
+            const depthFloor = ctx.cover.losY + PX_PER_YARD * (ctx.cover.isTwoMan ? 11.2 : 9.0);
+            const aim = {
+                x: clamp(_lerp(landmark.x, lead.x, mix), 20, FIELD_PIX_W - 20),
+                y: Math.max(landmark?.y ?? depthFloor, Math.max(depthFloor, lead.y - PX_PER_YARD * (ctx.cover.isTwoMan ? 5.2 : 4.6))),
+            };
+            moveToward(defender, aim, ctx.dt, ctx.cover.isTwoMan ? 0.96 : 0.94);
+        } else if (landmark) {
             moveToward(defender, landmark, ctx.dt, 0.92);
         }
         return;
@@ -1802,8 +1916,24 @@ function _computeCoverageAssignments(s) {
     const assigned = {};
     const used = new Set();
 
-    // Prefer man-match when not Cover-2 Shell; in Cover-2 we still seed "primary"
-    const isCover2 = (s.play.defFormation || '').includes('Cover-2');
+    const defFormationName = (s.play.defFormation || '').toLowerCase();
+    const shell = defFormationName.includes('cover-4') || defFormationName.includes('quarters')
+        ? 'cover4'
+        : defFormationName.includes('cover-3')
+            ? 'cover3'
+            : defFormationName.includes('cover-2')
+                ? 'cover2'
+                : defFormationName.includes('2-man')
+                    ? 'twoMan'
+                    : defFormationName.includes('zero')
+                        ? 'zero'
+                        : 'default';
+
+    const isCover2 = shell === 'cover2';
+    const isTwoMan = shell === 'twoMan';
+    const isCover3 = shell === 'cover3';
+    const isCover4 = shell === 'cover4';
+
     const list = defenders.slice().sort((a, b) => a.p.pos.y - b.p.pos.y); // shallow first
 
     for (const d of list) {
@@ -1819,23 +1949,167 @@ function _computeCoverageAssignments(s) {
         }
     }
 
-    // Stash zone landmarks for safeties (deep halves)
-    let deepLandmarks = null;
-    if (isCover2) {
-        const midX = (off.QB?.pos?.x ?? 200);
-        const cushion = CFG.COVER_CUSHION_YDS * PX_PER_YARD;
-        deepLandmarks = {
-            left: { x: midX - 55, y: losY + PX_PER_YARD * 12 + cushion },
-            right: { x: midX + 55, y: losY + PX_PER_YARD * 12 + cushion },
-        };
+    if (isCover2 || isTwoMan || isCover3 || isCover4) {
+        if (assigned.S1) used.delete(assigned.S1);
+        if (assigned.S2) used.delete(assigned.S2);
+        delete assigned.S1;
+        delete assigned.S2;
     }
 
-    s.play.coverage = { assigned, isCover2, deepLandmarks, losY };
+    const usedRoles = new Set(Object.values(assigned));
+    const ensure = (defKey, role) => {
+        if (!role || !off[role]?.pos) return;
+        if (!def[defKey]?.pos) return;
+        if (assigned[defKey]) return;
+        if (usedRoles.has(role)) return;
+        assigned[defKey] = role;
+        usedRoles.add(role);
+    };
+
+    if (isTwoMan) {
+        ensure('CB1', 'WR1');
+        ensure('CB2', 'WR2');
+        ensure('NB', 'WR3');
+        ensure('LB1', off.TE ? 'TE' : null);
+        ensure('LB2', off.RB ? 'RB' : null);
+    } else if (isCover3 || isCover4) {
+        ensure('CB1', 'WR1');
+        ensure('CB2', 'WR2');
+        ensure('NB', 'WR3');
+        ensure('LB1', off.TE ? 'TE' : null);
+        ensure('LB2', off.RB ? 'RB' : null);
+    } else if (isCover2) {
+        ensure('CB1', 'WR1');
+        ensure('CB2', 'WR2');
+        ensure('NB', 'WR3');
+    }
+
+    const midX = off.QB?.pos?.x ?? (FIELD_PIX_W / 2);
+    const wr1X = off.WR1?.pos?.x ?? (midX - 80);
+    const wr2X = off.WR2?.pos?.x ?? (midX + 80);
+    const wr3X = off.WR3?.pos?.x ?? midX;
+    const clampX = (x) => clamp(x, 18, FIELD_PIX_W - 18);
+    const slotDir = wr3X >= midX ? 1 : -1;
+
+    const zoneDrops = {};
+    const safetyDrops = {};
+    const releaseBoost = { db: 0, lb: 0 };
+    let cushionBoost = 1;
+    let deepLandmarks = null;
+
+    switch (shell) {
+        case 'cover2': {
+            const cushion = CFG.COVER_CUSHION_YDS * PX_PER_YARD;
+            deepLandmarks = {
+                left: { x: clampX(midX - 55), y: losY + PX_PER_YARD * 12 + cushion },
+                right: { x: clampX(midX + 55), y: losY + PX_PER_YARD * 12 + cushion },
+            };
+            safetyDrops.S1 = deepLandmarks.left;
+            safetyDrops.S2 = deepLandmarks.right;
+            cushionBoost = 1.1;
+            releaseBoost.db = 0.8;
+            releaseBoost.lb = 0.2;
+            break;
+        }
+        case 'twoMan': {
+            deepLandmarks = {
+                left: { x: clampX(midX - 68), y: losY + PX_PER_YARD * 13.2 },
+                right: { x: clampX(midX + 68), y: losY + PX_PER_YARD * 13.2 },
+            };
+            safetyDrops.S1 = deepLandmarks.left;
+            safetyDrops.S2 = deepLandmarks.right;
+            cushionBoost = 1.25;
+            releaseBoost.db = 1.1;
+            releaseBoost.lb = 0.35;
+            break;
+        }
+        case 'cover3': {
+            deepLandmarks = {
+                left: { x: clampX(midX - 78), y: losY + PX_PER_YARD * 12.8 },
+                middle: { x: clampX(midX), y: losY + PX_PER_YARD * 13.6 },
+                right: { x: clampX(midX + 78), y: losY + PX_PER_YARD * 12.8 },
+            };
+            zoneDrops.CB1 = { x: deepLandmarks.left.x, y: deepLandmarks.left.y, speed: 0.96 };
+            zoneDrops.CB2 = { x: deepLandmarks.right.x, y: deepLandmarks.right.y, speed: 0.96 };
+            zoneDrops.NB = { x: clampX(wr3X - slotDir * 6), y: losY + PX_PER_YARD * 7.4, speed: 0.92 };
+            zoneDrops.LB1 = { x: clampX(midX - 30), y: losY + PX_PER_YARD * 6.4, speed: 0.9 };
+            zoneDrops.LB2 = { x: clampX(midX + 30), y: losY + PX_PER_YARD * 6.4, speed: 0.9 };
+            safetyDrops.S1 = deepLandmarks.middle;
+            const curlX = wr3X;
+            const curlOffset = curlX >= midX ? 24 : -24;
+            safetyDrops.S2 = { x: clampX(curlX + curlOffset), y: losY + PX_PER_YARD * 7.2 };
+            cushionBoost = 1.35;
+            releaseBoost.db = 1.4;
+            releaseBoost.lb = 0.5;
+            break;
+        }
+        case 'cover4': {
+            deepLandmarks = {
+                left: { x: clampX((wr1X ?? (midX - 80)) - 6), y: losY + PX_PER_YARD * 13.8 },
+                right: { x: clampX((wr2X ?? (midX + 80)) + 6), y: losY + PX_PER_YARD * 13.8 },
+                middle: { x: clampX(midX), y: losY + PX_PER_YARD * 13.6 },
+            };
+            zoneDrops.CB1 = { x: deepLandmarks.left.x, y: deepLandmarks.left.y, speed: 0.95 };
+            zoneDrops.CB2 = { x: deepLandmarks.right.x, y: deepLandmarks.right.y, speed: 0.95 };
+            zoneDrops.NB = { x: clampX(wr3X + slotDir * 6), y: losY + PX_PER_YARD * 8.2, speed: 0.92 };
+            zoneDrops.LB1 = { x: clampX(midX - 26), y: losY + PX_PER_YARD * 6.2, speed: 0.9 };
+            zoneDrops.LB2 = { x: clampX(midX + 26), y: losY + PX_PER_YARD * 6.2, speed: 0.9 };
+            safetyDrops.S1 = { x: clampX(midX - 50), y: losY + PX_PER_YARD * 13.8 };
+            safetyDrops.S2 = { x: clampX(midX + 50), y: losY + PX_PER_YARD * 13.8 };
+            cushionBoost = 1.55;
+            releaseBoost.db = 1.8;
+            releaseBoost.lb = 0.6;
+            break;
+        }
+        case 'default': {
+            if (defFormationName.includes('nickel 3-3-5')) {
+                cushionBoost = 1.18;
+                releaseBoost.db = 0.9;
+                releaseBoost.lb = 0.4;
+                zoneDrops.LB1 = { x: clampX(midX - 24), y: losY + PX_PER_YARD * 6.0, speed: 0.9 };
+                zoneDrops.LB2 = { x: clampX(midX + 24), y: losY + PX_PER_YARD * 6.0, speed: 0.9 };
+                zoneDrops.NB = { x: clampX(wr3X), y: losY + PX_PER_YARD * 6.6, speed: 0.92 };
+            }
+            releaseBoost.db = Math.max(releaseBoost.db, 0.25);
+            releaseBoost.lb = Math.max(releaseBoost.lb, 0.12);
+            break;
+        }
+        default:
+            break;
+    }
+
+    s.play.coverage = {
+        assigned,
+        isCover2,
+        isTwoMan,
+        isCover3,
+        isCover4,
+        deepLandmarks,
+        losY,
+        shell,
+        zoneDrops,
+        safetyDrops,
+        releaseBoost,
+        cushionBoost,
+    };
 }
 
 export function defenseLogic(s, dt) {
     const off = s.play.formation.off, def = s.play.formation.def, ball = s.play.ball;
-    const cover = s.play.coverage || { assigned: {}, isCover2: false, deepLandmarks: null, losY: off.__losPixY ?? 0 };
+    const cover = s.play.coverage || {
+        assigned: {},
+        isCover2: false,
+        isTwoMan: false,
+        isCover3: false,
+        isCover4: false,
+        deepLandmarks: null,
+        losY: off.__losPixY ?? 0,
+        shell: 'default',
+        zoneDrops: {},
+        safetyDrops: {},
+        releaseBoost: { db: 0, lb: 0 },
+        cushionBoost: 1,
+    };
     const carrierInfo = normalizeCarrier(off, ball);
     const carrier = carrierInfo.player;
     const carrierRole = carrierInfo.role;
@@ -1882,7 +2156,8 @@ export function defenseLogic(s, dt) {
     });
 
     // 2) Coverage / pursuit for back seven
-    const cushion = CFG.COVER_CUSHION_YDS * PX_PER_YARD;
+    const baseCushion = CFG.COVER_CUSHION_YDS * PX_PER_YARD;
+    const cushion = baseCushion * (cover.cushionBoost ?? 1);
     const coverables = ['WR1', 'WR2', 'WR3', 'TE', 'RB']
         .map(role => off[role])
         .filter(player => player?.pos && player.alive !== false);

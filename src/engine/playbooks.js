@@ -75,7 +75,15 @@ export const OFF_FORMATIONS = [
 
 /** Defense formations (names only; positioning done in rosters.js helper). */
 export const DEF_FORMATIONS = [
-    'Nickel 2-4-5', 'Dime 3-2-6', 'Base 4-3', 'Bear 46', 'Cover-2 Shell'
+    'Nickel 2-4-5',
+    'Nickel 3-3-5',
+    'Dime 3-2-6',
+    'Base 4-3',
+    'Bear 46',
+    'Cover-2 Shell',
+    'Cover-3 Sky',
+    'Cover-4 Quarters',
+    '2-Man Under',
 ];
 
 /** Default "coaches" used if you don't plug in custom ones. */
@@ -102,10 +110,11 @@ export function pickFormations(ctx) {
     if (!offPool.length) offPool.push('2x2 Gun', 'Trips Right');
 
     const defPool = [];
-    if (long) defPool.push('Dime 3-2-6', 'Nickel 2-4-5');
-    if (short) defPool.push('Base 4-3', 'Bear 46');
-    if (redzone) defPool.push('Cover-2 Shell', 'Base 4-3');
-    if (!defPool.length) defPool.push('Nickel 2-4-5');
+    if (long) defPool.push('Dime 3-2-6', 'Nickel 3-3-5', 'Cover-3 Sky', 'Cover-4 Quarters');
+    if (short) defPool.push('Base 4-3', 'Bear 46', '2-Man Under');
+    if (redzone) defPool.push('Cover-2 Shell', 'Cover-4 Quarters', '2-Man Under');
+    if (!long && !short) defPool.push('Nickel 2-4-5', 'Cover-3 Sky');
+    if (!defPool.length) defPool.push('Nickel 2-4-5', 'Cover-3 Sky');
 
     // IQ nudges: higher IQ biases toward the first half of lists (more optimal)
     function biasedPick(pool, iq) {
