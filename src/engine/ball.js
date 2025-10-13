@@ -216,8 +216,14 @@ export function moveBall(s, dt) {
                 const throwDistYards = clamp((throwDistPx || 0) / PX_PER_YARD, 0, 80);
                 const shortBonus = throwDistYards <= 7 ? (7 - throwDistYards) * 0.04 : 0;
                 const deepPenalty = throwDistYards > 10 ? (throwDistYards - 10) * 0.035 : 0;
-                const catchChance = accuracyBlend * sepFactor + Math.random() * 0.16 - 0.08 + shortBonus - deepPenalty;
-                if (catchChance > 0.5) {
+                const sepBonus = clamp((sepFactor - 0.7) * 0.2, -0.08, 0.12);
+                const baseCatchChance = clamp(0.28 + accuracyBlend * 0.32 + sepBonus + shortBonus - deepPenalty, 0.1, 0.6);
+                const separationYards = (separation ?? 0) / PX_PER_YARD;
+                const openRatio = clamp((separationYards - 1.5) / 6, 0, 1);
+                const openBonus = openRatio * 0.15;
+                const catchProbability = clamp(baseCatchChance + openBonus, 0.05, 0.75);
+
+                if (Math.random() < catchProbability) {
                     const dropBase = 0.08;
                     const dropHands = clamp(1.15 - hands, 0, 0.75) * 0.16;
                     const dropContact = clamp((14 - (separation ?? 18)) / 26, 0, 0.22);
