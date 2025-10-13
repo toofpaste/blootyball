@@ -119,7 +119,7 @@ function drawFieldGoalScene(ctx, state) {
     }
 
     if (visual.phase === 'RESULT' && special?.outcome?.success) {
-        highlightUprights(ctx, visual.uprights);
+        highlightUprights(ctx, visual.uprights, visual.goalHighlight ?? 1);
     }
 }
 
@@ -212,13 +212,14 @@ function drawGoalPost(ctx, goalLineY, dir = 1) {
     ctx.restore();
 }
 
-function highlightUprights(ctx, uprights) {
-    if (!uprights) return;
+function highlightUprights(ctx, uprights, intensity = 1) {
+    if (!uprights || intensity <= 0) return;
     ctx.save();
-    ctx.strokeStyle = 'rgba(255, 232, 128, 0.85)';
-    ctx.lineWidth = 5;
-    ctx.shadowColor = 'rgba(255, 220, 90, 0.55)';
-    ctx.shadowBlur = 18;
+    const alpha = 0.85 * intensity;
+    ctx.strokeStyle = `rgba(255, 232, 128, ${alpha})`;
+    ctx.lineWidth = 3;
+    ctx.shadowColor = `rgba(255, 220, 90, ${0.55 * intensity})`;
+    ctx.shadowBlur = 18 * intensity;
     ctx.beginPath();
     ctx.moveTo(uprights.centerX - uprights.halfWidth, uprights.crossbarY);
     ctx.lineTo(uprights.centerX + uprights.halfWidth, uprights.crossbarY);
