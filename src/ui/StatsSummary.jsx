@@ -24,6 +24,64 @@ function buildScore(stat = {}) {
     return yards + touchdowns * 15 + touches * 2 + defenseEvents * 6;
 }
 
+function formatStatGroup(label, fragments = []) {
+    const content = fragments.filter(Boolean).join(', ');
+    if (!content) return null;
+    return `${label} ${content}`;
+}
+
+function buildSummary(stat = {}) {
+    const passing = stat.passing || {};
+    const rushing = stat.rushing || {};
+    const receiving = stat.receiving || {};
+    const defense = stat.defense || {};
+
+    const sections = [];
+
+    if ((passing.attempts || 0) > 0 || (passing.completions || 0) > 0 || (passing.yards || 0) !== 0) {
+        sections.push(
+            formatStatGroup('Pass', [
+                (passing.attempts || 0) > 0 ? `${passing.completions ?? 0}/${passing.attempts ?? 0}` : null,
+                (passing.yards || 0) !== 0 ? `${Math.round(passing.yards || 0)}y` : null,
+                (passing.touchdowns || 0) > 0 ? `${passing.touchdowns}TD` : null,
+                (passing.interceptions || 0) > 0 ? `${passing.interceptions}INT` : null,
+            ])
+        );
+    }
+
+    if ((rushing.attempts || 0) > 0 || (rushing.yards || 0) !== 0) {
+        sections.push(
+            formatStatGroup('Rush', [
+                (rushing.attempts || 0) > 0 ? `${rushing.attempts}att` : null,
+                (rushing.yards || 0) !== 0 ? `${Math.round(rushing.yards || 0)}y` : null,
+                (rushing.touchdowns || 0) > 0 ? `${rushing.touchdowns}TD` : null,
+            ])
+        );
+    }
+
+    if ((receiving.targets || 0) > 0 || (receiving.yards || 0) !== 0) {
+        sections.push(
+            formatStatGroup('Rec', [
+                (receiving.targets || 0) > 0 ? `${receiving.receptions ?? 0}/${receiving.targets}ct` : null,
+                (receiving.yards || 0) !== 0 ? `${Math.round(receiving.yards || 0)}y` : null,
+                (receiving.touchdowns || 0) > 0 ? `${receiving.touchdowns}TD` : null,
+            ])
+        );
+    }
+
+    if ((defense.tackles || 0) > 0 || (defense.sacks || 0) > 0 || (defense.interceptions || 0) > 0) {
+        sections.push(
+            formatStatGroup('Def', [
+                (defense.tackles || 0) > 0 ? `${defense.tackles}Tk` : null,
+                (defense.sacks || 0) > 0 ? `${defense.sacks}Sk` : null,
+                (defense.interceptions || 0) > 0 ? `${defense.interceptions}INT` : null,
+            ])
+        );
+    }
+
+    return sections.filter(Boolean).join('  |  ');
+}
+
 function buildRow(playerId, meta = {}, stat = {}) {
     const passing = stat.passing || {};
     const rushing = stat.rushing || {};
@@ -35,19 +93,22 @@ function buildRow(playerId, meta = {}, stat = {}) {
         name: meta.fullName || playerId,
         number: meta.number,
         role: meta.role || '—',
-        pass: passing.attempts || passing.completions || passing.yards
-            ? `${passing.completions ?? 0}/${passing.attempts ?? 0}, ${Math.round(passing.yards || 0)} yds, ${passing.touchdowns ?? 0} TD / ${passing.interceptions ?? 0} INT`
-            : '—',
+        pass:
+            passing.attempts || passing.completions || passing.yards
+                ? `${passing.completions ?? 0}/${passing.attempts ?? 0}, ${Math.round(passing.yards || 0)} yds, ${passing.touchdowns ?? 0} TD / ${passing.interceptions ?? 0} INT`
+                : '—',
         rush: rushing.attempts
             ? `${rushing.attempts} att, ${Math.round(rushing.yards || 0)} yds, ${rushing.touchdowns ?? 0} TD`
             : '—',
         receive: receiving.targets
             ? `${receiving.targets} tgt, ${receiving.receptions ?? 0} rec, ${Math.round(receiving.yards || 0)} yds, ${receiving.touchdowns ?? 0} TD`
             : '—',
-        defense: defense.tackles || defense.sacks || defense.interceptions
-            ? `${defense.tackles ?? 0} Tk, ${defense.sacks ?? 0} Sk, ${defense.interceptions ?? 0} INT`
-            : '—',
+        defense:
+            defense.tackles || defense.sacks || defense.interceptions
+                ? `${defense.tackles ?? 0} Tk, ${defense.sacks ?? 0} Sk, ${defense.interceptions ?? 0} INT`
+                : '—',
         score: buildScore(stat),
+        summary: buildSummary(stat),
     };
 }
 
@@ -134,14 +195,19 @@ export default function StatsSummary({ stats = {}, directory = {} }) {
                                     </button>
                                 </div>
                                 {rows.length ? (
-                                    <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: 0, fontSize: 12 }}>
+                                    <table
+                                        style={{
+                                            width: '100%',
+                                            borderCollapse: 'separate',
+                                            borderSpacing: 0,
+                                            fontSize: 12,
+                                            tableLayout: 'fixed',
+                                        }}
+                                    >
                                         <thead>
                                             <tr style={{ background: 'rgba(10,70,10,0.85)' }}>
                                                 <Th>Player</Th>
-                                                <Th align="right">Passing</Th>
-                                                <Th align="right">Rushing</Th>
-                                                <Th align="right">Receiving</Th>
-                                                <Th align="right">Defense</Th>
+                                                <Th align="left">Highlights</Th>
                                             </tr>
                                         </thead>
                                         <tbody>
@@ -161,10 +227,19 @@ export default function StatsSummary({ stats = {}, directory = {} }) {
                                                                 {row.role} {row.number ? `• #${row.number}` : ''}
                                                             </span>
                                                         </Td>
-                                                        <Td mono align="right">{row.pass}</Td>
-                                                        <Td mono align="right">{row.rush}</Td>
-                                                        <Td mono align="right">{row.receive}</Td>
-                                                        <Td mono align="right">{row.defense}</Td>
+                                                        <Td
+                                                            mono
+                                                            align="left"
+                                                            style={{
+                                                                color: '#d2f4d2',
+                                                                whiteSpace: 'nowrap',
+                                                                overflow: 'hidden',
+                                                                textOverflow: 'ellipsis',
+                                                                width: '68%',
+                                                            }}
+                                                        >
+                                                            {row.summary || '—'}
+                                                        </Td>
                                                     </tr>
                                                 );
                                             })}
