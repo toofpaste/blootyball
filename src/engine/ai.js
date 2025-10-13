@@ -284,7 +284,9 @@ export function initRoutesAfterSnap(s) {
     const holdBonus = (poise - 0.5) * 1.2;
     s.play.qbMaxHold = s.play.qbTTT + rand(1.2, 1.9) + holdBonus;
     const qbPos = qb?.pos || { x: FIELD_PIX_W / 2, y: yardsToPixY(25) };
-    s.play.qbDropTarget = { x: qbPos.x, y: qbPos.y - (call.qbDrop || 3) * PX_PER_YARD };
+    const qbRunDrop = clamp(call.qbDrop ?? 0.6, 0, 1.8);
+    const qbDropYards = call.type === 'RUN' ? qbRunDrop : (call.qbDrop || 3);
+    s.play.qbDropTarget = { x: qbPos.x, y: qbPos.y - qbDropYards * PX_PER_YARD };
 
     // Reset OL per-play
     ['LT', 'LG', 'C', 'RG', 'RT'].forEach(k => { if (off[k]) { off[k]._assignId = null; off[k]._stickTimer = 0; } });
@@ -911,6 +913,8 @@ export function qbLogic(s, dt) {
     const qb = off.QB;
     const qbMods = qb?.modifiers || {};
     const scrambleAggro = clamp(qbMods.scrambleAggression ?? 0.26, 0, 1);
+    const handoffRole = typeof call.handoffTo === 'string' ? call.handoffTo : 'RB';
+    const handoffRunner = (handoffRole && off[handoffRole]) || off.RB;
 
     // If we don't have a QB or a position yet, bail safely.
     if (!qb || !qb.pos) return;
@@ -1024,7 +1028,14 @@ export function qbLogic(s, dt) {
     }
 
     // Move QB
-    if (s.play.qbMoveMode === 'DROP') {
+    const inHandoffPhase = call.type === 'RUN' && !s.play.handed && handoffRunner?.pos;
+
+    if (inHandoffPhase) {
+        const firstTarget = Array.isArray(s.play.rbTargets) ? s.play.rbTargets[0] : null;
+        const aimX = clamp(firstTarget?.x ?? handoffRunner.pos.x, 20, FIELD_PIX_W - 20);
+        const aimY = Math.min(handoffRunner.pos.y - PX_PER_YARD * 0.4, qb.pos.y + PX_PER_YARD * 0.8);
+        moveToward(qb, { x: aimX, y: aimY }, dt, 0.88);
+    } else if (s.play.qbMoveMode === 'DROP') {
         const t =
             Array.isArray(qb.targets) && qb.targets.length > 0
                 ? qb.targets[Math.max(0, Math.min(qb.routeIdx, qb.targets.length - 1))]
@@ -1058,8 +1069,7 @@ export function qbLogic(s, dt) {
     }
 
     if (call.type === 'RUN') {
-        const role = typeof call.handoffTo === 'string' ? call.handoffTo : 'RB';
-        const runner = (role && off[role]) || off.RB;
+        const runner = handoffRunner;
         if (!runner || !runner.pos) return;
 
         const exchangeRadius = PX_PER_YARD * 1.35;
@@ -1068,7 +1078,7 @@ export function qbLogic(s, dt) {
         const meshReady = s.play.elapsed >= (call.handoffDelay ?? 0.6);
 
         if (!s.play.handed && atMeshPoint && meshDist <= exchangeRadius && meshReady) {
-            const carrierKey = runner.id || role || 'RB';
+            const carrierKey = runner.id || handoffRole || 'RB';
             s.play.ball.inAir = false;
             s.play.ball.targetId = null;
             s.play.ball.flight = null;
@@ -1439,6 +1449,14 @@ export function rbLogic(s, dt) {
         ai.patience = ai.patience ?? patienceBase;
         ai.patienceClock = (ai.patienceClock || 0) + dt;
         const patiencePhase = ai.patienceClock < ai.patience;
+
+        if (!s.play.handed && qb?.pos) {
+            const firstTarget = Array.isArray(s.play.rbTargets) ? s.play.rbTargets[0] : null;
+            const meshX = clamp(firstTarget?.x ?? qb.pos.x, 18, FIELD_PIX_W - 18);
+            const meshY = Math.min(firstTarget?.y ?? (qb.pos.y + PX_PER_YARD * 0.6), qb.pos.y + PX_PER_YARD * 0.6);
+            moveToward(rb, { x: meshX, y: meshY }, dt, 1.04 * burst);
+            return;
+        }
 
         const lane = _computeLaneForRB(off, def, rb, losY);
         const vision = clamp((mods.vision ?? 0.5) - 0.5, -0.3, 0.3);
@@ -2218,6 +2236,14 @@ export function defenseLogic(s, dt) {
             let tackleChance = 0.66 + (tacklerSkill - carStr) * 0.22 - (carIQ - 1.0) * 0.10 + assistants * 0.08 + (Math.random() * 0.10 - 0.05);
             tackleChance += tackleTrait * 0.25;
             tackleChance -= breakTrait * 0.22;
+            const designedRun = s.play?.playCall?.type === 'RUN' && typeof s.play?.handoffTime === 'number';
+            const rbRun = designedRun && (carrierRole === 'RB' || carrierId === (off.RB?.id ?? 'RB'));
+            if (rbRun) {
+                const visionTrait = clamp((ballCarrier?.modifiers?.vision ?? 0.5) - 0.5, -0.25, 0.25);
+                const powerEdge = clamp((ballCarrier.attrs?.strength ?? 0.9) - 0.95, -0.25, 0.4);
+                const runResist = clamp(0.14 + breakTrait * 0.32 + visionTrait * 0.18 + powerEdge * 0.24, -0.05, 0.42);
+                tackleChance -= runResist;
+            }
             if (tackleChance > 0.5) {
                 s.play.deadAt = s.play.elapsed; s.play.phase = 'DEAD'; s.play.resultWhy = (carrierRole === 'QB') ? 'Sack' : 'Tackled';
                 (s.play.events ||= []).push({ t: s.play.elapsed, type: 'tackle:wrapHoldWin', carrierId, byId: wr.byId }); endWrap(s); return;
