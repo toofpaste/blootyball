@@ -99,50 +99,89 @@ export default function PlayerStatsTable({ stats = {}, directory = {}, teams = [
         <div style={{
             width: 'min(1100px, 95%)',
             marginTop: 16,
-            background: '#062c06',
-            color: '#e8ffe8',
-            border: '1px solid #0b4a0b',
-            borderRadius: 10,
+            background: 'linear-gradient(180deg, rgba(6,44,6,0.95) 0%, rgba(4,28,4,0.98) 100%)',
+            color: '#f2fff2',
+            border: '1px solid #165e16',
+            borderRadius: 14,
             overflow: 'hidden',
-            boxShadow: '0 6px 18px rgba(0,0,0,0.3)'
+            boxShadow: '0 14px 30px rgba(0,0,0,0.35)'
         }}>
-            <div style={{ padding: '8px 10px', borderBottom: '1px solid #0b4a0b', fontWeight: 700, fontSize: 15 }}>
+            <div
+                style={{
+                    padding: '12px 18px',
+                    borderBottom: '1px solid rgba(9,72,9,0.85)',
+                    fontWeight: 700,
+                    fontSize: 16,
+                    letterSpacing: 0.4,
+                    textTransform: 'uppercase',
+                    background: 'rgba(12,64,12,0.85)'
+                }}
+            >
                 Player Stats
             </div>
             {teamRows.map(({ team, rows }) => (
-                <div key={team} style={{ borderTop: '1px solid #0b4a0b' }}>
-                    <div style={{ padding: '8px 10px', background: '#083b08', fontWeight: 600 }}>
+                <div key={team} style={{ borderTop: '1px solid rgba(14,74,14,0.7)' }}>
+                    <div
+                        style={{
+                            padding: '10px 18px',
+                            background: 'rgba(8,59,8,0.85)',
+                            fontWeight: 600,
+                            fontSize: 14,
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center'
+                        }}
+                    >
                         {TEAM_LABELS[team] || team}
+                        <span style={{ fontSize: 12, color: '#a5e0a5' }}>Game totals</span>
                     </div>
                     <div style={{ overflowX: 'auto' }}>
-                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                        <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: 0, fontSize: 13 }}>
                             <thead>
-                                <tr>
+                                <tr style={{ background: 'rgba(10,70,10,0.85)' }}>
                                     <Th>Player</Th>
-                                    <Th>Pos</Th>
-                                    <Th>Pass C/A</Th>
-                                    <Th>Pass Yds</Th>
-                                    <Th>TD/INT/S</Th>
-                                    <Th>Rush A-Y-TD</Th>
-                                    <Th>Rec T-R-Y-TD</Th>
-                                    <Th>Drops</Th>
-                                    <Th>Def Tk-Sk-INT</Th>
+                                    <Th align="center">Pos</Th>
+                                    <Th align="right">Pass C/A</Th>
+                                    <Th align="right">Pass Yds</Th>
+                                    <Th align="right">TD/INT/S</Th>
+                                    <Th align="right">Rush A-Y-TD</Th>
+                                    <Th align="right">Rec T-R-Y-TD</Th>
+                                    <Th align="right">Drops</Th>
+                                    <Th align="right">Def Tk-Sk-INT</Th>
                                 </tr>
                             </thead>
                             <tbody>
-                                {rows.length ? rows.map(row => (
-                                    <tr key={row.id} style={{ borderTop: '1px solid #0b4a0b' }}>
-                                        <Td>{row.number ? `#${row.number} ${row.name}` : row.name}</Td>
-                                        <Td>{row.role}</Td>
-                                        <Td mono>{row.passCA}</Td>
-                                        <Td mono>{row.passYds}</Td>
-                                        <Td mono>{row.passLine}</Td>
-                                        <Td mono>{row.rushLine}</Td>
-                                        <Td mono>{row.recLine}</Td>
-                                        <Td mono>{row.drops}</Td>
-                                        <Td mono>{row.defLine}</Td>
-                                    </tr>
-                                )) : (
+                                {rows.length ? rows.map((row, idx) => {
+                                    const isStriped = idx % 2 === 0;
+                                    return (
+                                        <tr
+                                            key={row.id}
+                                            style={{
+                                                background: isStriped ? 'rgba(7,45,7,0.75)' : 'rgba(5,32,5,0.9)',
+                                                borderTop: '1px solid rgba(14,74,14,0.35)'
+                                            }}
+                                        >
+                                            <Td>
+                                                <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                                                    <span style={{ fontWeight: 600 }}>
+                                                        {row.name}
+                                                    </span>
+                                                    <span style={{ fontSize: 11, color: '#9bd79b' }}>
+                                                        {row.number ? `#${row.number}` : '—'}
+                                                    </span>
+                                                </div>
+                                            </Td>
+                                            <Td align="center">{row.role}</Td>
+                                            <Td mono align="right">{row.passCA}</Td>
+                                            <Td mono align="right">{row.passYds}</Td>
+                                            <Td mono align="right">{row.passLine}</Td>
+                                            <Td mono align="right">{row.rushLine}</Td>
+                                            <Td mono align="right">{row.recLine}</Td>
+                                            <Td mono align="right">{row.drops}</Td>
+                                            <Td mono align="right">{row.defLine}</Td>
+                                        </tr>
+                                    );
+                                }) : (
                                     <tr>
                                         <Td colSpan={9} style={{ textAlign: 'center', padding: '12px 10px' }}>No recorded stats yet.</Td>
                                     </tr>
@@ -156,16 +195,31 @@ export default function PlayerStatsTable({ stats = {}, directory = {}, teams = [
     );
 }
 
-function Th({ children }) {
-    return <th style={{ textAlign: 'left', padding: '8px 10px', fontWeight: 600 }}>{children}</th>;
+function Th({ children, align = 'left' }) {
+    return (
+        <th
+            style={{
+                textAlign: align,
+                padding: '10px 14px',
+                fontWeight: 600,
+                fontSize: 12,
+                letterSpacing: 0.4,
+                textTransform: 'uppercase',
+                color: '#c1f0c1'
+            }}
+        >
+            {children}
+        </th>
+    );
 }
 
-function Td({ children, mono, colSpan, style }) {
+function Td({ children, mono, colSpan, style, align = 'left' }) {
     return (
         <td
             colSpan={colSpan}
             style={{
-                padding: '8px 10px',
+                padding: '10px 14px',
+                textAlign: align,
                 fontFamily: mono ? 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace' : 'inherit',
                 ...(style || {})
             }}
