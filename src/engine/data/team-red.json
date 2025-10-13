@@ -262,6 +262,16 @@
       }
     }
   },
+  "specialTeams": {
+    "K": {
+      "id": "RED-K",
+      "firstName": "Caleb",
+      "lastName": "Monroe",
+      "number": 4,
+      "maxDistance": 54,
+      "accuracy": 0.82
+    }
+  },
   "defense": {
     "LE": {
       "id": "RED-LE",

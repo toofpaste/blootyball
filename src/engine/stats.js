@@ -12,6 +12,7 @@ const RUSHING_TEMPLATE = () => ({ attempts: 0, yards: 0, touchdowns: 0, fumbles:
 const RECEIVING_TEMPLATE = () => ({ targets: 0, receptions: 0, yards: 0, touchdowns: 0, drops: 0 });
 const DEFENSE_TEMPLATE = () => ({ tackles: 0, sacks: 0, interceptions: 0 });
 const MISC_TEMPLATE = () => ({ fumbles: 0 });
+const KICKING_TEMPLATE = () => ({ attempts: 0, made: 0, long: 0, patAttempts: 0, patMade: 0 });
 
 function ensureDirectoryEntry(stats, directory, playerId) {
     if (!playerId) return null;
@@ -28,6 +29,7 @@ function ensureDirectoryEntry(stats, directory, playerId) {
             receiving: RECEIVING_TEMPLATE(),
             defense: DEFENSE_TEMPLATE(),
             misc: MISC_TEMPLATE(),
+            kicking: KICKING_TEMPLATE(),
         };
     }
     return stats[playerId];
@@ -47,6 +49,7 @@ export function createInitialPlayerStats(directory = {}) {
             receiving: RECEIVING_TEMPLATE(),
             defense: DEFENSE_TEMPLATE(),
             misc: MISC_TEMPLATE(),
+            kicking: KICKING_TEMPLATE(),
         };
     });
     return stats;
@@ -161,6 +164,22 @@ export function applyStatEvent(state, event) {
         }
         default:
             break;
+    }
+}
+
+export function recordKickingAttempt(state, kickerId, { distance = 0, made = false, isPat = false } = {}) {
+    if (!kickerId) return;
+    if (!state.playerStats) state.playerStats = createInitialPlayerStats(state.playerDirectory || {});
+    const stats = ensureDirectoryEntry(state.playerStats, state.playerDirectory, kickerId);
+    if (!stats) return;
+    stats.kicking.attempts += 1;
+    if (made) stats.kicking.made += 1;
+    if (!isPat && made) {
+        if ((stats.kicking.long || 0) < distance) stats.kicking.long = distance;
+    }
+    if (isPat) {
+        stats.kicking.patAttempts += 1;
+        if (made) stats.kicking.patMade += 1;
     }
 }
 

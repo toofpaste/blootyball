@@ -9,7 +9,7 @@ import { moveBall, getBallPix } from './ball';
 import { beginFrame, endFrame } from './motion';
 import { beginPlayDiagnostics, finalizePlayDiagnostics, recordPlayEvent } from './diagnostics';
 import { pickFormations, PLAYBOOK_PLUS, pickPlayCall } from './playbooks';
-import { createInitialPlayerStats, createPlayStatContext, finalizePlayStats } from './stats';
+import { createInitialPlayerStats, createPlayStatContext, finalizePlayStats, recordKickingAttempt } from './stats';
 
 /* =========================================================
    Utilities / guards
@@ -54,6 +54,123 @@ function pushPlayLog(state, entry) {
         offense: entry.offense ?? state.possession,
     });
     if (state.playLog.length > 50) state.playLog.shift();
+}
+
+function getTeamKicker(state, team) {
+    if (!team) return null;
+    if (!state.teams) state.teams = createTeams();
+    return state.teams?.[team]?.special?.K || null;
+}
+
+function fieldGoalDistanceYards(losYards) {
+    return Math.round(Math.max(0, 100 - (losYards ?? 0)) + 17);
+}
+
+function kickerSuccessChance(kicker, distance) {
+    if (!kicker) return 0;
+    const maxDist = Math.max(1, kicker.maxDistance || 50);
+    const ratio = distance / maxDist;
+    const base = clamp(kicker.accuracy ?? 0.75, 0.35, 0.99);
+    const shortBonus = clamp(1 - ratio, 0, 1) * 0.45;
+    const longPenalty = Math.max(0, ratio - 1) * 0.75;
+    return clamp(base + shortBonus - longPenalty, 0.05, 0.99);
+}
+
+function executeFieldGoalAttempt(state, {
+    team,
+    distance,
+    isPat = false,
+    startLos,
+    startDown,
+    startToGo,
+    logAttempt = true,
+    autoAdvanceAfter = false,
+}) {
+    if (!team || !Number.isFinite(distance)) {
+        return { success: false, distance: distance ?? 0, summary: 'No kick attempted' };
+    }
+    if (!state.scores) state.scores = { [TEAM_RED]: 0, [TEAM_BLK]: 0 };
+    const kicker = getTeamKicker(state, team);
+    const chance = kickerSuccessChance(kicker, distance);
+    const roll = Math.random();
+    const success = roll <= chance;
+    const points = isPat ? 1 : 3;
+    const label = isPat ? 'Extra point' : 'Field goal';
+    const resultSummary = success
+        ? `${label} good from ${distance} yards`
+        : `${label} missed from ${distance} yards`;
+
+    recordPlayEvent(state, {
+        type: 'kick:field-goal',
+        team,
+        kickerId: kicker?.id || null,
+        distance,
+        success,
+        chance,
+        roll,
+        isPat,
+    });
+
+    if (kicker) recordKickingAttempt(state, kicker.id, { distance, made: success, isPat });
+    if (success) state.scores[team] = (state.scores[team] ?? 0) + points;
+
+    if (logAttempt && startDown != null && startToGo != null) {
+        pushPlayLog(state, {
+            name: label,
+            startDown,
+            startToGo,
+            startLos,
+            endLos: startLos,
+            gained: 0,
+            result: resultSummary,
+            offense: team,
+            turnover: !success && !isPat,
+        });
+    }
+
+    if (autoAdvanceAfter) {
+        stopClock(state, resultSummary);
+        const defense = otherTeam(team);
+        if (!state.teams) state.teams = createTeams();
+        if (success) {
+            state.possession = defense;
+            state.roster = rosterForPossession(state.teams, state.possession);
+            state.drive = { losYards: 25, down: 1, toGo: 10 };
+        } else {
+            state.possession = defense;
+            state.roster = rosterForPossession(state.teams, state.possession);
+            const takeoverLos = clamp(100 - (startLos ?? 20), 1, 99);
+            state.drive = { losYards: takeoverLos, down: 1, toGo: Math.min(10, 100 - takeoverLos) };
+        }
+
+        finalizePlayDiagnostics(state, {
+            result: resultSummary,
+            gained: 0,
+            endLos: state.drive.losYards,
+            turnover: !success,
+        });
+
+        state.roster.__ownerState = state;
+        state.play = createPlayState(state.roster, state.drive);
+        state.play.resultText = resultSummary;
+        beginPlayDiagnostics(state);
+    }
+
+    return { success, distance, chance, roll, kicker, summary: resultSummary };
+}
+
+function attemptExtraPoint(state, team, { startLos = null, startDown = null, startToGo = null } = {}) {
+    const baseLos = startLos ?? state.drive?.losYards ?? 25;
+    return executeFieldGoalAttempt(state, {
+        team,
+        distance: 33,
+        isPat: true,
+        startLos: baseLos,
+        startDown,
+        startToGo,
+        logAttempt: false,
+        autoAdvanceAfter: false,
+    });
 }
 
 function otherTeam(team) {
@@ -660,10 +777,38 @@ export function createPlayState(roster, drive) {
 
     const formation = lineUpFormation(roster, losPixY, formationNames) || { off: {}, def: {} };
 
+    const ownerState = roster?.__ownerState || null;
+    const offenseTeam = roster?.off?.QB?.team || roster?.off?.RB?.team || roster?.special?.K?.team || TEAM_RED;
+    const defenseTeam = otherTeam(offenseTeam);
+    const kicker = roster?.special?.K || null;
+    const debugForced = !!(ownerState && ownerState.debug?.forceNextArmed);
+
+    let fieldGoalPlan = null;
+    if (!debugForced && safeDrive.down === 4 && kicker) {
+        const distance = fieldGoalDistanceYards(safeDrive.losYards);
+        if (distance <= (kicker.maxDistance || 0) + 0.01) {
+            const scores = ownerState?.scores || {};
+            const offenseScore = scores?.[offenseTeam] ?? 0;
+            const defenseScore = scores?.[defenseTeam] ?? 0;
+            const shortToGo = safeDrive.toGo <= 2;
+            const trailing = offenseScore + 3 < defenseScore;
+            const lateClock = ownerState?.clock?.time != null && ownerState.clock.time < 120;
+            let goForItChance = 0.12;
+            if (shortToGo) goForItChance += 0.25;
+            if (safeDrive.losYards < 60) goForItChance += 0.14;
+            if (trailing) goForItChance += 0.18;
+            if (lateClock && trailing) goForItChance += 0.12;
+            goForItChance = clamp(goForItChance, 0, 0.75);
+            if (!(rand(0, 1) < goForItChance)) {
+                fieldGoalPlan = { distance, kicker };
+            }
+        }
+    }
+
     // NEW: pick by forced name if armed and valid
     let playCall;
-    if (roster && roster.__ownerState && roster.__ownerState.debug?.forceNextArmed) {
-        const dbg = roster.__ownerState.debug;
+    if (debugForced) {
+        const dbg = ownerState.debug;
         const named = Array.isArray(PLAYBOOK) ? PLAYBOOK.find(p => p.name === dbg.forceNextPlayName) : null;
         playCall = named || (Array.isArray(PLAYBOOK) && PLAYBOOK.length
             ? PLAYBOOK[(Math.random() * PLAYBOOK.length) | 0]
@@ -673,6 +818,8 @@ export function createPlayState(roster, drive) {
         dbg.forceNextArmed = false;
         // keep dbg.forceNextPlayName around so UI can still show it; clear if you prefer:
         // dbg.forceNextPlayName = null;
+    } else if (fieldGoalPlan) {
+        playCall = { name: fieldGoalPlan.distance <= 40 ? 'Field Goal' : 'Long Field Goal', type: 'FIELD_GOAL' };
     } else {
         const allPlays = [];
         if (Array.isArray(PLAYBOOK)) allPlays.push(...PLAYBOOK);
@@ -726,6 +873,18 @@ export function createPlayState(roster, drive) {
         sticksDepthPx: safeDrive.toGo * PX_PER_YARD,
     };
     play.statContext = createPlayStatContext();
+    if (fieldGoalPlan && play.playCall?.type === 'FIELD_GOAL') {
+        play.phase = 'FIELD_GOAL';
+        play.specialTeams = {
+            type: 'FIELD_GOAL',
+            distance: Math.round(fieldGoalPlan.distance),
+            isPat: false,
+            kickerId: fieldGoalPlan.kicker?.id || null,
+        };
+        play.resultText = `FG attempt from ${Math.round(fieldGoalPlan.distance)} yds`;
+        play.preSnap = null;
+        return play;
+    }
     play.preSnap = createPreSnapPlan(formation);
     return play;
 }
@@ -749,6 +908,24 @@ export function stepGame(state, dt) {
     s.play.elapsed += dt;
 
     switch (s.play.phase) {
+        case 'FIELD_GOAL': {
+            const special = s.play.specialTeams || {};
+            const distance = special.distance ?? fieldGoalDistanceYards(s.play.startLos ?? s.drive.losYards);
+            const startLos = s.play.startLos ?? s.drive.losYards;
+            const startDown = s.play.startDown ?? s.drive.down;
+            const startToGo = s.play.startToGo ?? s.drive.toGo;
+            executeFieldGoalAttempt(s, {
+                team: s.possession,
+                distance,
+                isPat: !!special.isPat,
+                startLos,
+                startDown,
+                startToGo,
+                logAttempt: true,
+                autoAdvanceAfter: true,
+            });
+            return s;
+        }
         case 'PRESNAP': {
             updatePreSnap(s, dt);
             const minPresnap = s.play?.preSnap?.minDuration ?? 1.0;
@@ -821,6 +998,7 @@ export function betweenPlays(s) {
     const offenseAtSnap = s.possession; // who ran the play
     const call = s.play.playCall || { name: 'Play' };
     let resultWhy = s.play.resultWhy || 'Tackled';
+    let extraPointSummary = '';
 
     if (!s.teams) s.teams = createTeams();
     if (!s.playerDirectory) s.playerDirectory = buildPlayerDirectory(s.teams);
@@ -858,6 +1036,21 @@ export function betweenPlays(s) {
         if (!s.scores) s.scores = { [TEAM_RED]: 0, [TEAM_BLK]: 0 };
         const scoringTeam = offenseAtSnap;
         s.scores[scoringTeam] = (s.scores[scoringTeam] ?? 0) + 6;
+
+        const patResult = attemptExtraPoint(s, scoringTeam, { startLos, startDown, startToGo });
+        if (patResult?.summary) {
+            extraPointSummary = patResult.summary;
+            pushPlayLog(s, {
+                name: 'Extra Point',
+                startDown,
+                startToGo,
+                startLos,
+                endLos: startLos,
+                gained: 0,
+                result: patResult.summary,
+                offense: scoringTeam,
+            });
+        }
 
         s.possession = (scoringTeam === TEAM_RED ? TEAM_BLK : TEAM_RED);
         s.teams = s.teams || createTeams();
@@ -1011,6 +1204,7 @@ export function betweenPlays(s) {
     let summaryText = baseSummary;
     if (penaltyInfo?.text) summaryText = penaltyInfo.text;
     else if (s.play.resultText && /timeout/i.test(s.play.resultText)) summaryText = s.play.resultText;
+    else if (extraPointSummary && resultWhy === 'Touchdown') summaryText = `${baseSummary} (${extraPointSummary})`;
 
     finalizePlayStats(s, {
         offense: offenseAtSnap,
