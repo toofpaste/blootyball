@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useState } from 'react';
 import { TEAM_RED, TEAM_BLK } from '../engine/constants';
 import PlayerStatsTable from './PlayerStatsTable';
 import Modal from './Modal';
@@ -67,10 +67,10 @@ function gatherTopPlayers(stats = {}, directory = {}, teamId) {
 export default function StatsSummary({ stats = {}, directory = {} }) {
     const [openTeam, setOpenTeam] = useState(null);
 
-    const teamSections = useMemo(
-        () => TEAMS.map(team => ({ team, rows: gatherTopPlayers(stats, directory, team) })),
-        [stats, directory]
-    );
+    const teamSections = TEAMS.map(team => ({
+        team,
+        rows: gatherTopPlayers(stats, directory, team),
+    }));
 
     const hasAnyRows = teamSections.some(section => section.rows.length > 0);
 
