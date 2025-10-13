@@ -1,5 +1,5 @@
 import {
-    FIELD_PIX_W, ENDZONE_YARDS, PLAYING_YARDS_H,
+    FIELD_PIX_W, FIELD_PIX_H, ENDZONE_YARDS, PLAYING_YARDS_H,
     TEAM_RED, TEAM_BLK, PLAYBOOK, PX_PER_YARD,
 } from './constants';
 import { clamp, yardsToPixY, pixYToYards, rand } from './helpers';
@@ -176,6 +176,7 @@ function createFieldGoalVisual({ losYards, distance }) {
             halfWidth: 38,
             centerX,
         },
+        goalHighlight: 0,
         distance,
     };
 }
@@ -312,21 +313,20 @@ function advanceFieldGoalState(state, ctx, outcome) {
 function computeFieldGoalTarget(visual, outcome) {
     const { uprights, contactPoint } = visual;
     if (!uprights) return { ...contactPoint };
-    const baseY = uprights.crossbarY - 14;
+    const endzoneDepth = yardsToPixY(ENDZONE_YARDS);
+    const carryPastGoal = yardsToPixY(3.5);
+    const fullCarryY = Math.min(uprights.goalLineY + endzoneDepth + carryPastGoal, FIELD_PIX_H - yardsToPixY(0.5));
     let targetX = uprights.centerX;
-    let targetY = baseY;
+    let targetY = fullCarryY;
     if (outcome?.success) {
         const sway = (Math.random() - 0.5) * uprights.halfWidth * 0.6;
         targetX += sway;
-        targetY = baseY;
     } else {
         const missType = outcome?.missType;
         if (missType === 'wide-right') {
             targetX = uprights.centerX + uprights.halfWidth + 34;
-            targetY = baseY + 16;
         } else if (missType === 'wide-left') {
             targetX = uprights.centerX - uprights.halfWidth - 34;
-            targetY = baseY + 16;
         } else if (missType === 'blocked') {
             targetX = contactPoint.x + (Math.random() - 0.5) * PX_PER_YARD * 1.75;
             targetY = contactPoint.y + PX_PER_YARD * (0.8 + Math.random() * 1.1);
@@ -543,6 +543,11 @@ function updateFieldGoalAttempt(state, dt) {
         case 'RESULT': {
             updateHolder(1);
             setKicker(visual.kicker.follow);
+            if (special.outcome?.success) {
+                visual.goalHighlight = clamp((visual.phaseTime || 0) / 0.35, 0, 1);
+            } else {
+                visual.goalHighlight = 0;
+            }
             if (!visual.outcomeApplied && special.outcome) {
                 applyFieldGoalOutcome(state, ctx, special.outcome, { logAttempt: true });
                 visual.outcomeApplied = true;
