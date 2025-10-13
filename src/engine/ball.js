@@ -223,6 +223,16 @@ export function moveBall(s, dt) {
                 const openBonus = openRatio * 0.3;
                 const catchProbability = clamp(baseCatchChance + openBonus, 0.05, 0.85);
 
+                const dropBase = 0.08;
+                const dropHands = clamp(1.15 - hands, 0, 0.75) * 0.16;
+                const dropContact = clamp((14 - (separation ?? 18)) / 26, 0, 0.22);
+                const dropRisk = s.play.passRisky ? 0.05 : 0;
+                const depthDrop = clamp((throwDistYards - 12) * 0.015, 0, 0.14);
+                const traitDrop = clamp(-handsTrait * 0.08, -0.08, 0.08);
+                const openDropRelief = openRatio * 0.14;
+                const dropProbability = clamp(dropBase + dropHands + dropContact + dropRisk + depthDrop + traitDrop - openDropRelief, 0.02, 0.42);
+                const completionChance = clamp(catchProbability * (1 - dropProbability), 0, 1);
+
                 if (typeof console !== 'undefined' && console?.log) {
                     const targetName = r.profile?.fullName || r.role || r.id;
                     console.log('[Pass Target]', {
@@ -244,21 +254,15 @@ export function moveBall(s, dt) {
                             openBonus,
                             baseCatchChance,
                             catchProbability,
+                            dropProbability,
+                            completionChance,
+                            completionPercent: Math.round(completionChance * 1000) / 10,
                         },
                     });
                 }
 
                 if (Math.random() < catchProbability) {
-                    const dropBase = 0.08;
-                    const dropHands = clamp(1.15 - hands, 0, 0.75) * 0.16;
-                    const dropContact = clamp((14 - (separation ?? 18)) / 26, 0, 0.22);
-                    const dropRisk = s.play.passRisky ? 0.05 : 0;
-                    const depthDrop = clamp((throwDistYards - 12) * 0.015, 0, 0.14);
-                    const traitDrop = clamp(-handsTrait * 0.08, -0.08, 0.08);
-                    const openDropRelief = openRatio * 0.14;
-                    const dropProb = clamp(dropBase + dropHands + dropContact + dropRisk + depthDrop + traitDrop - openDropRelief, 0.02, 0.42);
-
-                    if (Math.random() < dropProb) {
+                    if (Math.random() < dropProbability) {
                         s.play.deadAt = s.play.elapsed;
                         s.play.phase = 'DEAD';
                         s.play.resultWhy = 'Drop';
