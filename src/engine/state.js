@@ -2,7 +2,7 @@ import {
     FIELD_PIX_W, ENDZONE_YARDS, PLAYING_YARDS_H,
     TEAM_RED, TEAM_BLK, PLAYBOOK, PX_PER_YARD,
 } from './constants';
-import { clamp, yardsToPixY, pixYToYards } from './helpers';
+import { clamp, yardsToPixY, pixYToYards, rand } from './helpers';
 import { createTeams, rosterForPossession, lineUpFormation, buildPlayerDirectory } from './rosters';
 import { initRoutesAfterSnap, moveOL, moveReceivers, moveTE, qbLogic, rbLogic, defenseLogic } from './ai';
 import { moveBall, getBallPix } from './ball';
@@ -190,6 +190,52 @@ function maybeAutoTimeout(s, ctx) {
     return false;
 }
 
+function maybeTimeoutToAvoidRunoff(s, ctx, runoffSeconds = 25) {
+    if (!s.clock || s.clock.awaitSnap || !s.clock.running || s.clock.time <= 0) return false;
+
+    const offense = ctx.offense;
+    const remaining = s.clock.timeouts?.[offense] ?? 0;
+    if (remaining <= 0) return false;
+
+    const clockTime = s.clock.time;
+    const offenseScore = s.scores?.[offense] ?? 0;
+    const defenseScore = s.scores?.[otherTeam(offense)] ?? 0;
+    const trailing = offenseScore < defenseScore;
+
+    const settings = clockSettings(s.clock, offense);
+    const hurryThreshold = settings.hurryThreshold ?? DEFAULT_CLOCK_MANAGEMENT.hurryThreshold;
+    const mustThreshold = settings.mustTimeoutThreshold ?? DEFAULT_CLOCK_MANAGEMENT.mustTimeoutThreshold;
+
+    const avoidExpiration = clockTime <= runoffSeconds;
+    const mustUse = clockTime <= Math.max(runoffSeconds, mustThreshold);
+    const hurry = trailing && clockTime <= hurryThreshold;
+
+    if (!(avoidExpiration || mustUse || hurry)) return false;
+
+    if (!consumeTimeout(s, offense, 'Timeout to stop runoff')) return false;
+
+    pushPlayLog(s, {
+        name: 'Timeout',
+        startDown: ctx.startDown,
+        startToGo: ctx.startToGo,
+        startLos: ctx.startLos,
+        endLos: ctx.startLos,
+        gained: 0,
+        why: 'Timeout to stop runoff',
+        offense: offense,
+    });
+    s.play.resultText = 'Timeout to stop runoff';
+    return true;
+}
+
+function applyBetweenPlayRunoff(s, seconds = 25) {
+    if (!s.clock || s.clock.awaitSnap || !s.clock.running || s.clock.time <= 0) return;
+    const runoff = Math.min(seconds, s.clock.time);
+    if (runoff <= 0) return;
+    updateClock(s, runoff);
+    recordPlayEvent(s, { type: 'clock:runoff', seconds: runoff });
+}
+
 function maybeAssessPenalty(s, ctx) {
     if (!s.play || Math.random() > PENALTY_CHANCE) return null;
     if (ctx.turnover || ctx.scoring) return null;
@@ -285,6 +331,156 @@ function gatherActivePlayers(play) {
     const off = Object.values(play.formation.off || {});
     const def = Object.values(play.formation.def || {});
     return [...off, ...def].filter(p => p && p.pos);
+}
+
+const MOTION_ROLES = ['WR3', 'WR2', 'WR1', 'TE', 'RB'];
+
+function createMotionPlan(off) {
+    if (!off) return null;
+    if (Math.random() > 0.6) return null;
+    const candidates = MOTION_ROLES.filter(role => off[role]?.pos);
+    if (!candidates.length) return null;
+    const role = candidates[(Math.random() * candidates.length) | 0];
+    const player = off[role];
+    if (!player?.pos) return null;
+
+    const span = rand(2.5, 6.5) * PX_PER_YARD;
+    const direction = Math.random() < 0.5 ? -1 : 1;
+    const destX = clamp(player.pos.x + direction * span, 18, FIELD_PIX_W - 18);
+    const destY = clamp(
+        player.pos.y + (role === 'RB' ? rand(-0.6, 0.6) * PX_PER_YARD : 0),
+        yardsToPixY(ENDZONE_YARDS),
+        yardsToPixY(ENDZONE_YARDS + PLAYING_YARDS_H),
+    );
+
+    return {
+        role,
+        from: { x: player.pos.x, y: player.pos.y },
+        to: { x: destX, y: destY },
+        duration: rand(0.45, 0.85),
+        elapsed: 0,
+        done: false,
+    };
+}
+
+function advanceMotion(play, dt) {
+    const plan = play?.preSnap?.motion;
+    if (!plan || plan.done) return;
+
+    const player = play.formation?.off?.[plan.role];
+    if (!player?.pos) {
+        plan.done = true;
+        return;
+    }
+
+    plan.elapsed = Math.min(plan.elapsed + dt, plan.duration);
+    const t = plan.duration > 0 ? clamp(plan.elapsed / plan.duration, 0, 1) : 1;
+    const eased = t * t * (3 - 2 * t);
+    const nx = plan.from.x + (plan.to.x - plan.from.x) * eased;
+    const ny = plan.from.y + (plan.to.y - plan.from.y) * eased;
+
+    player.pos.x = nx;
+    player.pos.y = ny;
+    player.home = { x: nx, y: ny };
+
+    if (plan.elapsed >= plan.duration - 1e-3) {
+        plan.done = true;
+    }
+}
+
+function createAudiblePlan(qb) {
+    if (!qb) return null;
+    const awareness = clamp(qb.attrs?.awareness ?? 0.9, 0.4, 1.35);
+    const baseChance = 0.12 + (awareness - 0.85) * 0.25;
+    const chance = clamp(baseChance, 0.08, 0.4);
+    if (Math.random() >= chance) return null;
+    return {
+        timer: rand(0.45, 0.9),
+        triggered: false,
+        cooldown: 0,
+    };
+}
+
+function chooseAudibleCall(state, currentCall) {
+    const allPlays = [];
+    if (Array.isArray(PLAYBOOK)) allPlays.push(...PLAYBOOK);
+    if (Array.isArray(PLAYBOOK_PLUS)) allPlays.push(...PLAYBOOK_PLUS);
+    if (!allPlays.length) return currentCall;
+
+    const exclude = currentCall?.name || null;
+    let pool = allPlays.filter(p => p && p.name !== exclude);
+    if (!pool.length) pool = allPlays;
+
+    const context = {
+        down: state.drive?.down ?? 1,
+        toGo: state.drive?.toGo ?? 10,
+        yardline: state.drive?.losYards ?? 25,
+    };
+
+    const picked = pickPlayCall(pool, context) || pool[0];
+    if (!picked) return currentCall;
+    if (picked.name === exclude) return currentCall;
+    return picked;
+}
+
+function updateAudible(state, dt) {
+    const plan = state.play?.preSnap?.audible;
+    if (!plan) return;
+
+    if (plan.triggered) {
+        if (plan.cooldown > 0) {
+            plan.cooldown = Math.max(0, plan.cooldown - dt);
+        }
+        return;
+    }
+
+    plan.timer -= dt;
+    if (plan.timer > 0) return;
+
+    const nextCall = chooseAudibleCall(state, state.play?.playCall);
+    if (!nextCall || nextCall === state.play?.playCall) {
+        plan.triggered = true;
+        plan.cooldown = 0;
+        return;
+    }
+
+    state.play.playCall = nextCall;
+    plan.triggered = true;
+    plan.cooldown = 0.35;
+    if (state.play?.preSnap) {
+        state.play.preSnap.minDuration = Math.max(state.play.preSnap.minDuration || 1, state.play.elapsed + 0.3);
+    }
+    recordPlayEvent(state, { type: 'audible', play: nextCall.name });
+}
+
+function createPreSnapPlan(formation) {
+    const off = formation?.off || {};
+    const plan = {
+        motion: createMotionPlan(off),
+        audible: createAudiblePlan(off.QB),
+        minDuration: 1.0,
+    };
+    return plan;
+}
+
+function ensurePreSnapPlan(play) {
+    if (!play) return;
+    if (!play.preSnap) play.preSnap = createPreSnapPlan(play.formation || {});
+}
+
+function presnapReady(play) {
+    if (!play?.preSnap) return true;
+    const motionReady = !play.preSnap.motion || play.preSnap.motion.done;
+    const audibleReady = !play.preSnap.audible || play.preSnap.audible.triggered;
+    const cooldown = play.preSnap.audible?.cooldown ?? 0;
+    return motionReady && audibleReady && cooldown <= 0.01;
+}
+
+function updatePreSnap(state, dt) {
+    if (!state?.play) return;
+    ensurePreSnapPlan(state.play);
+    advanceMotion(state.play, dt);
+    updateAudible(state, dt);
 }
 
 /* =========================================================
@@ -398,6 +594,7 @@ export function createPlayState(roster, drive) {
         sticksDepthPx: safeDrive.toGo * PX_PER_YARD,
     };
     play.statContext = createPlayStatContext();
+    play.preSnap = createPreSnapPlan(formation);
     return play;
 }
 
@@ -421,7 +618,9 @@ export function stepGame(state, dt) {
 
     switch (s.play.phase) {
         case 'PRESNAP': {
-            if (s.play.elapsed > 1.0) {
+            updatePreSnap(s, dt);
+            const minPresnap = s.play?.preSnap?.minDuration ?? 1.0;
+            if (s.play.elapsed > minPresnap && presnapReady(s.play)) {
                 s.play.phase = 'POSTSNAP';
                 s.play.ball.carrierId = 'QB';
                 s.play.ball.inAir = false;
@@ -505,7 +704,12 @@ export function betweenPlays(s) {
 
     // Helpers
     const noAdvance = isNoAdvance(resultWhy); // make sure this handles 'Throw away' too
-    const gained = noAdvance ? 0 : netGain;
+    const isInterception = /interception/i.test(String(resultWhy));
+    const gained = (() => {
+        if (noAdvance) return 0;
+        if ((s.play?.turnover || false) && isInterception) return 0;
+        return netGain;
+    })();
     const firstDownAchieved = !noAdvance && (gained >= startToGo);
 
     // Text says turnover on downs OR 4th down failed to gain enough
@@ -562,49 +766,71 @@ export function betweenPlays(s) {
 
     // Normal play resolution
     else {
-        los = clamp(noAdvance ? startLos : endYd, 0, 100);
-        if (firstDownAchieved) {
+        if (turnover) {
+            const newOffense = otherTeam(offenseAtSnap);
+            const takeoverLos = clamp(100 - clamp(endYd, 0, 100), 0, 100);
+            s.possession = newOffense;
+            s.teams = s.teams || createTeams();
+            s.roster = rosterForPossession(s.teams, s.possession);
+
+            los = clamp(takeoverLos, 1, 99);
             down = 1;
             toGo = Math.min(10, 100 - los);
+
             pushPlayLog(s, {
                 name: call.name,
                 startDown, startToGo, startLos,
                 endLos: los,
                 gained,
                 why: resultWhy,
-                offense: offenseAtSnap,
+                turnover: true,
+                offense: offenseAtSnap
             });
         } else {
-            down = startDown + 1;
-            if (down > 4) {
-                // Safety net: if we somehow get here, treat as turnover on downs
-                s.possession = (s.possession === TEAM_RED ? TEAM_BLK : TEAM_RED);
-                s.teams = s.teams || createTeams();
-                s.roster = rosterForPossession(s.teams, s.possession);
-
-                los = 25;      // force new drive start at 25
+            los = clamp(noAdvance ? startLos : endYd, 0, 100);
+            if (firstDownAchieved) {
                 down = 1;
-                toGo = 10;
-                turnover = true;
-
+                toGo = Math.min(10, 100 - los);
                 pushPlayLog(s, {
                     name: call.name,
                     startDown, startToGo, startLos,
                     endLos: los,
-                    gained: netGain,
-                    why: 'Turnover on downs',
-                    turnover: true,
-                    offense: offenseAtSnap
+                    gained,
+                    why: resultWhy,
+                    offense: offenseAtSnap,
                 });
             } else {
-                toGo = Math.max(1, startToGo - (noAdvance ? 0 : gained));
-                pushPlayLog(s, {
-                    name: call.name,
-                    startDown, startToGo, startLos,
-                    endLos: los, gained,
-                    why: resultWhy,
-                    offense: offenseAtSnap
-                });
+                down = startDown + 1;
+                if (down > 4) {
+                    // Safety net: if we somehow get here, treat as turnover on downs
+                    s.possession = (s.possession === TEAM_RED ? TEAM_BLK : TEAM_RED);
+                    s.teams = s.teams || createTeams();
+                    s.roster = rosterForPossession(s.teams, s.possession);
+
+                    los = 25;      // force new drive start at 25
+                    down = 1;
+                    toGo = 10;
+                    turnover = true;
+
+                    pushPlayLog(s, {
+                        name: call.name,
+                        startDown, startToGo, startLos,
+                        endLos: los,
+                        gained: netGain,
+                        why: 'Turnover on downs',
+                        turnover: true,
+                        offense: offenseAtSnap
+                    });
+                } else {
+                    toGo = Math.max(1, startToGo - (noAdvance ? 0 : gained));
+                    pushPlayLog(s, {
+                        name: call.name,
+                        startDown, startToGo, startLos,
+                        endLos: los, gained,
+                        why: resultWhy,
+                        offense: offenseAtSnap
+                    });
+                }
             }
         }
     }
@@ -626,15 +852,26 @@ export function betweenPlays(s) {
         scoring: resultWhy === 'Touchdown',
     });
 
+    const timeoutContext = {
+        offense: offenseAtSnap,
+        resultWhy,
+        turnover: turnover || turnoverOnDownsByString || turnoverOnDownsCalc,
+        startDown,
+        startToGo,
+        startLos,
+    };
+
     if (!stoppage && !penaltyInfo) {
-        maybeAutoTimeout(s, {
-            offense: offenseAtSnap,
-            resultWhy,
-            turnover: turnover || turnoverOnDownsByString || turnoverOnDownsCalc,
-            startDown,
-            startToGo,
-            startLos,
-        });
+        let preventedRunoff = false;
+        if (maybeAutoTimeout(s, timeoutContext)) {
+            preventedRunoff = true;
+        } else if (maybeTimeoutToAvoidRunoff(s, timeoutContext, 25)) {
+            preventedRunoff = true;
+        }
+
+        if (!preventedRunoff) {
+            applyBetweenPlayRunoff(s, 25);
+        }
     }
 
     const yardText = noAdvance ? 'no gain' : `${gained >= 0 ? '+' : ''}${gained} yds`;
