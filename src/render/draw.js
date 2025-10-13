@@ -3,11 +3,12 @@ import {
     COLORS, FIELD_PIX_W, FIELD_PIX_H,
     ENDZONE_YARDS, PLAYING_YARDS_H,
     PX_PER_YARD, FIELD_YARDS_W,
-    TEAM_RED
+    TEAM_RED, TEAM_BLK,
 } from '../engine/constants';
 
 import { yardsToPixY } from '../engine/helpers';
 import { getBallPix } from '../engine/ball';
+import { resolveTeamColor, resolveSlotColors } from '../engine/colors';
 
 export function draw(canvas, state) {
     if (!canvas || !state || !state.play || !state.play.formation) return;
@@ -68,8 +69,10 @@ function drawContent(ctx, state) {
         const safePlayers = (obj) => Object.values(obj || []).filter(
             (p) => p && p.pos && Number.isFinite(p.pos.x) && Number.isFinite(p.pos.y)
         );
-        const offenseColor = state.possession === TEAM_RED ? COLORS.red : COLORS.black;
-        const defenseColor = state.possession === TEAM_RED ? COLORS.black : COLORS.red;
+        const offenseSlot = state.possession === TEAM_BLK ? TEAM_BLK : TEAM_RED;
+        const defenseSlot = offenseSlot === TEAM_RED ? TEAM_BLK : TEAM_RED;
+        const offenseColor = getTeamDisplayColor(state, offenseSlot, 'offense');
+        const defenseColor = getTeamDisplayColor(state, defenseSlot, 'defense');
         safePlayers(def).forEach(p => drawPlayer(ctx, p, defenseColor));
         safePlayers(off).forEach(p => drawPlayer(ctx, p, offenseColor));
 
@@ -86,12 +89,20 @@ function drawContent(ctx, state) {
     ctx.fillText(`${state.play.resultText || ''}`, 12, 24);
 }
 
+function getTeamDisplayColor(state, slot, side) {
+    const fallback = slot === TEAM_RED ? COLORS.red : COLORS.black;
+    const source = resolveSlotColors(state, slot, side);
+    return resolveTeamColor(source, fallback);
+}
+
 function drawFieldGoalScene(ctx, state) {
     const special = state.play?.specialTeams;
     const visual = special?.visual;
     if (!visual) return;
-    const offenseColor = state.possession === TEAM_RED ? COLORS.red : COLORS.black;
-    const defenseColor = state.possession === TEAM_RED ? COLORS.black : COLORS.red;
+    const offenseSlot = state.possession === TEAM_BLK ? TEAM_BLK : TEAM_RED;
+    const defenseSlot = offenseSlot === TEAM_RED ? TEAM_BLK : TEAM_RED;
+    const offenseColor = getTeamDisplayColor(state, offenseSlot, 'offense');
+    const defenseColor = getTeamDisplayColor(state, defenseSlot, 'defense');
 
     const drawGroup = (arr, color) => {
         (arr || []).forEach((p) => {
