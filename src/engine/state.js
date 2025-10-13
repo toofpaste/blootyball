@@ -88,18 +88,26 @@ function createFieldGoalVisual({ losYards, distance }) {
     const centerX = FIELD_PIX_W / 2;
     const holderX = centerX - yard * 0.3;
     const snapperY = losPixY - yard * 0.6;
-    const kickerStart = { x: holderX - yard * 2.4, y: holderY - yard * 1.3 };
-    const kickerPlant = { x: holderX - yard * 0.5, y: holderY + yard * 0.25 };
+    const snapOrigin = { x: holderX - yard * 0.25, y: snapperY };
+    const catchPoint = { x: holderX, y: holderY - yard * 0.1 };
+    const kickerStart = { x: holderX - yard * 2.6, y: holderY - yard * 1.55 };
+    const kickerPlant = { x: holderX - yard * 0.55, y: holderY + yard * 0.28 };
     const kickerFollow = { x: holderX + yard * 0.9, y: holderY - yard * 0.2 };
 
-    const lineBaseY = losPixY - yard * 0.4;
-    const guardSpacing = yard * 0.9;
+    const lineBaseY = losPixY - yard * 0.35;
+    const wingY = lineBaseY - yard * 0.18;
+    const guardSpacing = yard * 1.05;
+    const protectorDepth = holderY + yard * 0.85;
+    const rushStartY = lineBaseY - yard * 0.65;
+    const rushTargetY = holderY + yard * 0.18;
+    const rushSpeed = yard * 12.5;
 
     return {
         phase: 'PREP',
         phaseTime: 0,
         totalTime: 0,
         prepDuration: 0.55,
+        snapDuration: 0.32,
         approachDuration: 0.85,
         swingDuration: 0.24,
         flightDuration: Math.min(1.9, Math.max(1.15, distance * 0.02 + 0.95)),
@@ -110,24 +118,58 @@ function createFieldGoalVisual({ losYards, distance }) {
             kneel: { x: holderX, y: holderY + yard * 0.45 },
             renderPos: { x: holderX, y: holderY },
         },
-        snapper: { pos: { x: holderX - yard * 0.25, y: snapperY }, renderPos: { x: holderX - yard * 0.25, y: snapperY } },
+        snapper: {
+            pos: { x: holderX - yard * 0.25, y: snapperY },
+            renderPos: { x: holderX - yard * 0.25, y: snapperY },
+        },
         line: [
+            { role: 'LW', pos: { x: holderX - guardSpacing * 3.35, y: wingY }, renderPos: { x: holderX - guardSpacing * 3.35, y: wingY } },
             { role: 'LT', pos: { x: holderX - guardSpacing * 2.2, y: lineBaseY }, renderPos: { x: holderX - guardSpacing * 2.2, y: lineBaseY } },
-            { role: 'LG', pos: { x: holderX - guardSpacing * 1.1, y: lineBaseY }, renderPos: { x: holderX - guardSpacing * 1.1, y: lineBaseY } },
-            { role: 'C', pos: { x: holderX - guardSpacing * 0.1, y: lineBaseY }, renderPos: { x: holderX - guardSpacing * 0.1, y: lineBaseY } },
-            { role: 'RG', pos: { x: holderX + guardSpacing * 0.9, y: lineBaseY }, renderPos: { x: holderX + guardSpacing * 0.9, y: lineBaseY } },
+            { role: 'LG', pos: { x: holderX - guardSpacing * 1.05, y: lineBaseY + yard * 0.08 }, renderPos: { x: holderX - guardSpacing * 1.05, y: lineBaseY + yard * 0.08 } },
+            { role: 'C', pos: { x: holderX - guardSpacing * 0.1, y: lineBaseY + yard * 0.12 }, renderPos: { x: holderX - guardSpacing * 0.1, y: lineBaseY + yard * 0.12 } },
+            { role: 'RG', pos: { x: holderX + guardSpacing * 0.85, y: lineBaseY + yard * 0.08 }, renderPos: { x: holderX + guardSpacing * 0.85, y: lineBaseY + yard * 0.08 } },
             { role: 'RT', pos: { x: holderX + guardSpacing * 2.0, y: lineBaseY }, renderPos: { x: holderX + guardSpacing * 2.0, y: lineBaseY } },
+            { role: 'RW', pos: { x: holderX + guardSpacing * 3.25, y: wingY }, renderPos: { x: holderX + guardSpacing * 3.25, y: wingY } },
+        ],
+        protectors: [
+            { role: 'PP', pos: { x: holderX - guardSpacing * 1.45, y: protectorDepth }, renderPos: { x: holderX - guardSpacing * 1.45, y: protectorDepth } },
+            { role: 'PP', pos: { x: holderX + guardSpacing * 1.45, y: protectorDepth }, renderPos: { x: holderX + guardSpacing * 1.45, y: protectorDepth } },
         ],
         rushers: [
-            { role: 'LE', pos: { x: holderX - guardSpacing * 3, y: lineBaseY - yard * 0.4 }, renderPos: { x: holderX - guardSpacing * 3, y: lineBaseY - yard * 0.4 } },
-            { role: 'RE', pos: { x: holderX + guardSpacing * 3, y: lineBaseY - yard * 0.4 }, renderPos: { x: holderX + guardSpacing * 3, y: lineBaseY - yard * 0.4 } },
+            {
+                role: 'LE',
+                pos: { x: holderX - guardSpacing * 3.5, y: rushStartY },
+                renderPos: { x: holderX - guardSpacing * 3.5, y: rushStartY },
+                target: { x: holderX - guardSpacing * 0.8, y: rushTargetY },
+                delay: 0,
+            },
+            {
+                role: 'NG',
+                pos: { x: holderX - guardSpacing * 0.3, y: rushStartY + yard * 0.05 },
+                renderPos: { x: holderX - guardSpacing * 0.3, y: rushStartY + yard * 0.05 },
+                target: { x: holderX - guardSpacing * 0.05, y: rushTargetY + yard * 0.05 },
+                delay: 0.08,
+            },
+            {
+                role: 'RE',
+                pos: { x: holderX + guardSpacing * 3.4, y: rushStartY },
+                renderPos: { x: holderX + guardSpacing * 3.4, y: rushStartY },
+                target: { x: holderX + guardSpacing * 0.7, y: rushTargetY },
+                delay: 0.04,
+            },
         ],
         ball: {
-            pos: { x: holderX, y: holderY },
-            shadow: { x: holderX, y: holderY },
+            pos: { ...snapOrigin },
+            shadow: { ...snapOrigin },
             height: 0,
         },
-        contactPoint: { x: holderX, y: holderY },
+        snap: {
+            from: snapOrigin,
+            to: catchPoint,
+            duration: 0.32,
+        },
+        rushSpeed,
+        contactPoint: catchPoint,
         uprights: {
             goalLineY: yardsToPixY(ENDZONE_YARDS + PLAYING_YARDS_H),
             crossbarY: yardsToPixY(ENDZONE_YARDS + PLAYING_YARDS_H) - yardsToPixY(3.33),
@@ -143,10 +185,28 @@ function resolveFieldGoalAttempt(state, { team, distance, isPat = false }) {
         return { success: false, distance: distance ?? 0, summary: 'No kick attempted', isPat, team, chance: 0, roll: 1, kicker: null };
     }
     const kicker = getTeamKicker(state, team);
+    const label = isPat ? 'Extra point' : 'Field goal';
+    const blockChance = 0.065;
+    const blockRoll = Math.random();
+    if (blockRoll <= blockChance) {
+        const summary = `${label} blocked`;
+        return {
+            team,
+            distance,
+            isPat,
+            kicker,
+            chance: 0,
+            roll: blockRoll,
+            success: false,
+            summary,
+            points: isPat ? 1 : 3,
+            missType: 'blocked',
+            blocked: true,
+        };
+    }
     const chance = kickerSuccessChance(kicker, distance);
     const roll = Math.random();
     const success = roll <= chance;
-    const label = isPat ? 'Extra point' : 'Field goal';
     let missType = null;
     if (!success) {
         const delta = roll - chance;
@@ -267,6 +327,9 @@ function computeFieldGoalTarget(visual, outcome) {
         } else if (missType === 'wide-left') {
             targetX = uprights.centerX - uprights.halfWidth - 34;
             targetY = baseY + 16;
+        } else if (missType === 'blocked') {
+            targetX = contactPoint.x + (Math.random() - 0.5) * PX_PER_YARD * 1.75;
+            targetY = contactPoint.y + PX_PER_YARD * (0.8 + Math.random() * 1.1);
         } else {
             targetX = uprights.centerX + (Math.random() - 0.5) * uprights.halfWidth * 0.35;
             targetY = Math.max(contactPoint.y + 40, uprights.goalLineY - yardsToPixY(1 + Math.random() * 1.5));
@@ -281,7 +344,9 @@ function computeFieldGoalTarget(visual, outcome) {
 function computeFieldGoalApex(distance, outcome) {
     const base = clamp(distance * 0.32, 18, 42);
     let modifier = 1;
-    if (!outcome?.success) {
+    if (outcome?.missType === 'blocked') {
+        modifier = 0.35;
+    } else if (!outcome?.success) {
         if (outcome?.missType === 'short') modifier = 0.65;
         else modifier = 0.8;
     }
@@ -309,11 +374,32 @@ function updateFieldGoalAttempt(state, dt) {
 
     if (visual.snapper) {
         const crouch = visual.phase === 'PREP' ? Math.min(8, visual.phaseTime * 12) : 8;
+        const snapExtend = visual.phase === 'SNAP' ? Math.min(10, visual.phaseTime / (visual.snapDuration || 0.3) * 10) : 0;
         visual.snapper.renderPos = {
             x: visual.snapper.pos.x,
-            y: visual.snapper.pos.y + crouch,
+            y: visual.snapper.pos.y + crouch - snapExtend * 0.25,
         };
     }
+
+    const updateRushers = () => {
+        if (!visual.rushers || !visual.rushSpeed) return;
+        if (visual.snapStartedAt == null) return;
+        const sinceSnap = Math.max(0, (visual.totalTime || 0) - visual.snapStartedAt);
+        visual.rushers.forEach((r) => {
+            if (!r?.target) return;
+            const delay = r.delay || 0;
+            const travelStart = Math.max(0, sinceSnap - delay);
+            const dx = r.target.x - r.pos.x;
+            const dy = r.target.y - r.pos.y;
+            const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+            const travelTime = dist / visual.rushSpeed;
+            const progress = clamp(travelStart / travelTime, 0, 1);
+            r.renderPos = {
+                x: lerp(r.pos.x, r.target.x, progress),
+                y: lerp(r.pos.y, r.target.y, progress),
+            };
+        });
+    };
 
     const phase = visual.phase || 'PREP';
     const dtClamped = Math.min(dt, 0.05);
@@ -340,10 +426,34 @@ function updateFieldGoalAttempt(state, dt) {
         play.ball.flight = { height: visual.ball.height };
     };
 
+    updateRushers();
+
     switch (phase) {
         case 'PREP': {
             updateHolder(visual.phaseTime / visual.prepDuration);
             if (visual.phaseTime >= visual.prepDuration) {
+                visual.phase = 'SNAP';
+                visual.phaseTime = 0;
+                visual.snapStartedAt = visual.totalTime || 0;
+            }
+            break;
+        }
+        case 'SNAP': {
+            updateHolder(clamp(visual.phaseTime / (visual.snapDuration || 0.3), 0, 1));
+            const snap = visual.snap || { from: visual.contactPoint, to: visual.contactPoint, duration: 0.3 };
+            const snapT = clamp(visual.phaseTime / (snap.duration || 0.3), 0, 1);
+            const eased = easeOutQuad(snapT);
+            const pos = {
+                x: lerp(snap.from.x, snap.to.x, eased),
+                y: lerp(snap.from.y, snap.to.y, eased),
+            };
+            visual.ball.pos = pos;
+            visual.ball.shadow = { x: pos.x, y: snap.to.y + PX_PER_YARD * 0.35 };
+            visual.ball.height = Math.sin(Math.PI * snapT) * PX_PER_YARD * 0.6;
+            if (snapT >= 1) {
+                visual.ball.pos = { ...visual.contactPoint };
+                visual.ball.shadow = { x: visual.contactPoint.x, y: visual.holder.pos.y };
+                visual.ball.height = 0;
                 visual.phase = 'APPROACH';
                 visual.phaseTime = 0;
             }
@@ -384,9 +494,16 @@ function updateFieldGoalAttempt(state, dt) {
                     elapsed: 0,
                     apex: computeFieldGoalApex(distance, special.outcome),
                 };
+                if (special.outcome.missType === 'blocked') {
+                    visual.flight.duration = Math.min(0.7, visual.flight.duration * 0.6);
+                }
                 visual.ball.pos = { ...visual.contactPoint };
                 visual.ball.shadow = { ...visual.contactPoint };
-                play.resultText = special.outcome.isPat ? 'Extra point is up...' : 'Kick is on the way...';
+                if (special.outcome.missType === 'blocked') {
+                    play.resultText = 'Kick is blocked!';
+                } else {
+                    play.resultText = special.outcome.isPat ? 'Extra point is up...' : 'Kick is on the way...';
+                }
             }
             if (t >= 1 && special.outcome) {
                 visual.phase = 'FLIGHT';
@@ -408,7 +525,11 @@ function updateFieldGoalAttempt(state, dt) {
                 x: lerp(visual.flight.from.x, visual.flight.to.x, eased),
                 y: lerp(visual.flight.from.y, visual.flight.to.y, eased),
             };
-            const shadowY = lerp(visual.flight.from.y, visual.uprights.goalLineY, eased);
+            const outcome = special.outcome;
+            const shadowTarget = outcome?.missType === 'blocked'
+                ? visual.flight.to.y
+                : visual.uprights.goalLineY;
+            const shadowY = lerp(visual.flight.from.y, shadowTarget, eased);
             visual.ball.pos = pos;
             visual.ball.shadow = { x: pos.x, y: shadowY };
             visual.ball.height = Math.sin(Math.PI * tRaw) * visual.flight.apex;
