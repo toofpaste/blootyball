@@ -100,7 +100,7 @@ function createFieldGoalVisual({ losYards, distance }) {
     const protectorDepth = holderY + yard * 0.85;
     const rushStartY = lineBaseY - yard * 0.65;
     const rushTargetY = holderY + yard * 0.18;
-    const rushSpeed = yard * 12.5;
+    const rushSpeed = yard * 9.25;
 
     return {
         phase: 'PREP',
