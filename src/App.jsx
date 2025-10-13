@@ -9,6 +9,8 @@ import { TEAM_RED, TEAM_BLK } from './engine/constants';
 import { draw } from './render/draw';
 import PlayLog from './ui/PlayLog';
 import StatsSummary from './ui/StatsSummary';
+import SeasonStatsModal from './ui/SeasonStatsModal';
+import { formatRecord } from './engine/league';
 import './AppLayout.css';
 
 export default function App() {
@@ -16,6 +18,7 @@ export default function App() {
   const [running, setRunning] = useState(false);
   const [simSpeed, setSimSpeed] = useState(1);
   const [state, setState] = useState(() => createInitialGameState());
+  const [seasonModalOpen, setSeasonModalOpen] = useState(false);
 
   const LOGICAL_W = FIELD_PIX_H;
   const LOGICAL_H = FIELD_PIX_W;
@@ -51,8 +54,60 @@ export default function App() {
     }
   }, [state]);
 
+  useEffect(() => {
+    if (state.gameComplete && running) {
+      setRunning(false);
+    }
+  }, [state.gameComplete, running]);
+
+  const season = state.season || {};
+  const totalGames = season.schedule?.length || 0;
+  const activeMatchup = state.matchup || null;
+  const fallbackMatchup = !activeMatchup ? state.lastCompletedGame?.matchup : null;
+  const activeScores = activeMatchup ? state.scores : (state.lastCompletedGame?.scores || {});
+
+  const buildTeam = (slot) => {
+    const matchupInfo = activeMatchup || fallbackMatchup;
+    const teamId = matchupInfo?.slotToTeam?.[slot] || null;
+    const entry = teamId ? season.teams?.[teamId] : null;
+    const identity = matchupInfo?.identities?.[slot] || entry?.info || null;
+    const record = entry?.record || { wins: 0, losses: 0, ties: 0 };
+    const recordText = formatRecord(record);
+    const colors = (identity?.colors || entry?.info?.colors) || {};
+    const displayName = identity?.displayName || entry?.info?.displayName || identity?.name || teamId || slot;
+    const label = identity?.abbr || entry?.info?.abbr || displayName;
+    return {
+      id: teamId || slot,
+      displayName,
+      label,
+      recordText,
+      score: activeScores?.[slot] ?? 0,
+      color: colors.primary || (slot === TEAM_RED ? '#e53935' : '#111111'),
+      info: entry?.info || identity || {},
+    };
+  };
+
+  const homeTeam = buildTeam(TEAM_RED);
+  const awayTeam = buildTeam(TEAM_BLK);
+
+  let gameLabel = '';
+  if (totalGames) {
+    if (!activeMatchup && state.gameComplete) {
+      gameLabel = 'Season complete';
+    } else if (activeMatchup) {
+      const index = activeMatchup.index != null ? activeMatchup.index : season.currentGameIndex;
+      gameLabel = `Game ${Math.min((index ?? 0) + 1, totalGames)} of ${totalGames}`;
+    } else if (fallbackMatchup) {
+      const index = fallbackMatchup.index != null ? fallbackMatchup.index : (season.completedGames ?? 1) - 1;
+      const safeIndex = index != null ? index : 0;
+      gameLabel = `Final • Game ${Math.min(safeIndex + 1, totalGames)} of ${totalGames}`;
+    }
+  }
+
+  const statsTeams = [homeTeam, awayTeam].filter(team => team.id && team.id !== TEAM_RED && team.id !== TEAM_BLK);
+
   const onNextPlay = () => setState(s => betweenPlays(s));
-  const onReset = () => { setState(createInitialGameState()); setRunning(false); };
+  const onReset = () => { setSeasonModalOpen(false); setState(createInitialGameState()); setRunning(false); };
 
   // new handlers for debug tools
   const handleForcePlayName = (nameOrNull) => {
@@ -84,12 +139,14 @@ export default function App() {
         forceOutcome={state.debug?.forceNextOutcome || null}
       />
       <Scoreboard
-        redScore={state.scores?.[TEAM_RED] ?? 0}
-        blkScore={state.scores?.[TEAM_BLK] ?? 0}
-        quarter={state.clock.quarter}
-        timeLeftText={fmtClock(state.clock.time)}
-        down={state.drive.down}
-        toGo={state.drive.toGo}
+        home={homeTeam}
+        away={awayTeam}
+        quarter={state.clock?.quarter ?? 1}
+        timeLeftText={fmtClock(state.clock?.time ?? 0)}
+        down={state.drive?.down ?? 1}
+        toGo={state.drive?.toGo ?? 10}
+        gameLabel={gameLabel}
+        onShowSeasonStats={() => setSeasonModalOpen(true)}
       />
       <div className="main-shell">
         <div className="app-layout">
@@ -103,10 +160,19 @@ export default function App() {
             <StatsSummary
               stats={state.playerStats}
               directory={state.playerDirectory}
+              teams={statsTeams}
             />
           </div>
         </div>
       </div>
+      <SeasonStatsModal
+        open={seasonModalOpen}
+        onClose={() => setSeasonModalOpen(false)}
+        season={season}
+        currentMatchup={activeMatchup}
+        currentScores={state.scores}
+        lastCompletedGame={state.lastCompletedGame}
+      />
     </div>
   );
 }

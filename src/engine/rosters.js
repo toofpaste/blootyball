@@ -2,17 +2,11 @@ import { TEAM_RED, TEAM_BLK, ROLES_OFF, ROLES_DEF } from './constants';
 import { clamp, rand, yardsToPixY } from './helpers';
 import { ENDZONE_YARDS, FIELD_PIX_W } from './constants';
 import { resetMotion } from './motion';
-import teamRedData from './data/team-red.json';
-import teamBlackData from './data/team-black.json';
+import { getTeamData, getTeamIdentity } from './data/teamLibrary';
 
 /* =========================================================
    Player factories (persistent per-team pools)
    ========================================================= */
-const TEAM_DATA = {
-    [TEAM_RED]: teamRedData,
-    [TEAM_BLK]: teamBlackData,
-};
-
 function normaliseAttrs(ratings = {}, role) {
     return {
         speed: clamp(ratings.speed ?? (role.startsWith('WR') ? 5.8 : 5.4), 4.2, 7.2),
@@ -27,7 +21,7 @@ function normaliseAttrs(ratings = {}, role) {
     };
 }
 
-function makePlayer(team, role, data = {}) {
+function makePlayer(team, role, data = {}, meta = {}) {
     const firstName = data.firstName || role;
     const lastName = data.lastName || '';
     const id = data.id || `${team}-${role}`;
@@ -52,11 +46,19 @@ function makePlayer(team, role, data = {}) {
         alive: true,
     };
 
+    player.meta = {
+        teamId: meta.teamId || null,
+        teamSlot: team,
+        colors: meta.colors || null,
+        displayName: meta.displayName || null,
+        abbr: meta.abbr || null,
+    };
+
     resetMotion(player);
     return player;
 }
 
-function makeKicker(team, data = {}) {
+function makeKicker(team, data = {}, meta = {}) {
     const firstName = data.firstName || 'Kicker';
     const lastName = data.lastName || '';
     const id = data.id || `${team}-K`;
@@ -75,6 +77,13 @@ function makeKicker(team, data = {}) {
         number: profile.number,
         maxDistance: clamp(data.maxDistance ?? 50, 30, 70),
         accuracy: clamp(data.accuracy ?? 0.75, 0.4, 0.99),
+        meta: {
+            teamId: meta.teamId || null,
+            teamSlot: team,
+            colors: meta.colors || null,
+            displayName: meta.displayName || null,
+            abbr: meta.abbr || null,
+        },
     };
 }
 
@@ -83,20 +92,42 @@ function makeKicker(team, data = {}) {
    ========================================================= */
 
 /** Build both full team pools once */
-export function createTeams() {
+export function createTeams(matchup = null) {
+    const slotToTeam = matchup?.slotToTeam || { [TEAM_RED]: TEAM_RED, [TEAM_BLK]: TEAM_BLK };
+    const identities = matchup?.identities || {};
+
     const buildSide = (team) => {
-        const teamData = TEAM_DATA[team] || {};
+        const actualId = slotToTeam[team] || team;
+        const teamData = getTeamData(actualId) || {};
+        const identity = identities[team] || getTeamIdentity(actualId) || { id: actualId, displayName: actualId };
         const off = {}; const def = {};
         ROLES_OFF.forEach((r) => {
             const data = teamData.offense?.[r] || {};
-            off[r] = makePlayer(team, r, data);
+            off[r] = makePlayer(team, r, data, {
+                teamId: actualId,
+                colors: identity.colors,
+                displayName: identity.displayName,
+                abbr: identity.abbr,
+            });
         });
         ROLES_DEF.forEach((r) => {
             const data = teamData.defense?.[r] || {};
-            def[r] = makePlayer(team, r, data);
+            def[r] = makePlayer(team, r, data, {
+                teamId: actualId,
+                colors: identity.colors,
+                displayName: identity.displayName,
+                abbr: identity.abbr,
+            });
         });
         const kickerData = teamData.specialTeams?.K || {};
-        const special = { K: makeKicker(team, kickerData) };
+        const special = {
+            K: makeKicker(team, kickerData, {
+                teamId: actualId,
+                colors: identity.colors,
+                displayName: identity.displayName,
+                abbr: identity.abbr,
+            }),
+        };
         return { off, def, special };
     };
     return {
@@ -105,7 +136,7 @@ export function createTeams() {
     };
 }
 
-export function buildPlayerDirectory(teams) {
+export function buildPlayerDirectory(teams, slotToTeam = {}, identities = {}) {
     const dir = {};
     if (!teams) return dir;
     Object.entries(teams).forEach(([team, group]) => {
@@ -113,14 +144,19 @@ export function buildPlayerDirectory(teams) {
         const register = (collection, side) => {
             Object.entries(collection || {}).forEach(([role, player]) => {
                 if (!player) return;
+                const actualTeamId = player.meta?.teamId || slotToTeam[team] || team;
+                const identity = identities[team] || getTeamIdentity(actualTeamId) || { displayName: actualTeamId, abbr: actualTeamId };
                 dir[player.id] = {
-                    team,
+                    team: actualTeamId,
+                    teamSlot: team,
                     role,
                     side,
                     firstName: player.profile?.firstName || role,
                     lastName: player.profile?.lastName || '',
                     fullName: player.profile?.fullName || role,
                     number: player.profile?.number ?? null,
+                    teamName: identity.displayName || actualTeamId,
+                    teamAbbr: identity.abbr || actualTeamId,
                 };
             });
         };
@@ -128,14 +164,19 @@ export function buildPlayerDirectory(teams) {
         register(group.def, 'defense');
         if (group.special?.K) {
             const k = group.special.K;
+            const actualTeamId = k.meta?.teamId || slotToTeam[team] || team;
+            const identity = identities[team] || getTeamIdentity(actualTeamId) || { displayName: actualTeamId, abbr: actualTeamId };
             dir[k.id] = {
-                team,
+                team: actualTeamId,
+                teamSlot: team,
                 role: 'K',
                 side: 'special',
                 firstName: k.profile?.firstName || 'Kicker',
                 lastName: k.profile?.lastName || '',
                 fullName: k.profile?.fullName || 'Kicker',
                 number: k.profile?.number ?? null,
+                teamName: identity.displayName || actualTeamId,
+                teamAbbr: identity.abbr || actualTeamId,
             };
         }
     });
@@ -171,8 +212,8 @@ export function rosterForPossession(teams, offenseTeam) {
  * Backward-compat wrapper some code still uses.
  * Creates two teams and returns the RED-offense snapshot.
  */
-export function createRosters() {
-    const teams = createTeams();
+export function createRosters(matchup = null) {
+    const teams = createTeams(matchup);
     return rosterForPossession(teams, TEAM_RED);
 }
 

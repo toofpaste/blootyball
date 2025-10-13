@@ -10,6 +10,13 @@ import { beginFrame, endFrame } from './motion';
 import { beginPlayDiagnostics, finalizePlayDiagnostics, recordPlayEvent } from './diagnostics';
 import { pickFormations, PLAYBOOK_PLUS, pickPlayCall } from './playbooks';
 import { createInitialPlayerStats, createPlayStatContext, finalizePlayStats, recordKickingAttempt } from './stats';
+import {
+    createSeasonState,
+    prepareSeasonMatchup,
+    applyGameResultToSeason,
+    advanceSeasonPointer,
+    seasonCompleted,
+} from './league';
 
 /* =========================================================
    Utilities / guards
@@ -60,9 +67,92 @@ function pushPlayLog(state, entry) {
     if (state.playLog.length > 50) state.playLog.shift();
 }
 
+function defaultScores() {
+    return { [TEAM_RED]: 0, [TEAM_BLK]: 0 };
+}
+
+function prepareGameForMatchup(state, matchup) {
+    if (!matchup) {
+        state.matchup = null;
+        state.teams = null;
+        state.roster = null;
+        state.drive = { losYards: 25, down: 1, toGo: 10 };
+        state.scores = defaultScores();
+        state.clock = createClock();
+        state.play = { phase: 'COMPLETE', resultText: 'Season complete' };
+        state.playerDirectory = {};
+        state.playerStats = {};
+        state.playLog = [];
+        return state;
+    }
+
+    state.matchup = matchup;
+    state.possession = TEAM_RED;
+    state.teams = createTeams(matchup);
+    state.drive = { losYards: 25, down: 1, toGo: 10 };
+    state.clock = createClock();
+    state.scores = defaultScores();
+    state.pendingExtraPoint = null;
+    state.playLog = [];
+    state.playerDirectory = buildPlayerDirectory(state.teams, matchup.slotToTeam, matchup.identities);
+    state.playerStats = createInitialPlayerStats(state.playerDirectory);
+    state.roster = rosterForPossession(state.teams, state.possession);
+    state.roster.__ownerState = state;
+    state.play = createPlayState(state.roster, state.drive);
+    beginPlayDiagnostics(state);
+    return state;
+}
+
+function isGameClockExpired(state) {
+    if (!state?.clock) return false;
+    if (state.pendingExtraPoint) return false;
+    if (state.clock.quarter < 4) return false;
+    return state.clock.time <= 0;
+}
+
+function finalizeCurrentGame(state) {
+    if (!state?.season || !state?.matchup) return state;
+    const season = state.season;
+    const currentIndex = season.currentGameIndex;
+    const game = season.schedule[currentIndex];
+    const lastMatchup = state.matchup
+        ? {
+            ...state.matchup,
+            slotToTeam: { ...state.matchup.slotToTeam },
+            identities: { ...state.matchup.identities },
+        }
+        : null;
+    state.lastCompletedGame = {
+        matchup: lastMatchup,
+        scores: { ...state.scores },
+    };
+    applyGameResultToSeason(
+        season,
+        game,
+        state.scores,
+        state.playerDirectory,
+        state.playerStats,
+        state.playLog,
+    );
+
+    const nextMatchup = advanceSeasonPointer(season);
+    if (!nextMatchup && seasonCompleted(season)) {
+        state.matchup = null;
+        state.gameComplete = true;
+        state.clock.running = false;
+        state.clock.time = 0;
+        state.clock.stopReason = 'Season complete';
+        state.play = { phase: 'COMPLETE', resultText: 'Season complete' };
+        return state;
+    }
+
+    prepareGameForMatchup(state, nextMatchup);
+    return state;
+}
+
 function getTeamKicker(state, team) {
     if (!team) return null;
-    if (!state.teams) state.teams = createTeams();
+    if (!state.teams) state.teams = createTeams(state.matchup);
     return state.teams?.[team]?.special?.K || null;
 }
 
@@ -311,7 +401,7 @@ function advanceFieldGoalState(state, ctx, outcome) {
     const { team, success, summary, isPat } = outcome;
     stopClock(state, summary);
     const defense = otherTeam(team);
-    if (!state.teams) state.teams = createTeams();
+    if (!state.teams) state.teams = createTeams(state.matchup);
     state.possession = defense;
     state.roster = rosterForPossession(state.teams, state.possession);
     if (isPat) {
@@ -902,7 +992,7 @@ function maybeAssessPenalty(s, ctx) {
 
     s.drive = { losYards: newLos, down, toGo };
     s.possession = offense;
-    s.teams = s.teams || createTeams();
+    s.teams = s.teams || createTeams(s.matchup);
     s.roster = rosterForPossession(s.teams, s.possession);
     s.roster.__ownerState = s;
 
@@ -1241,32 +1331,14 @@ function updatePreSnap(state, dt) {
    Game state factories
    ========================================================= */
 export function createInitialGameState() {
-    // Keep both: teams (persistent) + current roster view (for compatibility)
-    const teams = createTeams();
-    const playerDirectory = buildPlayerDirectory(teams);
-    const possession = TEAM_RED; // RED starts with ball
-    const roster = rosterForPossession(teams, possession);
-    const drive = { losYards: 25, down: 1, toGo: 10 };
-    roster.__ownerState = null; // ensure field exists
-    const play = createPlayState(roster, drive);
-    const clock = createClock();
-    const playerStats = createInitialPlayerStats(playerDirectory);
-
+    const season = createSeasonState();
+    const matchup = prepareSeasonMatchup(season);
     const state = {
-        teams,
-        possession,
-        roster,
-        drive,
-        play,
-        clock,
-        playerDirectory,
-        playerStats,
+        season,
         playLog: [],
-        scores: { [TEAM_RED]: 0, [TEAM_BLK]: 0 },
         debug: { trace: false },
     };
-
-    beginPlayDiagnostics(state);
+    prepareGameForMatchup(state, matchup);
     return state;
 }
 
@@ -1524,8 +1596,8 @@ export function betweenPlays(prevState) {
     let extraPointSummary = '';
     let queuedExtraPoint = false;
 
-    if (!s.teams) s.teams = createTeams();
-    if (!s.playerDirectory) s.playerDirectory = buildPlayerDirectory(s.teams);
+    if (!s.teams) s.teams = createTeams(s.matchup);
+    if (!s.playerDirectory) s.playerDirectory = buildPlayerDirectory(s.teams, s.matchup?.slotToTeam, s.matchup?.identities);
     if (!s.playerStats) s.playerStats = createInitialPlayerStats(s.playerDirectory);
 
     const startLos = s.play.startLos ?? s.drive.losYards;
@@ -1569,7 +1641,7 @@ export function betweenPlays(prevState) {
             toGo = 10;
         } else {
             s.possession = (scoringTeam === TEAM_RED ? TEAM_BLK : TEAM_RED);
-            s.teams = s.teams || createTeams();
+            s.teams = s.teams || createTeams(s.matchup);
             s.roster = rosterForPossession(s.teams, s.possession);
             los = 25; down = 1; toGo = 10;
         }
@@ -1587,7 +1659,7 @@ export function betweenPlays(prevState) {
     // Turnover on downs → new offense starts at the 25
     else if (turnoverOnDownsByString || turnoverOnDownsCalc) {
         s.possession = (s.possession === TEAM_RED ? TEAM_BLK : TEAM_RED);
-        s.teams = s.teams || createTeams();
+        s.teams = s.teams || createTeams(s.matchup);
         s.roster = rosterForPossession(s.teams, s.possession);
 
         los = 25;           // force new drive start at 25
@@ -1612,7 +1684,7 @@ export function betweenPlays(prevState) {
             const newOffense = otherTeam(offenseAtSnap);
             const takeoverLos = clamp(100 - clamp(endYd, 0, 100), 0, 100);
             s.possession = newOffense;
-            s.teams = s.teams || createTeams();
+            s.teams = s.teams || createTeams(s.matchup);
             s.roster = rosterForPossession(s.teams, s.possession);
 
             los = clamp(takeoverLos, 1, 99);
@@ -1646,7 +1718,7 @@ export function betweenPlays(prevState) {
                 if (down > 4) {
                     // Safety net: if we somehow get here, treat as turnover on downs
                     s.possession = (s.possession === TEAM_RED ? TEAM_BLK : TEAM_RED);
-                    s.teams = s.teams || createTeams();
+                    s.teams = s.teams || createTeams(s.matchup);
                     s.roster = rosterForPossession(s.teams, s.possession);
 
                     los = 25;      // force new drive start at 25
@@ -1749,6 +1821,10 @@ export function betweenPlays(prevState) {
 
     // Ensure the active roster knows which state owns it for debug hooks
     if (s.roster) s.roster.__ownerState = s;
+
+    if (isGameClockExpired(s)) {
+        return finalizeCurrentGame(s);
+    }
 
     // Start next play for whoever now has the ball
     s.play = createPlayState(s.roster, s.drive);

@@ -1,0 +1,508 @@
+{
+  "id": "MIA",
+  "name": "Coastal Wave",
+  "city": "Miami",
+  "abbr": "MIA",
+  "colors": {
+    "primary": "#00bcd4",
+    "secondary": "#ff6f61"
+  },
+  "offense": {
+    "QB": {
+      "id": "MIA-QB",
+      "firstName": "Victor",
+      "lastName": "Jennings",
+      "number": 13,
+      "ratings": {
+        "speed": 5.68,
+        "accel": 16.44,
+        "agility": 1.02,
+        "strength": 0.82,
+        "awareness": 1.02,
+        "catch": 0.35,
+        "throwPow": 1.1,
+        "throwAcc": 1.3,
+        "tackle": 0.78
+      },
+      "modifiers": {
+        "passTendencies": {
+          "short": 0.47,
+          "intermediate": 0.36,
+          "deep": 0.17
+        },
+        "scrambleAggression": 0.3,
+        "releaseQuickness": 0.84,
+        "pocketPoise": 0.73,
+        "throwVelocity": 0.84
+      }
+    },
+    "RB": {
+      "id": "MIA-RB",
+      "firstName": "Declan",
+      "lastName": "Parker",
+      "number": 36,
+      "ratings": {
+        "speed": 6.87,
+        "accel": 20.23,
+        "agility": 1.14,
+        "strength": 0.88,
+        "awareness": 0.85,
+        "catch": 0.91,
+        "throwPow": 0.66,
+        "throwAcc": 0.75,
+        "tackle": 0.75
+      },
+      "modifiers": {
+        "vision": 0.69,
+        "burst": 0.72,
+        "breakTackle": 0.81,
+        "ballSecurity": 0.73,
+        "receiving": 0.68,
+        "patience": 0.51
+      }
+    },
+    "WR1": {
+      "id": "MIA-WR1",
+      "firstName": "Orion",
+      "lastName": "Zhang",
+      "number": 42,
+      "ratings": {
+        "speed": 6.8,
+        "accel": 20.06,
+        "agility": 1.21,
+        "strength": 1.06,
+        "awareness": 0.91,
+        "catch": 1.14,
+        "throwPow": 0.55,
+        "throwAcc": 0.57,
+        "tackle": 0.57
+      },
+      "modifiers": {
+        "release": 0.84,
+        "routePrecision": 0.67,
+        "deepThreat": 0.58,
+        "hands": 0.62,
+        "runAfterCatch": 0.61
+      }
+    },
+    "WR2": {
+      "id": "MIA-WR2",
+      "firstName": "Julian",
+      "lastName": "Nixon",
+      "number": 30,
+      "ratings": {
+        "speed": 6.52,
+        "accel": 18.59,
+        "agility": 1.05,
+        "strength": 0.75,
+        "awareness": 0.89,
+        "catch": 1.22,
+        "throwPow": 0.39,
+        "throwAcc": 0.74,
+        "tackle": 0.66
+      },
+      "modifiers": {
+        "release": 0.79,
+        "routePrecision": 0.63,
+        "deepThreat": 0.67,
+        "hands": 0.72,
+        "runAfterCatch": 0.7
+      }
+    },
+    "WR3": {
+      "id": "MIA-WR3",
+      "firstName": "Titan",
+      "lastName": "Greene",
+      "number": 30,
+      "ratings": {
+        "speed": 6.45,
+        "accel": 18.95,
+        "agility": 1.19,
+        "strength": 0.89,
+        "awareness": 1.1,
+        "catch": 0.92,
+        "throwPow": 0.78,
+        "throwAcc": 0.32,
+        "tackle": 0.94
+      },
+      "modifiers": {
+        "release": 0.86,
+        "routePrecision": 0.73,
+        "deepThreat": 0.57,
+        "hands": 0.88,
+        "runAfterCatch": 0.7
+      }
+    },
+    "TE": {
+      "id": "MIA-TE",
+      "firstName": "Maddox",
+      "lastName": "Lopez",
+      "number": 59,
+      "ratings": {
+        "speed": 6.61,
+        "accel": 16.92,
+        "agility": 0.9,
+        "strength": 1.09,
+        "awareness": 1.1,
+        "catch": 0.94,
+        "throwPow": 0.83,
+        "throwAcc": 0.97,
+        "tackle": 0.74
+      },
+      "modifiers": {
+        "routePrecision": 0.77,
+        "hands": 0.63,
+        "inlineBlocking": 0.83,
+        "redZone": 0.69
+      }
+    },
+    "LT": {
+      "id": "MIA-LT",
+      "firstName": "Lawson",
+      "lastName": "Wiley",
+      "number": 49,
+      "ratings": {
+        "speed": 6.03,
+        "accel": 12.03,
+        "agility": 0.91,
+        "strength": 1.6,
+        "awareness": 1.05,
+        "catch": 0.44,
+        "throwPow": 0.6,
+        "throwAcc": 0.84,
+        "tackle": 1.1
+      },
+      "modifiers": {
+        "impact": 0.72,
+        "discipline": 0.89
+      }
+    },
+    "LG": {
+      "id": "MIA-LG",
+      "firstName": "Theo",
+      "lastName": "Yarbrough",
+      "number": 67,
+      "ratings": {
+        "speed": 5.59,
+        "accel": 13.64,
+        "agility": 0.8,
+        "strength": 1.33,
+        "awareness": 1.08,
+        "catch": 0.46,
+        "throwPow": 0.63,
+        "throwAcc": 0.97,
+        "tackle": 0.86
+      },
+      "modifiers": {
+        "impact": 0.57,
+        "discipline": 0.57
+      }
+    },
+    "C": {
+      "id": "MIA-C",
+      "firstName": "Reese",
+      "lastName": "Thorpe",
+      "number": 59,
+      "ratings": {
+        "speed": 6.1,
+        "accel": 16.41,
+        "agility": 0.86,
+        "strength": 1.36,
+        "awareness": 1.07,
+        "catch": 0.44,
+        "throwPow": 0.77,
+        "throwAcc": 1,
+        "tackle": 1.1
+      },
+      "modifiers": {
+        "impact": 0.59,
+        "discipline": 0.89
+      }
+    },
+    "RG": {
+      "id": "MIA-RG",
+      "firstName": "Yahir",
+      "lastName": "Young",
+      "number": 68,
+      "ratings": {
+        "speed": 6.11,
+        "accel": 11.61,
+        "agility": 0.91,
+        "strength": 1.29,
+        "awareness": 1.16,
+        "catch": 0.64,
+        "throwPow": 0.68,
+        "throwAcc": 0.72,
+        "tackle": 1.12
+      },
+      "modifiers": {
+        "impact": 0.56,
+        "discipline": 0.62
+      }
+    },
+    "RT": {
+      "id": "MIA-RT",
+      "firstName": "Vaughn",
+      "lastName": "Foster",
+      "number": 90,
+      "ratings": {
+        "speed": 5.75,
+        "accel": 14.85,
+        "agility": 0.94,
+        "strength": 1.34,
+        "awareness": 1.14,
+        "catch": 0.57,
+        "throwPow": 0.79,
+        "throwAcc": 0.87,
+        "tackle": 1.08
+      },
+      "modifiers": {
+        "impact": 0.65,
+        "discipline": 0.84
+      }
+    }
+  },
+  "defense": {
+    "LE": {
+      "id": "MIA-LE",
+      "firstName": "Edison",
+      "lastName": "Vaughn",
+      "number": 21,
+      "ratings": {
+        "speed": 6.67,
+        "accel": 17.23,
+        "agility": 0.93,
+        "strength": 1.21,
+        "awareness": 0.95,
+        "catch": 0.53,
+        "throwPow": 0.55,
+        "throwAcc": 0.4,
+        "tackle": 1.02
+      },
+      "modifiers": {
+        "impact": 0.52,
+        "discipline": 0.8
+      }
+    },
+    "DT": {
+      "id": "MIA-DT",
+      "firstName": "Finn",
+      "lastName": "Patterson",
+      "number": 22,
+      "ratings": {
+        "speed": 5.84,
+        "accel": 18.83,
+        "agility": 1.02,
+        "strength": 1.53,
+        "awareness": 1.03,
+        "catch": 0.54,
+        "throwPow": 0.57,
+        "throwAcc": 0.35,
+        "tackle": 0.99
+      },
+      "modifiers": {
+        "impact": 0.89,
+        "discipline": 0.54
+      }
+    },
+    "RTk": {
+      "id": "MIA-RTk",
+      "firstName": "Everett",
+      "lastName": "Jefferson",
+      "number": 31,
+      "ratings": {
+        "speed": 6.63,
+        "accel": 14.64,
+        "agility": 1.07,
+        "strength": 1.49,
+        "awareness": 1.06,
+        "catch": 0.42,
+        "throwPow": 0.32,
+        "throwAcc": 0.38,
+        "tackle": 0.94
+      },
+      "modifiers": {
+        "impact": 0.84,
+        "discipline": 0.54
+      }
+    },
+    "RE": {
+      "id": "MIA-RE",
+      "firstName": "Ryder",
+      "lastName": "Bolton",
+      "number": 47,
+      "ratings": {
+        "speed": 6.34,
+        "accel": 18.25,
+        "agility": 1.1,
+        "strength": 1.36,
+        "awareness": 1.11,
+        "catch": 0.51,
+        "throwPow": 0.65,
+        "throwAcc": 0.31,
+        "tackle": 1.01
+      },
+      "modifiers": {
+        "impact": 0.87,
+        "discipline": 0.79
+      }
+    },
+    "LB1": {
+      "id": "MIA-LB1",
+      "firstName": "Rowan",
+      "lastName": "Thompson",
+      "number": 42,
+      "ratings": {
+        "speed": 5.78,
+        "accel": 17.94,
+        "agility": 1.03,
+        "strength": 1.34,
+        "awareness": 0.88,
+        "catch": 0.7,
+        "throwPow": 0.5,
+        "throwAcc": 0.73,
+        "tackle": 1.08
+      },
+      "modifiers": {
+        "impact": 0.89,
+        "discipline": 0.81
+      }
+    },
+    "LB2": {
+      "id": "MIA-LB2",
+      "firstName": "Dallas",
+      "lastName": "Porter",
+      "number": 48,
+      "ratings": {
+        "speed": 6.12,
+        "accel": 17.39,
+        "agility": 0.81,
+        "strength": 1.03,
+        "awareness": 0.86,
+        "catch": 0.72,
+        "throwPow": 0.81,
+        "throwAcc": 0.53,
+        "tackle": 1.21
+      },
+      "modifiers": {
+        "impact": 0.79,
+        "discipline": 0.57
+      }
+    },
+    "CB1": {
+      "id": "MIA-CB1",
+      "firstName": "Hendrix",
+      "lastName": "Holt",
+      "number": 48,
+      "ratings": {
+        "speed": 6.3,
+        "accel": 17.85,
+        "agility": 1.09,
+        "strength": 1.05,
+        "awareness": 1.04,
+        "catch": 1.02,
+        "throwPow": 0.77,
+        "throwAcc": 0.69,
+        "tackle": 1.03
+      },
+      "modifiers": {
+        "impact": 0.78,
+        "discipline": 0.54
+      }
+    },
+    "CB2": {
+      "id": "MIA-CB2",
+      "firstName": "Gannon",
+      "lastName": "Gonzalez",
+      "number": 50,
+      "ratings": {
+        "speed": 6.35,
+        "accel": 16.14,
+        "agility": 1.14,
+        "strength": 0.77,
+        "awareness": 1.14,
+        "catch": 0.99,
+        "throwPow": 0.83,
+        "throwAcc": 0.75,
+        "tackle": 1.16
+      },
+      "modifiers": {
+        "impact": 0.74,
+        "discipline": 0.53
+      }
+    },
+    "S1": {
+      "id": "MIA-S1",
+      "firstName": "Dominic",
+      "lastName": "Chambers",
+      "number": 71,
+      "ratings": {
+        "speed": 6.59,
+        "accel": 16.68,
+        "agility": 1.18,
+        "strength": 0.78,
+        "awareness": 1.01,
+        "catch": 0.88,
+        "throwPow": 0.81,
+        "throwAcc": 0.89,
+        "tackle": 1.07
+      },
+      "modifiers": {
+        "impact": 0.84,
+        "discipline": 0.66
+      }
+    },
+    "S2": {
+      "id": "MIA-S2",
+      "firstName": "Grayson",
+      "lastName": "Ross",
+      "number": 88,
+      "ratings": {
+        "speed": 6.11,
+        "accel": 19.68,
+        "agility": 1.22,
+        "strength": 0.87,
+        "awareness": 1.01,
+        "catch": 1.14,
+        "throwPow": 0.83,
+        "throwAcc": 0.74,
+        "tackle": 0.95
+      },
+      "modifiers": {
+        "impact": 0.76,
+        "discipline": 0.86
+      }
+    },
+    "NB": {
+      "id": "MIA-NB",
+      "firstName": "Zeke",
+      "lastName": "Dalton",
+      "number": 95,
+      "ratings": {
+        "speed": 5.8,
+        "accel": 17.15,
+        "agility": 1.34,
+        "strength": 0.91,
+        "awareness": 0.95,
+        "catch": 0.82,
+        "throwPow": 0.69,
+        "throwAcc": 0.52,
+        "tackle": 0.9
+      },
+      "modifiers": {
+        "impact": 0.88,
+        "discipline": 0.5
+      }
+    }
+  },
+  "specialTeams": {
+    "K": {
+      "id": "MIA-K",
+      "firstName": "Zion",
+      "lastName": "Sharpe",
+      "number": 35,
+      "maxDistance": 54,
+      "accuracy": 0.83
+    }
+  }
+}
