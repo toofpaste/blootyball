@@ -100,7 +100,26 @@ function createFieldGoalVisual({ losYards, distance }) {
     const protectorDepth = holderY + yard * 0.85;
     const rushStartY = lineBaseY - yard * 0.65;
     const rushTargetY = holderY + yard * 0.18;
-    const rushSpeed = yard * 9.25;
+    const rushSpeed = yard * 8.25;
+
+    const makeRusher = ({ role, pos, target, delay = 0, hold = 0.55, engage = 0.35, speed = 0.7 }) => {
+        const engagePoint = {
+            x: lerp(pos.x, target.x, engage),
+            y: lerp(pos.y, target.y, engage),
+        };
+        const blockVariance = hold * 0.35;
+        const blockDuration = Math.max(0.25, hold + (Math.random() - 0.5) * blockVariance);
+        return {
+            role,
+            pos,
+            renderPos: { ...pos },
+            target,
+            delay,
+            engagePoint,
+            blockDuration,
+            speedMultiplier: speed,
+        };
+    };
 
     return {
         phase: 'PREP',
@@ -136,27 +155,33 @@ function createFieldGoalVisual({ losYards, distance }) {
             { role: 'PP', pos: { x: holderX + guardSpacing * 1.45, y: protectorDepth }, renderPos: { x: holderX + guardSpacing * 1.45, y: protectorDepth } },
         ],
         rushers: [
-            {
+            makeRusher({
                 role: 'LE',
                 pos: { x: holderX - guardSpacing * 3.5, y: rushStartY },
-                renderPos: { x: holderX - guardSpacing * 3.5, y: rushStartY },
                 target: { x: holderX - guardSpacing * 0.8, y: rushTargetY },
                 delay: 0,
-            },
-            {
+                hold: 0.68,
+                engage: 0.42,
+                speed: 0.72,
+            }),
+            makeRusher({
                 role: 'NG',
                 pos: { x: holderX - guardSpacing * 0.3, y: rushStartY + yard * 0.05 },
-                renderPos: { x: holderX - guardSpacing * 0.3, y: rushStartY + yard * 0.05 },
                 target: { x: holderX - guardSpacing * 0.05, y: rushTargetY + yard * 0.05 },
                 delay: 0.08,
-            },
-            {
+                hold: 0.74,
+                engage: 0.48,
+                speed: 0.66,
+            }),
+            makeRusher({
                 role: 'RE',
                 pos: { x: holderX + guardSpacing * 3.4, y: rushStartY },
-                renderPos: { x: holderX + guardSpacing * 3.4, y: rushStartY },
                 target: { x: holderX + guardSpacing * 0.7, y: rushTargetY },
                 delay: 0.04,
-            },
+                hold: 0.64,
+                engage: 0.4,
+                speed: 0.7,
+            }),
         ],
         ball: {
             pos: { ...snapOrigin },
@@ -178,6 +203,7 @@ function createFieldGoalVisual({ losYards, distance }) {
         },
         goalHighlight: 0,
         distance,
+        yard,
     };
 }
 
@@ -381,6 +407,35 @@ function updateFieldGoalAttempt(state, dt) {
         };
     }
 
+    const updateProtection = () => {
+        const yardPix = visual.yard || yardsToPixY(1);
+        const sinceSnap = visual.snapStartedAt == null ? 0 : Math.max(0, (visual.totalTime || 0) - visual.snapStartedAt);
+        const engage = smoothStep(clamp(sinceSnap / 0.55, 0, 1));
+
+        if (visual.line) {
+            visual.line.forEach((blocker) => {
+                if (!blocker?.pos) return;
+                const lateral = (blocker.role === 'LW' ? -1 : blocker.role === 'RW' ? 1 : 0) * engage * yardPix * 0.28;
+                const anchor = blocker.role === 'C' ? engage * yardPix * 0.08 : 0;
+                blocker.renderPos = {
+                    x: blocker.pos.x + lateral,
+                    y: blocker.pos.y + engage * yardPix * 0.22 - anchor,
+                };
+            });
+        }
+        if (visual.protectors) {
+            visual.protectors.forEach((pp, idx) => {
+                if (!pp?.pos) return;
+                const settle = smoothStep(clamp(sinceSnap / 0.65, 0, 1));
+                const direction = idx === 0 ? -1 : 1;
+                pp.renderPos = {
+                    x: pp.pos.x + direction * settle * yardPix * 0.22,
+                    y: pp.pos.y + settle * yardPix * 0.32,
+                };
+            });
+        }
+    };
+
     const updateRushers = () => {
         if (!visual.rushers || !visual.rushSpeed) return;
         if (visual.snapStartedAt == null) return;
@@ -388,15 +443,35 @@ function updateFieldGoalAttempt(state, dt) {
         visual.rushers.forEach((r) => {
             if (!r?.target) return;
             const delay = r.delay || 0;
-            const travelStart = Math.max(0, sinceSnap - delay);
-            const dx = r.target.x - r.pos.x;
-            const dy = r.target.y - r.pos.y;
+            const timeSinceDelay = sinceSnap - delay;
+            if (timeSinceDelay <= 0) {
+                r.renderPos = { ...r.pos };
+                return;
+            }
+            const engagePoint = r.engagePoint || r.pos;
+            const blockDuration = r.blockDuration || 0;
+            if (timeSinceDelay < blockDuration) {
+                const holdT = clamp(timeSinceDelay / Math.max(blockDuration, 0.0001), 0, 1);
+                const easedHold = smoothStep(holdT);
+                r.renderPos = {
+                    x: lerp(r.pos.x, engagePoint.x, easedHold),
+                    y: lerp(r.pos.y, engagePoint.y, easedHold),
+                };
+                return;
+            }
+
+            const startPos = engagePoint;
+            const dx = r.target.x - startPos.x;
+            const dy = r.target.y - startPos.y;
             const dist = Math.sqrt(dx * dx + dy * dy) || 1;
-            const travelTime = dist / visual.rushSpeed;
-            const progress = clamp(travelStart / travelTime, 0, 1);
+            const effectiveSpeed = visual.rushSpeed * (r.speedMultiplier || 0.65);
+            const travelTime = dist / effectiveSpeed;
+            const travelElapsed = timeSinceDelay - blockDuration;
+            const progress = clamp(travelElapsed / travelTime, 0, 1);
+            const eased = smoothStep(progress);
             r.renderPos = {
-                x: lerp(r.pos.x, r.target.x, progress),
-                y: lerp(r.pos.y, r.target.y, progress),
+                x: lerp(startPos.x, r.target.x, eased),
+                y: lerp(startPos.y, r.target.y, eased),
             };
         });
     };
@@ -426,6 +501,7 @@ function updateFieldGoalAttempt(state, dt) {
         play.ball.flight = { height: visual.ball.height };
     };
 
+    updateProtection();
     updateRushers();
 
     switch (phase) {
