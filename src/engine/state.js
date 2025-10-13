@@ -21,7 +21,7 @@ import {
 /* =========================================================
    Utilities / guards
    ========================================================= */
-const QUARTER_SECONDS = 15 * 60;
+const QUARTER_SECONDS = 4 * 60;
 const DEFAULT_CLOCK_MANAGEMENT = {
     hurryThreshold: 150,          // offense trailing inside 2:30
     defensiveThreshold: 120,      // defense trailing inside 2:00
@@ -112,9 +112,9 @@ function isGameClockExpired(state) {
 
 function finalizeCurrentGame(state) {
     if (!state?.season || !state?.matchup) return state;
-    const season = state.season;
-    const currentIndex = season.currentGameIndex;
-    const game = season.schedule[currentIndex];
+    const currentSeason = state.season;
+    const currentIndex = currentSeason.currentGameIndex;
+    const game = currentSeason.schedule[currentIndex];
     const lastMatchup = state.matchup
         ? {
             ...state.matchup,
@@ -126,8 +126,8 @@ function finalizeCurrentGame(state) {
         matchup: lastMatchup,
         scores: { ...state.scores },
     };
-    applyGameResultToSeason(
-        season,
+    const updatedSeason = applyGameResultToSeason(
+        currentSeason,
         game,
         state.scores,
         state.playerDirectory,
@@ -135,19 +135,21 @@ function finalizeCurrentGame(state) {
         state.playLog,
     );
 
-    const nextMatchup = advanceSeasonPointer(season);
-    if (!nextMatchup && seasonCompleted(season)) {
+    state = { ...state, season: updatedSeason };
+
+    const nextMatchup = advanceSeasonPointer(state.season);
+    if (!nextMatchup && seasonCompleted(state.season)) {
         state.matchup = null;
         state.gameComplete = true;
         state.clock.running = false;
         state.clock.time = 0;
         state.clock.stopReason = 'Season complete';
         state.play = { phase: 'COMPLETE', resultText: 'Season complete' };
-        return state;
+        return { ...state, season: { ...state.season } };
     }
 
     prepareGameForMatchup(state, nextMatchup);
-    return state;
+    return { ...state, season: { ...state.season } };
 }
 
 function getTeamKicker(state, team) {
