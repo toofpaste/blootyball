@@ -102,6 +102,7 @@ function drawFieldGoalScene(ctx, state) {
     };
 
     if (visual.line) drawGroup(visual.line, offenseColor);
+    if (visual.protectors) drawGroup(visual.protectors, offenseColor);
     if (visual.snapper?.renderPos) {
         drawPlayer(ctx, { role: 'C', pos: visual.snapper.renderPos }, offenseColor);
     }
