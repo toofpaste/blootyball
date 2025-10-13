@@ -566,6 +566,14 @@ export function betweenPlays(s) {
         if (firstDownAchieved) {
             down = 1;
             toGo = Math.min(10, 100 - los);
+            pushPlayLog(s, {
+                name: call.name,
+                startDown, startToGo, startLos,
+                endLos: los,
+                gained,
+                why: resultWhy,
+                offense: offenseAtSnap,
+            });
         } else {
             down = startDown + 1;
             if (down > 4) {
