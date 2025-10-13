@@ -309,6 +309,20 @@ export function lineUpFormation(roster, losPixY, names = {}) {
             setP(def.S2, midX + 90, dimeDepth);
             break;
         }
+        case 'Nickel 3-3-5': {
+            setP(def.LE, midX - 44, defFrontY + yard * 0.4);
+            setP(def.DT, centerX - 6, defFrontY);
+            setP(def.RTk, midX + 18, lbY + yard * 0.2);
+            setP(def.RE, midX + 44, defFrontY + yard * 0.4);
+            setP(def.LB1, midX - 22, lbY + yard * 0.3);
+            setP(def.LB2, midX + 22, lbY + yard * 0.3);
+            setP(def.NB, midX, lbY + yard * 0.1);
+            setP(def.CB1, wr1X - 4, losPixY + yard * 3.2);
+            setP(def.CB2, wr2X + 4, losPixY + yard * 3.2);
+            setP(def.S1, midX - 70, safetyDepth + yard);
+            setP(def.S2, midX + 70, safetyDepth + yard);
+            break;
+        }
         case 'Base 4-3': {
             setP(def.LE, (ltX ?? startX) - 12, defFrontY);
             setP(def.RE, (rtX ?? startX + 4 * spacingX) + 12, defFrontY);
@@ -333,6 +347,38 @@ export function lineUpFormation(roster, losPixY, names = {}) {
             setP(def.S2, midX + 40, losPixY + yard * 6);
             setP(def.CB1, wr1X, losPixY + yard * 2.2);
             setP(def.CB2, wr2X, losPixY + yard * 2.2);
+            break;
+        }
+        case 'Cover-3 Sky': {
+            const slotDir = wr3X >= midX ? 1 : -1;
+            setP(def.LB1, midX - 30, lbY + yard * 0.3);
+            setP(def.LB2, midX + 30, lbY + yard * 0.3);
+            setP(def.NB, wr3X - slotDir * 6, losPixY + yard * 5.6);
+            setP(def.CB1, wr1X - 6, losPixY + yard * 4.2);
+            setP(def.CB2, wr2X + 6, losPixY + yard * 4.2);
+            setP(def.S1, midX, losPixY + yard * 13.4);
+            setP(def.S2, wr3X + slotDir * 16, losPixY + yard * 7);
+            break;
+        }
+        case 'Cover-4 Quarters': {
+            const slotDir = wr3X >= midX ? 1 : -1;
+            setP(def.LB1, midX - 24, lbY + yard * 0.2);
+            setP(def.LB2, midX + 24, lbY + yard * 0.2);
+            setP(def.NB, wr3X + slotDir * 6, losPixY + yard * 7.4);
+            setP(def.CB1, wr1X - 6, losPixY + yard * 4.6);
+            setP(def.CB2, wr2X + 6, losPixY + yard * 4.6);
+            setP(def.S1, midX - 58, losPixY + yard * 13.8);
+            setP(def.S2, midX + 58, losPixY + yard * 13.8);
+            break;
+        }
+        case '2-Man Under': {
+            setP(def.LB1, midX - 26, lbY - yard * 0.3);
+            setP(def.LB2, midX + 26, lbY - yard * 0.3);
+            setP(def.NB, wr3X, losPixY + yard * 2.6);
+            setP(def.CB1, wr1X - 2, losPixY + yard * 2.2);
+            setP(def.CB2, wr2X + 2, losPixY + yard * 2.2);
+            setP(def.S1, midX - 78, losPixY + yard * 13.2);
+            setP(def.S2, midX + 78, losPixY + yard * 13.2);
             break;
         }
         case 'Cover-2 Shell': {

@@ -453,11 +453,138 @@ function updateAudible(state, dt) {
     recordPlayEvent(state, { type: 'audible', play: nextCall.name });
 }
 
+function createDefenseAdjustmentPlan(formation) {
+    if (!formation) return null;
+    const def = formation.def || {};
+    const off = formation.off || {};
+    const defenders = Object.entries(def).filter(([, p]) => p && p.pos);
+    if (!defenders.length) return null;
+
+    const defFormation = formation.defFormation || '';
+    const key = defFormation.toLowerCase();
+    const strongRight = (off.WR3?.pos?.x ?? (FIELD_PIX_W / 2)) >= (FIELD_PIX_W / 2);
+    const baseChance = key.includes('cover-4') ? 0.55
+        : key.includes('cover-3') ? 0.45
+        : key.includes('2-man') ? 0.4
+        : key.includes('nickel 3-3-5') ? 0.35
+        : 0.25;
+    if (Math.random() >= baseChance) return null;
+
+    const plan = {
+        timer: rand(0.35, 0.85),
+        duration: rand(0.4, 0.7),
+        triggered: false,
+        elapsed: 0,
+        done: false,
+        moves: [],
+        defFormation,
+    };
+
+    const minY = yardsToPixY(ENDZONE_YARDS - 5);
+    const maxY = yardsToPixY(ENDZONE_YARDS + PLAYING_YARDS_H + 5);
+    const clampX = (x) => clamp(x, 18, FIELD_PIX_W - 18);
+    const clampY = (y) => clamp(y, minY, maxY);
+    const addMove = (role, dxYards = 0, dyYards = 0) => {
+        const player = def[role];
+        if (!player?.pos) return;
+        const from = { x: player.pos.x, y: player.pos.y };
+        const to = {
+            x: clampX(player.pos.x + dxYards * PX_PER_YARD),
+            y: clampY(player.pos.y + dyYards * PX_PER_YARD),
+        };
+        if (Math.hypot(to.x - from.x, to.y - from.y) < 1) return;
+        plan.moves.push({ key: role, from, to });
+    };
+
+    if (key.includes('cover-4')) {
+        addMove('CB1', -0.6, 1.0);
+        addMove('CB2', 0.6, 1.0);
+        addMove('NB', strongRight ? 0.6 : -0.6, 0.8);
+        addMove('S1', strongRight ? -0.4 : -0.6, 2.2);
+        addMove('S2', strongRight ? 0.6 : 0.4, 2.2);
+    } else if (key.includes('cover-3')) {
+        addMove('CB1', -0.5, 0.9);
+        addMove('CB2', 0.5, 0.9);
+        addMove('NB', strongRight ? -0.4 : 0.4, 0.6);
+        addMove('S1', 0, 2.4);
+        addMove('S2', strongRight ? 1.0 : -1.0, -0.9);
+    } else if (key.includes('2-man')) {
+        addMove('CB1', -0.4, -0.6);
+        addMove('CB2', 0.4, -0.6);
+        addMove('NB', strongRight ? 0.3 : -0.3, -0.5);
+        addMove('S1', strongRight ? -0.6 : -0.5, 2.6);
+        addMove('S2', strongRight ? 0.5 : 0.6, 2.6);
+        addMove('LB1', -0.5, 0.8);
+        addMove('LB2', 0.5, 0.8);
+    } else if (key.includes('nickel 3-3-5')) {
+        addMove('LB1', -0.4, 0.6);
+        addMove('LB2', 0.4, 0.6);
+        addMove('NB', 0, 0.6);
+        addMove('S1', -0.4, 1.2);
+        addMove('S2', 0.4, 1.2);
+    } else {
+        addMove('LB1', -0.3, 0.4);
+        addMove('LB2', 0.3, 0.4);
+        addMove('S1', -0.3, 0.8);
+        addMove('S2', 0.3, 0.8);
+    }
+
+    if (!plan.moves.length) return null;
+    return plan;
+}
+
+function updateDefenseAdjustments(state, dt) {
+    const plan = state.play?.preSnap?.defense;
+    if (!plan || plan.done) return;
+
+    if (!plan.triggered) {
+        plan.timer -= dt;
+        if (plan.timer > 0) return;
+        plan.triggered = true;
+        plan.timer = 0;
+        if (!plan.moves?.length) {
+            plan.done = true;
+            return;
+        }
+        plan.elapsed = 0;
+        if (state.play?.preSnap) {
+            state.play.preSnap.minDuration = Math.max(state.play.preSnap.minDuration || 1, state.play.elapsed + plan.duration);
+        }
+        return;
+    }
+
+    const def = state.play?.formation?.def;
+    if (!def) {
+        plan.done = true;
+        return;
+    }
+
+    plan.elapsed = Math.min((plan.elapsed || 0) + dt, plan.duration || 0.01);
+    const duration = plan.duration || 0.01;
+    const t = duration > 0 ? clamp(plan.elapsed / duration, 0, 1) : 1;
+    const eased = t * t * (3 - 2 * t);
+
+    plan.moves.forEach((move) => {
+        const player = def[move.key];
+        if (!player?.pos) return;
+        const nx = move.from.x + (move.to.x - move.from.x) * eased;
+        const ny = move.from.y + (move.to.y - move.from.y) * eased;
+        player.pos.x = nx;
+        player.pos.y = ny;
+        player.home = { x: nx, y: ny };
+    });
+
+    if (plan.elapsed >= duration - 1e-3) {
+        plan.done = true;
+    }
+}
+
 function createPreSnapPlan(formation) {
     const off = formation?.off || {};
     const plan = {
         motion: createMotionPlan(off),
         audible: createAudiblePlan(off.QB),
+        defense: createDefenseAdjustmentPlan(formation),
         minDuration: 1.0,
     };
     return plan;
@@ -472,8 +599,9 @@ function presnapReady(play) {
     if (!play?.preSnap) return true;
     const motionReady = !play.preSnap.motion || play.preSnap.motion.done;
     const audibleReady = !play.preSnap.audible || play.preSnap.audible.triggered;
+    const defenseReady = !play.preSnap.defense || play.preSnap.defense.done;
     const cooldown = play.preSnap.audible?.cooldown ?? 0;
-    return motionReady && audibleReady && cooldown <= 0.01;
+    return motionReady && audibleReady && defenseReady && cooldown <= 0.01;
 }
 
 function updatePreSnap(state, dt) {
@@ -481,6 +609,7 @@ function updatePreSnap(state, dt) {
     ensurePreSnapPlan(state.play);
     advanceMotion(state.play, dt);
     updateAudible(state, dt);
+    updateDefenseAdjustments(state, dt);
 }
 
 /* =========================================================
@@ -586,6 +715,8 @@ export function createPlayState(roster, drive) {
         resultWhy: null,
         ball,
         formation,
+        offFormation: formation.offFormation,
+        defFormation: formation.defFormation,
         playCall,
         startLos: safeDrive.losYards,
         startDown: safeDrive.down,
