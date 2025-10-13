@@ -169,8 +169,20 @@ export function pickPlayCall(allPlays, ctx) {
     const plays = allPlays.slice();
     plays.sort((a, b) => score(b) - score(a));
 
+    const topLimit = Math.min(8, plays.length);
+    const selection = plays.slice(0, topLimit);
+
+    // Guarantee at least one run play remains in the weighted selection so the ground game
+    // never disappears entirely even if passes score slightly higher in the current context.
+    if (selection.length && !selection.some(p => p.type === 'RUN')) {
+        const bestRun = plays.find(p => p.type === 'RUN');
+        if (bestRun) {
+            selection[selection.length - 1] = bestRun;
+        }
+    }
+
     // IQ nudges: higher IQ → pick closer to top
     const r = Math.random() ** (1 / Math.max(0.01, Math.min(1.6, offenseIQ)));
-    const idx = Math.floor(r * Math.min(8, plays.length)); // choose among top 8 to let runs bubble up
-    return plays[idx];
+    const idx = Math.floor(r * selection.length);
+    return selection[idx];
 }
