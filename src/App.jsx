@@ -8,6 +8,7 @@ import { getDiagnostics } from './engine/diagnostics';
 import { TEAM_RED, TEAM_BLK } from './engine/constants';
 import { draw } from './render/draw';
 import PlayLog from './ui/PlayLog';
+import StatsSummary from './ui/StatsSummary';
 
 export default function App() {
   const canvasRef = useRef(null);
@@ -68,6 +69,7 @@ export default function App() {
         flexDirection: 'column',
         alignItems: 'center',
         paddingBottom: 24,
+        color: '#e8ffe8',
       }}
     >
       <Toolbar
@@ -104,19 +106,46 @@ export default function App() {
           flexDirection: 'column',
           alignItems: 'center',
           padding: '8px',
-          gap: '12px',
+          gap: '18px',
           boxSizing: 'border-box',
         }}
       >
-        <canvas
-          ref={canvasRef}
-          style={{ borderRadius: 12, boxShadow: '0 6px 24px rgba(0,0,0,0.4)', background: '#0a7f2e' }}
-        />
-        <PlayLog
-          items={state.playLog.slice(-10)}
-          playerStats={state.playerStats}
-          playerDirectory={state.playerDirectory}
-        />
+        <div
+          style={{
+            width: 'min(1200px, 98%)',
+            display: 'flex',
+            gap: 16,
+            alignItems: 'flex-start',
+            justifyContent: 'center',
+          }}
+        >
+          <div style={{ flex: '0 0 260px', display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <PlayLog items={state.playLog} />
+          </div>
+          <div
+            style={{
+              flex: '1 1 600px',
+              display: 'flex',
+              justifyContent: 'center',
+            }}
+          >
+            <canvas
+              ref={canvasRef}
+              style={{
+                borderRadius: 12,
+                boxShadow: '0 10px 26px rgba(0,0,0,0.45)',
+                background: '#0a7f2e',
+                maxWidth: '100%',
+              }}
+            />
+          </div>
+          <div style={{ flex: '0 0 280px', display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <StatsSummary
+              stats={state.playerStats}
+              directory={state.playerDirectory}
+            />
+          </div>
+        </div>
       </div>
     </div>
   );
