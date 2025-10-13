@@ -220,8 +220,33 @@ export function moveBall(s, dt) {
                 const baseCatchChance = clamp(0.28 + accuracyBlend * 0.32 + sepBonus + shortBonus - deepPenalty, 0.1, 0.6);
                 const separationYards = (separation ?? 0) / PX_PER_YARD;
                 const openRatio = clamp((separationYards - 1.5) / 6, 0, 1);
-                const openBonus = openRatio * 0.22;
-                const catchProbability = clamp(baseCatchChance + openBonus, 0.05, 0.8);
+                const openBonus = openRatio * 0.3;
+                const catchProbability = clamp(baseCatchChance + openBonus, 0.05, 0.85);
+
+                if (typeof console !== 'undefined' && console?.log) {
+                    const targetName = r.profile?.fullName || r.role || r.id;
+                    console.log('[Pass Target]', {
+                        target: {
+                            id: r.id,
+                            name: targetName,
+                            role: r.role ?? null,
+                        },
+                        catchModifiers: {
+                            baseCatch: r.attrs?.catch ?? null,
+                            hands,
+                            handsTrait,
+                            precisionTrait,
+                            qbAccBoost,
+                            ballAcc,
+                            separationPixels: separation ?? null,
+                            separationYards,
+                            openRatio,
+                            openBonus,
+                            baseCatchChance,
+                            catchProbability,
+                        },
+                    });
+                }
 
                 if (Math.random() < catchProbability) {
                     const dropBase = 0.08;
