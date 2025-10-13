@@ -1,0 +1,508 @@
+{
+  "id": "CHI",
+  "name": "Wind Guardians",
+  "city": "Chicago",
+  "abbr": "CHI",
+  "colors": {
+    "primary": "#1a237e",
+    "secondary": "#ffa000"
+  },
+  "offense": {
+    "QB": {
+      "id": "CHI-QB",
+      "firstName": "Elias",
+      "lastName": "Oliver",
+      "number": 11,
+      "ratings": {
+        "speed": 5.89,
+        "accel": 17.39,
+        "agility": 1.03,
+        "strength": 0.94,
+        "awareness": 0.98,
+        "catch": 0.49,
+        "throwPow": 1.05,
+        "throwAcc": 1.33,
+        "tackle": 0.73
+      },
+      "modifiers": {
+        "passTendencies": {
+          "short": 0.47,
+          "intermediate": 0.24,
+          "deep": 0.29
+        },
+        "scrambleAggression": 0.26,
+        "releaseQuickness": 0.8,
+        "pocketPoise": 0.76,
+        "throwVelocity": 0.77
+      }
+    },
+    "RB": {
+      "id": "CHI-RB",
+      "firstName": "Ronan",
+      "lastName": "Yarbrough",
+      "number": 36,
+      "ratings": {
+        "speed": 6.06,
+        "accel": 19.56,
+        "agility": 1.06,
+        "strength": 0.89,
+        "awareness": 1.11,
+        "catch": 0.77,
+        "throwPow": 0.92,
+        "throwAcc": 0.98,
+        "tackle": 0.88
+      },
+      "modifiers": {
+        "vision": 0.77,
+        "burst": 0.77,
+        "breakTackle": 0.61,
+        "ballSecurity": 0.69,
+        "receiving": 0.56,
+        "patience": 0.69
+      }
+    },
+    "WR1": {
+      "id": "CHI-WR1",
+      "firstName": "Kai",
+      "lastName": "Ingram",
+      "number": 39,
+      "ratings": {
+        "speed": 6.79,
+        "accel": 15.91,
+        "agility": 1.2,
+        "strength": 0.91,
+        "awareness": 0.96,
+        "catch": 0.96,
+        "throwPow": 0.62,
+        "throwAcc": 0.59,
+        "tackle": 0.8
+      },
+      "modifiers": {
+        "release": 0.85,
+        "routePrecision": 0.77,
+        "deepThreat": 0.71,
+        "hands": 0.89,
+        "runAfterCatch": 0.79
+      }
+    },
+    "WR2": {
+      "id": "CHI-WR2",
+      "firstName": "Xavier",
+      "lastName": "York",
+      "number": 35,
+      "ratings": {
+        "speed": 6.44,
+        "accel": 15.27,
+        "agility": 1.14,
+        "strength": 0.86,
+        "awareness": 0.93,
+        "catch": 1.01,
+        "throwPow": 0.63,
+        "throwAcc": 0.72,
+        "tackle": 0.97
+      },
+      "modifiers": {
+        "release": 0.82,
+        "routePrecision": 0.83,
+        "deepThreat": 0.81,
+        "hands": 0.68,
+        "runAfterCatch": 0.59
+      }
+    },
+    "WR3": {
+      "id": "CHI-WR3",
+      "firstName": "Nehemiah",
+      "lastName": "Simmons",
+      "number": 42,
+      "ratings": {
+        "speed": 5.86,
+        "accel": 20.07,
+        "agility": 1.1,
+        "strength": 0.89,
+        "awareness": 1.1,
+        "catch": 1.15,
+        "throwPow": 0.32,
+        "throwAcc": 0.64,
+        "tackle": 0.99
+      },
+      "modifiers": {
+        "release": 0.75,
+        "routePrecision": 0.69,
+        "deepThreat": 0.76,
+        "hands": 0.71,
+        "runAfterCatch": 0.8
+      }
+    },
+    "TE": {
+      "id": "CHI-TE",
+      "firstName": "Caleb",
+      "lastName": "Kendall",
+      "number": 41,
+      "ratings": {
+        "speed": 5.72,
+        "accel": 18.95,
+        "agility": 0.81,
+        "strength": 1.18,
+        "awareness": 0.99,
+        "catch": 1.08,
+        "throwPow": 0.98,
+        "throwAcc": 0.62,
+        "tackle": 0.61
+      },
+      "modifiers": {
+        "routePrecision": 0.64,
+        "hands": 0.78,
+        "inlineBlocking": 0.72,
+        "redZone": 0.55
+      }
+    },
+    "LT": {
+      "id": "CHI-LT",
+      "firstName": "Cohen",
+      "lastName": "Floyd",
+      "number": 58,
+      "ratings": {
+        "speed": 6.16,
+        "accel": 16.3,
+        "agility": 1,
+        "strength": 1.53,
+        "awareness": 1.22,
+        "catch": 0.35,
+        "throwPow": 0.8,
+        "throwAcc": 0.95,
+        "tackle": 1.02
+      },
+      "modifiers": {
+        "impact": 0.65,
+        "discipline": 0.74
+      }
+    },
+    "LG": {
+      "id": "CHI-LG",
+      "firstName": "Quentin",
+      "lastName": "Yoder",
+      "number": 52,
+      "ratings": {
+        "speed": 6,
+        "accel": 11.4,
+        "agility": 0.97,
+        "strength": 1.25,
+        "awareness": 1.17,
+        "catch": 0.61,
+        "throwPow": 0.94,
+        "throwAcc": 0.62,
+        "tackle": 1.22
+      },
+      "modifiers": {
+        "impact": 0.72,
+        "discipline": 0.77
+      }
+    },
+    "C": {
+      "id": "CHI-C",
+      "firstName": "Ezra",
+      "lastName": "Santiago",
+      "number": 77,
+      "ratings": {
+        "speed": 5.22,
+        "accel": 15.18,
+        "agility": 0.78,
+        "strength": 1.54,
+        "awareness": 1.14,
+        "catch": 0.33,
+        "throwPow": 0.76,
+        "throwAcc": 0.53,
+        "tackle": 0.86
+      },
+      "modifiers": {
+        "impact": 0.76,
+        "discipline": 0.57
+      }
+    },
+    "RG": {
+      "id": "CHI-RG",
+      "firstName": "Easton",
+      "lastName": "Keegan",
+      "number": 77,
+      "ratings": {
+        "speed": 5.99,
+        "accel": 14.62,
+        "agility": 0.86,
+        "strength": 1.38,
+        "awareness": 1.1,
+        "catch": 0.46,
+        "throwPow": 0.82,
+        "throwAcc": 0.85,
+        "tackle": 1.17
+      },
+      "modifiers": {
+        "impact": 0.74,
+        "discipline": 0.57
+      }
+    },
+    "RT": {
+      "id": "CHI-RT",
+      "firstName": "Landen",
+      "lastName": "Kerr",
+      "number": 91,
+      "ratings": {
+        "speed": 5.23,
+        "accel": 14.52,
+        "agility": 0.82,
+        "strength": 1.5,
+        "awareness": 1.2,
+        "catch": 0.65,
+        "throwPow": 0.55,
+        "throwAcc": 0.88,
+        "tackle": 1.18
+      },
+      "modifiers": {
+        "impact": 0.76,
+        "discipline": 0.66
+      }
+    }
+  },
+  "defense": {
+    "LE": {
+      "id": "CHI-LE",
+      "firstName": "Everett",
+      "lastName": "King",
+      "number": 19,
+      "ratings": {
+        "speed": 6.56,
+        "accel": 16.34,
+        "agility": 0.86,
+        "strength": 1.5,
+        "awareness": 1.12,
+        "catch": 0.48,
+        "throwPow": 0.57,
+        "throwAcc": 0.31,
+        "tackle": 1.25
+      },
+      "modifiers": {
+        "impact": 0.72,
+        "discipline": 0.74
+      }
+    },
+    "DT": {
+      "id": "CHI-DT",
+      "firstName": "Uriel",
+      "lastName": "Underwood",
+      "number": 28,
+      "ratings": {
+        "speed": 6.71,
+        "accel": 19.6,
+        "agility": 0.88,
+        "strength": 1.38,
+        "awareness": 1.02,
+        "catch": 0.55,
+        "throwPow": 0.62,
+        "throwAcc": 0.51,
+        "tackle": 1.26
+      },
+      "modifiers": {
+        "impact": 0.76,
+        "discipline": 0.68
+      }
+    },
+    "RTk": {
+      "id": "CHI-RTk",
+      "firstName": "Silas",
+      "lastName": "Jordan",
+      "number": 15,
+      "ratings": {
+        "speed": 6.42,
+        "accel": 17.51,
+        "agility": 0.94,
+        "strength": 1.53,
+        "awareness": 0.96,
+        "catch": 0.62,
+        "throwPow": 0.37,
+        "throwAcc": 0.54,
+        "tackle": 1.27
+      },
+      "modifiers": {
+        "impact": 0.7,
+        "discipline": 0.58
+      }
+    },
+    "RE": {
+      "id": "CHI-RE",
+      "firstName": "Wyatt",
+      "lastName": "Monroe",
+      "number": 33,
+      "ratings": {
+        "speed": 6.1,
+        "accel": 15.52,
+        "agility": 0.98,
+        "strength": 1.37,
+        "awareness": 1.13,
+        "catch": 0.47,
+        "throwPow": 0.35,
+        "throwAcc": 0.39,
+        "tackle": 1.36
+      },
+      "modifiers": {
+        "impact": 0.78,
+        "discipline": 0.75
+      }
+    },
+    "LB1": {
+      "id": "CHI-LB1",
+      "firstName": "Zander",
+      "lastName": "Chambers",
+      "number": 39,
+      "ratings": {
+        "speed": 5.79,
+        "accel": 13.5,
+        "agility": 0.97,
+        "strength": 1.14,
+        "awareness": 1.12,
+        "catch": 0.68,
+        "throwPow": 0.94,
+        "throwAcc": 0.9,
+        "tackle": 1.42
+      },
+      "modifiers": {
+        "impact": 0.87,
+        "discipline": 0.82
+      }
+    },
+    "LB2": {
+      "id": "CHI-LB2",
+      "firstName": "Tobias",
+      "lastName": "Parker",
+      "number": 42,
+      "ratings": {
+        "speed": 5.88,
+        "accel": 15.42,
+        "agility": 0.81,
+        "strength": 1.06,
+        "awareness": 1.05,
+        "catch": 0.73,
+        "throwPow": 0.9,
+        "throwAcc": 0.67,
+        "tackle": 1.26
+      },
+      "modifiers": {
+        "impact": 0.69,
+        "discipline": 0.64
+      }
+    },
+    "CB1": {
+      "id": "CHI-CB1",
+      "firstName": "Roman",
+      "lastName": "Grayson",
+      "number": 47,
+      "ratings": {
+        "speed": 6.78,
+        "accel": 16.73,
+        "agility": 1.24,
+        "strength": 0.93,
+        "awareness": 0.96,
+        "catch": 0.96,
+        "throwPow": 0.62,
+        "throwAcc": 0.51,
+        "tackle": 0.89
+      },
+      "modifiers": {
+        "impact": 0.52,
+        "discipline": 0.51
+      }
+    },
+    "CB2": {
+      "id": "CHI-CB2",
+      "firstName": "Kendrick",
+      "lastName": "Henderson",
+      "number": 63,
+      "ratings": {
+        "speed": 6,
+        "accel": 18.11,
+        "agility": 1.22,
+        "strength": 0.77,
+        "awareness": 0.96,
+        "catch": 0.8,
+        "throwPow": 0.74,
+        "throwAcc": 0.77,
+        "tackle": 0.86
+      },
+      "modifiers": {
+        "impact": 0.61,
+        "discipline": 0.59
+      }
+    },
+    "S1": {
+      "id": "CHI-S1",
+      "firstName": "Wilder",
+      "lastName": "Nash",
+      "number": 75,
+      "ratings": {
+        "speed": 5.79,
+        "accel": 18.5,
+        "agility": 1.06,
+        "strength": 0.97,
+        "awareness": 1.04,
+        "catch": 0.79,
+        "throwPow": 0.64,
+        "throwAcc": 0.76,
+        "tackle": 1.06
+      },
+      "modifiers": {
+        "impact": 0.6,
+        "discipline": 0.62
+      }
+    },
+    "S2": {
+      "id": "CHI-S2",
+      "firstName": "Dominic",
+      "lastName": "Durant",
+      "number": 74,
+      "ratings": {
+        "speed": 6.34,
+        "accel": 18.92,
+        "agility": 1.27,
+        "strength": 0.95,
+        "awareness": 1.1,
+        "catch": 1.12,
+        "throwPow": 0.67,
+        "throwAcc": 1,
+        "tackle": 0.9
+      },
+      "modifiers": {
+        "impact": 0.71,
+        "discipline": 0.58
+      }
+    },
+    "NB": {
+      "id": "CHI-NB",
+      "firstName": "Zeke",
+      "lastName": "Marshall",
+      "number": 1,
+      "ratings": {
+        "speed": 6.9,
+        "accel": 17.96,
+        "agility": 1.32,
+        "strength": 0.75,
+        "awareness": 1.01,
+        "catch": 0.92,
+        "throwPow": 0.53,
+        "throwAcc": 0.68,
+        "tackle": 0.8
+      },
+      "modifiers": {
+        "impact": 0.82,
+        "discipline": 0.5
+      }
+    }
+  },
+  "specialTeams": {
+    "K": {
+      "id": "CHI-K",
+      "firstName": "Miller",
+      "lastName": "Chavez",
+      "number": 91,
+      "maxDistance": 46,
+      "accuracy": 0.8
+    }
+  }
+}

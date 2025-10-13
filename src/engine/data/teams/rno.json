@@ -1,0 +1,508 @@
+{
+  "id": "RNO",
+  "name": "High Desert Rush",
+  "city": "Reno",
+  "abbr": "RNO",
+  "colors": {
+    "primary": "#4e342e",
+    "secondary": "#c5e1a5"
+  },
+  "offense": {
+    "QB": {
+      "id": "RNO-QB",
+      "firstName": "Sterling",
+      "lastName": "Jordan",
+      "number": 22,
+      "ratings": {
+        "speed": 5.59,
+        "accel": 14.05,
+        "agility": 0.9,
+        "strength": 0.82,
+        "awareness": 1.24,
+        "catch": 0.6,
+        "throwPow": 1.16,
+        "throwAcc": 1.36,
+        "tackle": 0.64
+      },
+      "modifiers": {
+        "passTendencies": {
+          "short": 0.47,
+          "intermediate": 0.3,
+          "deep": 0.23
+        },
+        "scrambleAggression": 0.2,
+        "releaseQuickness": 0.79,
+        "pocketPoise": 0.65,
+        "throwVelocity": 0.72
+      }
+    },
+    "RB": {
+      "id": "RNO-RB",
+      "firstName": "Asher",
+      "lastName": "Vaughns",
+      "number": 37,
+      "ratings": {
+        "speed": 6.29,
+        "accel": 18.66,
+        "agility": 0.96,
+        "strength": 0.88,
+        "awareness": 1.06,
+        "catch": 0.97,
+        "throwPow": 0.54,
+        "throwAcc": 0.58,
+        "tackle": 1.07
+      },
+      "modifiers": {
+        "vision": 0.6,
+        "burst": 0.71,
+        "breakTackle": 0.67,
+        "ballSecurity": 0.81,
+        "receiving": 0.69,
+        "patience": 0.73
+      }
+    },
+    "WR1": {
+      "id": "RNO-WR1",
+      "firstName": "Mateo",
+      "lastName": "Dalton",
+      "number": 23,
+      "ratings": {
+        "speed": 6.88,
+        "accel": 18.25,
+        "agility": 1.22,
+        "strength": 1.05,
+        "awareness": 1.13,
+        "catch": 1.08,
+        "throwPow": 0.53,
+        "throwAcc": 0.7,
+        "tackle": 0.66
+      },
+      "modifiers": {
+        "release": 0.68,
+        "routePrecision": 0.82,
+        "deepThreat": 0.7,
+        "hands": 0.85,
+        "runAfterCatch": 0.61
+      }
+    },
+    "WR2": {
+      "id": "RNO-WR2",
+      "firstName": "Yahir",
+      "lastName": "Owens",
+      "number": 41,
+      "ratings": {
+        "speed": 5.95,
+        "accel": 19.25,
+        "agility": 1.01,
+        "strength": 0.85,
+        "awareness": 0.99,
+        "catch": 0.92,
+        "throwPow": 0.73,
+        "throwAcc": 0.7,
+        "tackle": 0.56
+      },
+      "modifiers": {
+        "release": 0.77,
+        "routePrecision": 0.85,
+        "deepThreat": 0.82,
+        "hands": 0.64,
+        "runAfterCatch": 0.64
+      }
+    },
+    "WR3": {
+      "id": "RNO-WR3",
+      "firstName": "Theo",
+      "lastName": "Carter",
+      "number": 51,
+      "ratings": {
+        "speed": 6.14,
+        "accel": 14.98,
+        "agility": 1.19,
+        "strength": 0.94,
+        "awareness": 0.96,
+        "catch": 1.04,
+        "throwPow": 0.48,
+        "throwAcc": 0.68,
+        "tackle": 0.66
+      },
+      "modifiers": {
+        "release": 0.84,
+        "routePrecision": 0.79,
+        "deepThreat": 0.7,
+        "hands": 0.71,
+        "runAfterCatch": 0.7
+      }
+    },
+    "TE": {
+      "id": "RNO-TE",
+      "firstName": "Ronan",
+      "lastName": "Tyson",
+      "number": 48,
+      "ratings": {
+        "speed": 6.72,
+        "accel": 19.09,
+        "agility": 0.97,
+        "strength": 1.35,
+        "awareness": 0.91,
+        "catch": 1,
+        "throwPow": 0.73,
+        "throwAcc": 0.77,
+        "tackle": 0.63
+      },
+      "modifiers": {
+        "routePrecision": 0.57,
+        "hands": 0.65,
+        "inlineBlocking": 0.89,
+        "redZone": 0.77
+      }
+    },
+    "LT": {
+      "id": "RNO-LT",
+      "firstName": "Dorian",
+      "lastName": "Howard",
+      "number": 44,
+      "ratings": {
+        "speed": 5.83,
+        "accel": 13.98,
+        "agility": 0.87,
+        "strength": 1.49,
+        "awareness": 0.99,
+        "catch": 0.7,
+        "throwPow": 0.77,
+        "throwAcc": 0.72,
+        "tackle": 0.9
+      },
+      "modifiers": {
+        "impact": 0.79,
+        "discipline": 0.86
+      }
+    },
+    "LG": {
+      "id": "RNO-LG",
+      "firstName": "Henry",
+      "lastName": "Oliver",
+      "number": 51,
+      "ratings": {
+        "speed": 5.43,
+        "accel": 16.15,
+        "agility": 0.95,
+        "strength": 1.43,
+        "awareness": 1.22,
+        "catch": 0.57,
+        "throwPow": 0.67,
+        "throwAcc": 0.93,
+        "tackle": 1
+      },
+      "modifiers": {
+        "impact": 0.53,
+        "discipline": 0.75
+      }
+    },
+    "C": {
+      "id": "RNO-C",
+      "firstName": "Atlas",
+      "lastName": "Kerr",
+      "number": 71,
+      "ratings": {
+        "speed": 5.72,
+        "accel": 15.28,
+        "agility": 0.83,
+        "strength": 1.33,
+        "awareness": 1.2,
+        "catch": 0.37,
+        "throwPow": 0.74,
+        "throwAcc": 0.67,
+        "tackle": 1.07
+      },
+      "modifiers": {
+        "impact": 0.63,
+        "discipline": 0.57
+      }
+    },
+    "RG": {
+      "id": "RNO-RG",
+      "firstName": "Kellan",
+      "lastName": "Reynolds",
+      "number": 84,
+      "ratings": {
+        "speed": 5.18,
+        "accel": 15.23,
+        "agility": 0.98,
+        "strength": 1.3,
+        "awareness": 1.03,
+        "catch": 0.65,
+        "throwPow": 0.99,
+        "throwAcc": 0.72,
+        "tackle": 0.93
+      },
+      "modifiers": {
+        "impact": 0.87,
+        "discipline": 0.84
+      }
+    },
+    "RT": {
+      "id": "RNO-RT",
+      "firstName": "Leo",
+      "lastName": "York",
+      "number": 73,
+      "ratings": {
+        "speed": 6.03,
+        "accel": 13.09,
+        "agility": 0.87,
+        "strength": 1.56,
+        "awareness": 1.08,
+        "catch": 0.35,
+        "throwPow": 0.89,
+        "throwAcc": 0.79,
+        "tackle": 1.27
+      },
+      "modifiers": {
+        "impact": 0.78,
+        "discipline": 0.73
+      }
+    }
+  },
+  "defense": {
+    "LE": {
+      "id": "RNO-LE",
+      "firstName": "Nolan",
+      "lastName": "Anderson",
+      "number": 21,
+      "ratings": {
+        "speed": 5.95,
+        "accel": 18.06,
+        "agility": 1.01,
+        "strength": 1.52,
+        "awareness": 1.09,
+        "catch": 0.64,
+        "throwPow": 0.51,
+        "throwAcc": 0.49,
+        "tackle": 0.96
+      },
+      "modifiers": {
+        "impact": 0.73,
+        "discipline": 0.72
+      }
+    },
+    "DT": {
+      "id": "RNO-DT",
+      "firstName": "Declan",
+      "lastName": "Brooks",
+      "number": 27,
+      "ratings": {
+        "speed": 6.29,
+        "accel": 15.25,
+        "agility": 1.08,
+        "strength": 1.52,
+        "awareness": 1.03,
+        "catch": 0.47,
+        "throwPow": 0.49,
+        "throwAcc": 0.69,
+        "tackle": 0.92
+      },
+      "modifiers": {
+        "impact": 0.77,
+        "discipline": 0.81
+      }
+    },
+    "RTk": {
+      "id": "RNO-RTk",
+      "firstName": "Harlen",
+      "lastName": "Manning",
+      "number": 19,
+      "ratings": {
+        "speed": 5.96,
+        "accel": 18,
+        "agility": 0.92,
+        "strength": 1.26,
+        "awareness": 0.97,
+        "catch": 0.55,
+        "throwPow": 0.55,
+        "throwAcc": 0.4,
+        "tackle": 1.28
+      },
+      "modifiers": {
+        "impact": 0.65,
+        "discipline": 0.56
+      }
+    },
+    "RE": {
+      "id": "RNO-RE",
+      "firstName": "Reese",
+      "lastName": "Zhang",
+      "number": 34,
+      "ratings": {
+        "speed": 6.04,
+        "accel": 15.82,
+        "agility": 0.98,
+        "strength": 1.49,
+        "awareness": 0.91,
+        "catch": 0.41,
+        "throwPow": 0.56,
+        "throwAcc": 0.52,
+        "tackle": 0.92
+      },
+      "modifiers": {
+        "impact": 0.88,
+        "discipline": 0.87
+      }
+    },
+    "LB1": {
+      "id": "RNO-LB1",
+      "firstName": "Salem",
+      "lastName": "Gonzalez",
+      "number": 34,
+      "ratings": {
+        "speed": 6.15,
+        "accel": 14.75,
+        "agility": 1.06,
+        "strength": 1.17,
+        "awareness": 0.86,
+        "catch": 0.85,
+        "throwPow": 0.66,
+        "throwAcc": 0.74,
+        "tackle": 1.38
+      },
+      "modifiers": {
+        "impact": 0.61,
+        "discipline": 0.79
+      }
+    },
+    "LB2": {
+      "id": "RNO-LB2",
+      "firstName": "Everett",
+      "lastName": "Langston",
+      "number": 50,
+      "ratings": {
+        "speed": 6.73,
+        "accel": 18.78,
+        "agility": 1,
+        "strength": 1.02,
+        "awareness": 0.94,
+        "catch": 0.75,
+        "throwPow": 0.69,
+        "throwAcc": 0.61,
+        "tackle": 1.33
+      },
+      "modifiers": {
+        "impact": 0.54,
+        "discipline": 0.59
+      }
+    },
+    "CB1": {
+      "id": "RNO-CB1",
+      "firstName": "Elijah",
+      "lastName": "Simmons",
+      "number": 67,
+      "ratings": {
+        "speed": 6.59,
+        "accel": 19.92,
+        "agility": 1.33,
+        "strength": 1.03,
+        "awareness": 0.98,
+        "catch": 0.81,
+        "throwPow": 0.7,
+        "throwAcc": 0.52,
+        "tackle": 1.11
+      },
+      "modifiers": {
+        "impact": 0.62,
+        "discipline": 0.51
+      }
+    },
+    "CB2": {
+      "id": "RNO-CB2",
+      "firstName": "Logan",
+      "lastName": "Emerson",
+      "number": 66,
+      "ratings": {
+        "speed": 6.58,
+        "accel": 16.16,
+        "agility": 1.12,
+        "strength": 0.86,
+        "awareness": 0.93,
+        "catch": 0.75,
+        "throwPow": 0.73,
+        "throwAcc": 0.96,
+        "tackle": 0.72
+      },
+      "modifiers": {
+        "impact": 0.59,
+        "discipline": 0.67
+      }
+    },
+    "S1": {
+      "id": "RNO-S1",
+      "firstName": "Zion",
+      "lastName": "Parker",
+      "number": 69,
+      "ratings": {
+        "speed": 6.03,
+        "accel": 17.89,
+        "agility": 1.26,
+        "strength": 0.78,
+        "awareness": 1.11,
+        "catch": 1.1,
+        "throwPow": 0.6,
+        "throwAcc": 0.96,
+        "tackle": 0.97
+      },
+      "modifiers": {
+        "impact": 0.87,
+        "discipline": 0.61
+      }
+    },
+    "S2": {
+      "id": "RNO-S2",
+      "firstName": "Elias",
+      "lastName": "Ingram",
+      "number": 75,
+      "ratings": {
+        "speed": 6.9,
+        "accel": 17.65,
+        "agility": 1.22,
+        "strength": 0.86,
+        "awareness": 0.9,
+        "catch": 0.83,
+        "throwPow": 0.88,
+        "throwAcc": 0.59,
+        "tackle": 1.13
+      },
+      "modifiers": {
+        "impact": 0.51,
+        "discipline": 0.63
+      }
+    },
+    "NB": {
+      "id": "RNO-NB",
+      "firstName": "Edison",
+      "lastName": "Nixon",
+      "number": 85,
+      "ratings": {
+        "speed": 6.8,
+        "accel": 15.53,
+        "agility": 1.16,
+        "strength": 0.95,
+        "awareness": 1.01,
+        "catch": 0.87,
+        "throwPow": 0.96,
+        "throwAcc": 0.56,
+        "tackle": 0.77
+      },
+      "modifiers": {
+        "impact": 0.58,
+        "discipline": 0.81
+      }
+    }
+  },
+  "specialTeams": {
+    "K": {
+      "id": "RNO-K",
+      "firstName": "Emmett",
+      "lastName": "Reynolds",
+      "number": 92,
+      "maxDistance": 53,
+      "accuracy": 0.71
+    }
+  }
+}

@@ -1,14 +1,6 @@
 import React, { useState } from 'react';
-import { TEAM_RED, TEAM_BLK } from '../engine/constants';
 import PlayerStatsTable from './PlayerStatsTable';
 import Modal from './Modal';
-
-const TEAM_LABELS = {
-    [TEAM_RED]: 'Red Team',
-    [TEAM_BLK]: 'Black Team',
-};
-
-const TEAMS = [TEAM_RED, TEAM_BLK];
 
 function buildScore(stat = {}) {
     const passing = stat.passing || {};
@@ -125,12 +117,12 @@ function gatherTopPlayers(stats = {}, directory = {}, teamId) {
     return rows.slice(0, 3);
 }
 
-export default function StatsSummary({ stats = {}, directory = {} }) {
+export default function StatsSummary({ stats = {}, directory = {}, teams = [] }) {
     const [openTeam, setOpenTeam] = useState(null);
 
-    const teamSections = TEAMS.map(team => ({
+    const teamSections = teams.map(team => ({
         team,
-        rows: gatherTopPlayers(stats, directory, team),
+        rows: gatherTopPlayers(stats, directory, team.id),
     }));
 
     const hasAnyRows = teamSections.some(section => section.rows.length > 0);
@@ -164,7 +156,7 @@ export default function StatsSummary({ stats = {}, directory = {} }) {
                 {hasAnyRows ? (
                     <div style={{ display: 'flex', flexDirection: 'column' }}>
                         {teamSections.map(({ team, rows }) => (
-                            <div key={team} style={{ borderTop: '1px solid rgba(14,74,14,0.7)' }}>
+                            <div key={team.id} style={{ borderTop: '1px solid rgba(14,74,14,0.7)' }}>
                                 <div
                                     style={{
                                         display: 'flex',
@@ -176,9 +168,9 @@ export default function StatsSummary({ stats = {}, directory = {} }) {
                                         fontSize: 14,
                                     }}
                                 >
-                                    <span>{TEAM_LABELS[team] || team}</span>
+                                    <span>{team.displayName || team.label || team.id}</span>
                                     <button
-                                        onClick={() => setOpenTeam(team)}
+                                        onClick={() => setOpenTeam(team.id)}
                                         style={{
                                             background: 'rgba(20,92,20,0.75)',
                                             color: '#f2fff2',
@@ -262,11 +254,15 @@ export default function StatsSummary({ stats = {}, directory = {} }) {
             <Modal
                 open={Boolean(openTeam)}
                 onClose={() => setOpenTeam(null)}
-                title={`${TEAM_LABELS[openTeam] || 'Team'} - Full Stats`}
+                title={`${(teams.find(t => t.id === openTeam)?.displayName) || 'Team'} - Full Stats`}
                 width="min(92vw, 960px)"
             >
                 {openTeam ? (
-                    <PlayerStatsTable stats={stats} directory={directory} teams={[openTeam]} />
+                    <PlayerStatsTable
+                        stats={stats}
+                        directory={directory}
+                        teams={teams.filter(t => t.id === openTeam)}
+                    />
                 ) : null}
             </Modal>
         </>

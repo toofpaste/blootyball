@@ -1,10 +1,5 @@
 import React, { useMemo } from 'react';
-import { TEAM_RED, TEAM_BLK, ROLES_OFF, ROLES_DEF } from '../engine/constants';
-
-const TEAM_LABELS = {
-    [TEAM_RED]: 'Red Team',
-    [TEAM_BLK]: 'Black Team',
-};
+import { ROLES_OFF, ROLES_DEF } from '../engine/constants';
 
 const POSITION_ORDER = [...ROLES_OFF, ...ROLES_DEF];
 const ALWAYS_SHOW = new Set(['QB', 'RB', 'WR1', 'WR2', 'WR3', 'TE']);
@@ -90,8 +85,11 @@ function gatherTeamRows(stats, directory, teamId) {
     return rows.map(({ id, meta, stat }) => buildRow(id, meta, stat));
 }
 
-export default function PlayerStatsTable({ stats = {}, directory = {}, teams = [TEAM_RED, TEAM_BLK] }) {
-    const teamRows = useMemo(() => teams.map(team => ({ team, rows: gatherTeamRows(stats, directory, team) })), [stats, directory, teams]);
+export default function PlayerStatsTable({ stats = {}, directory = {}, teams = [] }) {
+    const teamRows = useMemo(
+        () => teams.map(team => ({ team, rows: gatherTeamRows(stats, directory, team.id) })),
+        [stats, directory, teams]
+    );
     const hasAnyRows = teamRows.some(section => section.rows.length > 0);
     if (!hasAnyRows) return null;
 
@@ -120,7 +118,7 @@ export default function PlayerStatsTable({ stats = {}, directory = {}, teams = [
                 Player Stats
             </div>
             {teamRows.map(({ team, rows }) => (
-                <div key={team} style={{ borderTop: '1px solid rgba(14,74,14,0.7)' }}>
+                <div key={team.id} style={{ borderTop: '1px solid rgba(14,74,14,0.7)' }}>
                     <div
                         style={{
                             padding: '10px 18px',
@@ -132,7 +130,7 @@ export default function PlayerStatsTable({ stats = {}, directory = {}, teams = [
                             alignItems: 'center'
                         }}
                     >
-                        {TEAM_LABELS[team] || team}
+                        {team.displayName || team.label || team.id}
                         <span style={{ fontSize: 12, color: '#a5e0a5' }}>Game totals</span>
                     </div>
                     <div style={{ overflowX: 'auto' }}>

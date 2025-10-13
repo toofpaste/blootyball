@@ -1,0 +1,508 @@
+{
+  "id": "LAX",
+  "name": "Solar Kings",
+  "city": "Los Angeles",
+  "abbr": "LAX",
+  "colors": {
+    "primary": "#ff9800",
+    "secondary": "#1b1b1b"
+  },
+  "offense": {
+    "QB": {
+      "id": "LAX-QB",
+      "firstName": "Vaughn",
+      "lastName": "Ochoa",
+      "number": 18,
+      "ratings": {
+        "speed": 5.53,
+        "accel": 15.37,
+        "agility": 1,
+        "strength": 0.9,
+        "awareness": 1.11,
+        "catch": 0.42,
+        "throwPow": 0.96,
+        "throwAcc": 1.39,
+        "tackle": 0.74
+      },
+      "modifiers": {
+        "passTendencies": {
+          "short": 0.48,
+          "intermediate": 0.35,
+          "deep": 0.17
+        },
+        "scrambleAggression": 0.16,
+        "releaseQuickness": 0.63,
+        "pocketPoise": 0.77,
+        "throwVelocity": 0.78
+      }
+    },
+    "RB": {
+      "id": "LAX-RB",
+      "firstName": "Nico",
+      "lastName": "Underwood",
+      "number": 27,
+      "ratings": {
+        "speed": 6.88,
+        "accel": 15.71,
+        "agility": 1,
+        "strength": 0.95,
+        "awareness": 1.1,
+        "catch": 0.87,
+        "throwPow": 0.65,
+        "throwAcc": 0.61,
+        "tackle": 0.74
+      },
+      "modifiers": {
+        "vision": 0.71,
+        "burst": 0.68,
+        "breakTackle": 0.65,
+        "ballSecurity": 0.72,
+        "receiving": 0.67,
+        "patience": 0.57
+      }
+    },
+    "WR1": {
+      "id": "LAX-WR1",
+      "firstName": "Nolan",
+      "lastName": "Owens",
+      "number": 22,
+      "ratings": {
+        "speed": 7.04,
+        "accel": 16.59,
+        "agility": 1.25,
+        "strength": 0.84,
+        "awareness": 1.12,
+        "catch": 1.15,
+        "throwPow": 0.62,
+        "throwAcc": 0.38,
+        "tackle": 0.64
+      },
+      "modifiers": {
+        "release": 0.83,
+        "routePrecision": 0.62,
+        "deepThreat": 0.61,
+        "hands": 0.63,
+        "runAfterCatch": 0.6
+      }
+    },
+    "WR2": {
+      "id": "LAX-WR2",
+      "firstName": "Victor",
+      "lastName": "Summers",
+      "number": 46,
+      "ratings": {
+        "speed": 6.56,
+        "accel": 17.77,
+        "agility": 1.11,
+        "strength": 1.05,
+        "awareness": 0.93,
+        "catch": 1.25,
+        "throwPow": 0.4,
+        "throwAcc": 0.66,
+        "tackle": 0.79
+      },
+      "modifiers": {
+        "release": 0.67,
+        "routePrecision": 0.7,
+        "deepThreat": 0.61,
+        "hands": 0.83,
+        "runAfterCatch": 0.81
+      }
+    },
+    "WR3": {
+      "id": "LAX-WR3",
+      "firstName": "Forrest",
+      "lastName": "Zimmer",
+      "number": 51,
+      "ratings": {
+        "speed": 5.96,
+        "accel": 16.5,
+        "agility": 1.17,
+        "strength": 1.04,
+        "awareness": 1.09,
+        "catch": 1.09,
+        "throwPow": 0.42,
+        "throwAcc": 0.62,
+        "tackle": 0.55
+      },
+      "modifiers": {
+        "release": 0.62,
+        "routePrecision": 0.71,
+        "deepThreat": 0.7,
+        "hands": 0.61,
+        "runAfterCatch": 0.77
+      }
+    },
+    "TE": {
+      "id": "LAX-TE",
+      "firstName": "Wesley",
+      "lastName": "Zhang",
+      "number": 62,
+      "ratings": {
+        "speed": 6.57,
+        "accel": 16.73,
+        "agility": 1.09,
+        "strength": 1.05,
+        "awareness": 0.89,
+        "catch": 1.04,
+        "throwPow": 0.99,
+        "throwAcc": 0.79,
+        "tackle": 0.85
+      },
+      "modifiers": {
+        "routePrecision": 0.58,
+        "hands": 0.58,
+        "inlineBlocking": 0.84,
+        "redZone": 0.69
+      }
+    },
+    "LT": {
+      "id": "LAX-LT",
+      "firstName": "Reese",
+      "lastName": "Jennings",
+      "number": 46,
+      "ratings": {
+        "speed": 6.12,
+        "accel": 16.16,
+        "agility": 0.85,
+        "strength": 1.29,
+        "awareness": 0.98,
+        "catch": 0.45,
+        "throwPow": 0.93,
+        "throwAcc": 0.64,
+        "tackle": 1.01
+      },
+      "modifiers": {
+        "impact": 0.54,
+        "discipline": 0.7
+      }
+    },
+    "LG": {
+      "id": "LAX-LG",
+      "firstName": "Ezra",
+      "lastName": "Iverson",
+      "number": 69,
+      "ratings": {
+        "speed": 5.37,
+        "accel": 15.56,
+        "agility": 0.97,
+        "strength": 1.4,
+        "awareness": 1.23,
+        "catch": 0.46,
+        "throwPow": 0.67,
+        "throwAcc": 0.87,
+        "tackle": 0.81
+      },
+      "modifiers": {
+        "impact": 0.9,
+        "discipline": 0.65
+      }
+    },
+    "C": {
+      "id": "LAX-C",
+      "firstName": "Dominic",
+      "lastName": "Bolton",
+      "number": 75,
+      "ratings": {
+        "speed": 5.67,
+        "accel": 13.17,
+        "agility": 0.99,
+        "strength": 1.33,
+        "awareness": 0.96,
+        "catch": 0.34,
+        "throwPow": 0.66,
+        "throwAcc": 0.76,
+        "tackle": 0.9
+      },
+      "modifiers": {
+        "impact": 0.74,
+        "discipline": 0.63
+      }
+    },
+    "RG": {
+      "id": "LAX-RG",
+      "firstName": "Wyatt",
+      "lastName": "Dalton",
+      "number": 80,
+      "ratings": {
+        "speed": 5.17,
+        "accel": 16.62,
+        "agility": 0.98,
+        "strength": 1.45,
+        "awareness": 1.08,
+        "catch": 0.44,
+        "throwPow": 0.9,
+        "throwAcc": 0.95,
+        "tackle": 0.94
+      },
+      "modifiers": {
+        "impact": 0.79,
+        "discipline": 0.74
+      }
+    },
+    "RT": {
+      "id": "LAX-RT",
+      "firstName": "Yahir",
+      "lastName": "Ortega",
+      "number": 74,
+      "ratings": {
+        "speed": 5.83,
+        "accel": 11.51,
+        "agility": 0.98,
+        "strength": 1.4,
+        "awareness": 1.22,
+        "catch": 0.66,
+        "throwPow": 0.89,
+        "throwAcc": 0.76,
+        "tackle": 1.3
+      },
+      "modifiers": {
+        "impact": 0.7,
+        "discipline": 0.59
+      }
+    }
+  },
+  "defense": {
+    "LE": {
+      "id": "LAX-LE",
+      "firstName": "Kellan",
+      "lastName": "Bishop",
+      "number": 9,
+      "ratings": {
+        "speed": 6.41,
+        "accel": 16.61,
+        "agility": 0.87,
+        "strength": 1.47,
+        "awareness": 0.93,
+        "catch": 0.46,
+        "throwPow": 0.33,
+        "throwAcc": 0.44,
+        "tackle": 0.95
+      },
+      "modifiers": {
+        "impact": 0.9,
+        "discipline": 0.73
+      }
+    },
+    "DT": {
+      "id": "LAX-DT",
+      "firstName": "Cohen",
+      "lastName": "Chambers",
+      "number": 9,
+      "ratings": {
+        "speed": 5.85,
+        "accel": 15.67,
+        "agility": 0.85,
+        "strength": 1.27,
+        "awareness": 1.08,
+        "catch": 0.75,
+        "throwPow": 0.3,
+        "throwAcc": 0.3,
+        "tackle": 1.19
+      },
+      "modifiers": {
+        "impact": 0.74,
+        "discipline": 0.7
+      }
+    },
+    "RTk": {
+      "id": "LAX-RTk",
+      "firstName": "Noah",
+      "lastName": "Ross",
+      "number": 21,
+      "ratings": {
+        "speed": 6.72,
+        "accel": 16.61,
+        "agility": 0.89,
+        "strength": 1.23,
+        "awareness": 1.03,
+        "catch": 0.7,
+        "throwPow": 0.48,
+        "throwAcc": 0.66,
+        "tackle": 1.08
+      },
+      "modifiers": {
+        "impact": 0.79,
+        "discipline": 0.71
+      }
+    },
+    "RE": {
+      "id": "LAX-RE",
+      "firstName": "Landen",
+      "lastName": "Tucker",
+      "number": 49,
+      "ratings": {
+        "speed": 5.83,
+        "accel": 17.8,
+        "agility": 0.96,
+        "strength": 1.37,
+        "awareness": 1.02,
+        "catch": 0.45,
+        "throwPow": 0.3,
+        "throwAcc": 0.3,
+        "tackle": 0.92
+      },
+      "modifiers": {
+        "impact": 0.73,
+        "discipline": 0.62
+      }
+    },
+    "LB1": {
+      "id": "LAX-LB1",
+      "firstName": "Dorian",
+      "lastName": "Zeller",
+      "number": 32,
+      "ratings": {
+        "speed": 6.24,
+        "accel": 14.45,
+        "agility": 1.07,
+        "strength": 1.04,
+        "awareness": 0.9,
+        "catch": 0.74,
+        "throwPow": 0.58,
+        "throwAcc": 0.54,
+        "tackle": 1.35
+      },
+      "modifiers": {
+        "impact": 0.66,
+        "discipline": 0.63
+      }
+    },
+    "LB2": {
+      "id": "LAX-LB2",
+      "firstName": "Wells",
+      "lastName": "Durant",
+      "number": 64,
+      "ratings": {
+        "speed": 6.7,
+        "accel": 16.23,
+        "agility": 0.9,
+        "strength": 1.32,
+        "awareness": 1.01,
+        "catch": 0.73,
+        "throwPow": 0.59,
+        "throwAcc": 0.92,
+        "tackle": 1.45
+      },
+      "modifiers": {
+        "impact": 0.79,
+        "discipline": 0.54
+      }
+    },
+    "CB1": {
+      "id": "LAX-CB1",
+      "firstName": "Liam",
+      "lastName": "Patterson",
+      "number": 51,
+      "ratings": {
+        "speed": 6.66,
+        "accel": 14.93,
+        "agility": 1.25,
+        "strength": 0.85,
+        "awareness": 1.07,
+        "catch": 0.76,
+        "throwPow": 0.91,
+        "throwAcc": 0.89,
+        "tackle": 1.18
+      },
+      "modifiers": {
+        "impact": 0.65,
+        "discipline": 0.77
+      }
+    },
+    "CB2": {
+      "id": "LAX-CB2",
+      "firstName": "Rowan",
+      "lastName": "Knight",
+      "number": 52,
+      "ratings": {
+        "speed": 6.19,
+        "accel": 19.51,
+        "agility": 1.06,
+        "strength": 0.78,
+        "awareness": 1.09,
+        "catch": 0.95,
+        "throwPow": 1,
+        "throwAcc": 0.84,
+        "tackle": 1.11
+      },
+      "modifiers": {
+        "impact": 0.63,
+        "discipline": 0.76
+      }
+    },
+    "S1": {
+      "id": "LAX-S1",
+      "firstName": "Aiden",
+      "lastName": "Hampton",
+      "number": 61,
+      "ratings": {
+        "speed": 6.46,
+        "accel": 17.81,
+        "agility": 1.1,
+        "strength": 0.95,
+        "awareness": 0.97,
+        "catch": 0.76,
+        "throwPow": 0.57,
+        "throwAcc": 0.71,
+        "tackle": 1.1
+      },
+      "modifiers": {
+        "impact": 0.72,
+        "discipline": 0.62
+      }
+    },
+    "S2": {
+      "id": "LAX-S2",
+      "firstName": "Sterling",
+      "lastName": "Powers",
+      "number": 86,
+      "ratings": {
+        "speed": 6.8,
+        "accel": 14.86,
+        "agility": 1.16,
+        "strength": 0.85,
+        "awareness": 1.09,
+        "catch": 1.02,
+        "throwPow": 0.77,
+        "throwAcc": 0.99,
+        "tackle": 0.85
+      },
+      "modifiers": {
+        "impact": 0.6,
+        "discipline": 0.75
+      }
+    },
+    "NB": {
+      "id": "LAX-NB",
+      "firstName": "Asher",
+      "lastName": "Wilkins",
+      "number": 80,
+      "ratings": {
+        "speed": 6.76,
+        "accel": 16.88,
+        "agility": 1.12,
+        "strength": 1.07,
+        "awareness": 1.13,
+        "catch": 1.09,
+        "throwPow": 0.65,
+        "throwAcc": 0.86,
+        "tackle": 0.74
+      },
+      "modifiers": {
+        "impact": 0.51,
+        "discipline": 0.81
+      }
+    }
+  },
+  "specialTeams": {
+    "K": {
+      "id": "LAX-K",
+      "firstName": "Atlas",
+      "lastName": "Quinn",
+      "number": 43,
+      "maxDistance": 49,
+      "accuracy": 0.81
+    }
+  }
+}

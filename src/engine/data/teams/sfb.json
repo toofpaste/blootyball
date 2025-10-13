@@ -1,0 +1,508 @@
+{
+  "id": "SFB",
+  "name": "Bay Guardians",
+  "city": "San Francisco",
+  "abbr": "SFB",
+  "colors": {
+    "primary": "#f44336",
+    "secondary": "#0f3554"
+  },
+  "offense": {
+    "QB": {
+      "id": "SFB-QB",
+      "firstName": "Wells",
+      "lastName": "Knight",
+      "number": 15,
+      "ratings": {
+        "speed": 6.55,
+        "accel": 16.06,
+        "agility": 0.9,
+        "strength": 0.78,
+        "awareness": 1.18,
+        "catch": 0.7,
+        "throwPow": 1.31,
+        "throwAcc": 1.18,
+        "tackle": 1.07
+      },
+      "modifiers": {
+        "passTendencies": {
+          "short": 0.47,
+          "intermediate": 0.34,
+          "deep": 0.19
+        },
+        "scrambleAggression": 0.29,
+        "releaseQuickness": 0.64,
+        "pocketPoise": 0.79,
+        "throwVelocity": 0.82
+      }
+    },
+    "RB": {
+      "id": "SFB-RB",
+      "firstName": "Griffin",
+      "lastName": "Vaughns",
+      "number": 31,
+      "ratings": {
+        "speed": 6.48,
+        "accel": 17.22,
+        "agility": 0.97,
+        "strength": 0.96,
+        "awareness": 0.91,
+        "catch": 1,
+        "throwPow": 0.55,
+        "throwAcc": 0.64,
+        "tackle": 0.63
+      },
+      "modifiers": {
+        "vision": 0.76,
+        "burst": 0.83,
+        "breakTackle": 0.69,
+        "ballSecurity": 0.69,
+        "receiving": 0.5,
+        "patience": 0.7
+      }
+    },
+    "WR1": {
+      "id": "SFB-WR1",
+      "firstName": "Devin",
+      "lastName": "Foster",
+      "number": 32,
+      "ratings": {
+        "speed": 6.69,
+        "accel": 20.02,
+        "agility": 1.01,
+        "strength": 0.95,
+        "awareness": 1.12,
+        "catch": 1.13,
+        "throwPow": 0.72,
+        "throwAcc": 0.53,
+        "tackle": 0.63
+      },
+      "modifiers": {
+        "release": 0.68,
+        "routePrecision": 0.76,
+        "deepThreat": 0.77,
+        "hands": 0.69,
+        "runAfterCatch": 0.58
+      }
+    },
+    "WR2": {
+      "id": "SFB-WR2",
+      "firstName": "Iker",
+      "lastName": "Chambers",
+      "number": 48,
+      "ratings": {
+        "speed": 6.03,
+        "accel": 14.48,
+        "agility": 1.06,
+        "strength": 1.02,
+        "awareness": 0.98,
+        "catch": 1.19,
+        "throwPow": 0.51,
+        "throwAcc": 0.34,
+        "tackle": 0.68
+      },
+      "modifiers": {
+        "release": 0.89,
+        "routePrecision": 0.89,
+        "deepThreat": 0.78,
+        "hands": 0.69,
+        "runAfterCatch": 0.55
+      }
+    },
+    "WR3": {
+      "id": "SFB-WR3",
+      "firstName": "Zeke",
+      "lastName": "Ramirez",
+      "number": 44,
+      "ratings": {
+        "speed": 6.05,
+        "accel": 19.36,
+        "agility": 1.28,
+        "strength": 0.83,
+        "awareness": 1.08,
+        "catch": 1.02,
+        "throwPow": 0.68,
+        "throwAcc": 0.78,
+        "tackle": 0.58
+      },
+      "modifiers": {
+        "release": 0.86,
+        "routePrecision": 0.88,
+        "deepThreat": 0.71,
+        "hands": 0.6,
+        "runAfterCatch": 0.72
+      }
+    },
+    "TE": {
+      "id": "SFB-TE",
+      "firstName": "Nico",
+      "lastName": "Floyd",
+      "number": 54,
+      "ratings": {
+        "speed": 6.69,
+        "accel": 18.47,
+        "agility": 1.09,
+        "strength": 1.36,
+        "awareness": 0.99,
+        "catch": 0.96,
+        "throwPow": 0.62,
+        "throwAcc": 0.63,
+        "tackle": 1.1
+      },
+      "modifiers": {
+        "routePrecision": 0.66,
+        "hands": 0.59,
+        "inlineBlocking": 0.66,
+        "redZone": 0.64
+      }
+    },
+    "LT": {
+      "id": "SFB-LT",
+      "firstName": "Jonah",
+      "lastName": "Xu",
+      "number": 50,
+      "ratings": {
+        "speed": 5.98,
+        "accel": 13.01,
+        "agility": 0.99,
+        "strength": 1.54,
+        "awareness": 1.13,
+        "catch": 0.55,
+        "throwPow": 0.58,
+        "throwAcc": 0.52,
+        "tackle": 1.29
+      },
+      "modifiers": {
+        "impact": 0.51,
+        "discipline": 0.76
+      }
+    },
+    "LG": {
+      "id": "SFB-LG",
+      "firstName": "Ulises",
+      "lastName": "Price",
+      "number": 60,
+      "ratings": {
+        "speed": 5.12,
+        "accel": 14.65,
+        "agility": 0.81,
+        "strength": 1.25,
+        "awareness": 1.14,
+        "catch": 0.53,
+        "throwPow": 0.54,
+        "throwAcc": 0.66,
+        "tackle": 1.1
+      },
+      "modifiers": {
+        "impact": 0.61,
+        "discipline": 0.74
+      }
+    },
+    "C": {
+      "id": "SFB-C",
+      "firstName": "Van",
+      "lastName": "Chavez",
+      "number": 81,
+      "ratings": {
+        "speed": 5.92,
+        "accel": 13.32,
+        "agility": 0.98,
+        "strength": 1.55,
+        "awareness": 1.08,
+        "catch": 0.56,
+        "throwPow": 0.94,
+        "throwAcc": 0.93,
+        "tackle": 0.85
+      },
+      "modifiers": {
+        "impact": 0.88,
+        "discipline": 0.67
+      }
+    },
+    "RG": {
+      "id": "SFB-RG",
+      "firstName": "Theo",
+      "lastName": "Gonzalez",
+      "number": 64,
+      "ratings": {
+        "speed": 5.22,
+        "accel": 11.8,
+        "agility": 0.86,
+        "strength": 1.49,
+        "awareness": 0.95,
+        "catch": 0.55,
+        "throwPow": 0.97,
+        "throwAcc": 0.76,
+        "tackle": 1.06
+      },
+      "modifiers": {
+        "impact": 0.74,
+        "discipline": 0.77
+      }
+    },
+    "RT": {
+      "id": "SFB-RT",
+      "firstName": "Owen",
+      "lastName": "Vasquez",
+      "number": 1,
+      "ratings": {
+        "speed": 5.22,
+        "accel": 13.71,
+        "agility": 0.9,
+        "strength": 1.38,
+        "awareness": 0.99,
+        "catch": 0.58,
+        "throwPow": 0.96,
+        "throwAcc": 0.88,
+        "tackle": 1.24
+      },
+      "modifiers": {
+        "impact": 0.82,
+        "discipline": 0.74
+      }
+    }
+  },
+  "defense": {
+    "LE": {
+      "id": "SFB-LE",
+      "firstName": "Declan",
+      "lastName": "Ross",
+      "number": 6,
+      "ratings": {
+        "speed": 5.8,
+        "accel": 16.97,
+        "agility": 0.81,
+        "strength": 1.43,
+        "awareness": 0.93,
+        "catch": 0.78,
+        "throwPow": 0.69,
+        "throwAcc": 0.67,
+        "tackle": 1.11
+      },
+      "modifiers": {
+        "impact": 0.82,
+        "discipline": 0.75
+      }
+    },
+    "DT": {
+      "id": "SFB-DT",
+      "firstName": "Andre",
+      "lastName": "Quinn",
+      "number": 12,
+      "ratings": {
+        "speed": 6.48,
+        "accel": 14.51,
+        "agility": 0.82,
+        "strength": 1.35,
+        "awareness": 1.01,
+        "catch": 0.41,
+        "throwPow": 0.53,
+        "throwAcc": 0.38,
+        "tackle": 1.19
+      },
+      "modifiers": {
+        "impact": 0.79,
+        "discipline": 0.7
+      }
+    },
+    "RTk": {
+      "id": "SFB-RTk",
+      "firstName": "Ronan",
+      "lastName": "Carter",
+      "number": 23,
+      "ratings": {
+        "speed": 5.76,
+        "accel": 13.93,
+        "agility": 0.82,
+        "strength": 1.42,
+        "awareness": 0.87,
+        "catch": 0.69,
+        "throwPow": 0.67,
+        "throwAcc": 0.3,
+        "tackle": 1.33
+      },
+      "modifiers": {
+        "impact": 0.89,
+        "discipline": 0.68
+      }
+    },
+    "RE": {
+      "id": "SFB-RE",
+      "firstName": "Tobias",
+      "lastName": "Iverson",
+      "number": 50,
+      "ratings": {
+        "speed": 5.88,
+        "accel": 15.79,
+        "agility": 0.84,
+        "strength": 1.35,
+        "awareness": 0.86,
+        "catch": 0.7,
+        "throwPow": 0.3,
+        "throwAcc": 0.3,
+        "tackle": 1.14
+      },
+      "modifiers": {
+        "impact": 0.82,
+        "discipline": 0.81
+      }
+    },
+    "LB1": {
+      "id": "SFB-LB1",
+      "firstName": "Kellan",
+      "lastName": "Zimmerman",
+      "number": 40,
+      "ratings": {
+        "speed": 5.9,
+        "accel": 17.69,
+        "agility": 1,
+        "strength": 1.04,
+        "awareness": 1.1,
+        "catch": 0.78,
+        "throwPow": 0.78,
+        "throwAcc": 0.82,
+        "tackle": 1.26
+      },
+      "modifiers": {
+        "impact": 0.69,
+        "discipline": 0.84
+      }
+    },
+    "LB2": {
+      "id": "SFB-LB2",
+      "firstName": "Vaughn",
+      "lastName": "Nelson",
+      "number": 43,
+      "ratings": {
+        "speed": 5.92,
+        "accel": 16.03,
+        "agility": 0.83,
+        "strength": 1.07,
+        "awareness": 1.08,
+        "catch": 0.63,
+        "throwPow": 0.97,
+        "throwAcc": 0.86,
+        "tackle": 1.01
+      },
+      "modifiers": {
+        "impact": 0.54,
+        "discipline": 0.88
+      }
+    },
+    "CB1": {
+      "id": "SFB-CB1",
+      "firstName": "Dallas",
+      "lastName": "Hampton",
+      "number": 65,
+      "ratings": {
+        "speed": 5.92,
+        "accel": 19.87,
+        "agility": 1.08,
+        "strength": 1.08,
+        "awareness": 1.12,
+        "catch": 1.12,
+        "throwPow": 0.65,
+        "throwAcc": 0.57,
+        "tackle": 1.11
+      },
+      "modifiers": {
+        "impact": 0.83,
+        "discipline": 0.57
+      }
+    },
+    "CB2": {
+      "id": "SFB-CB2",
+      "firstName": "Nehemiah",
+      "lastName": "Dawson",
+      "number": 69,
+      "ratings": {
+        "speed": 6.83,
+        "accel": 16.27,
+        "agility": 1.2,
+        "strength": 0.95,
+        "awareness": 0.92,
+        "catch": 0.87,
+        "throwPow": 0.96,
+        "throwAcc": 0.63,
+        "tackle": 1.06
+      },
+      "modifiers": {
+        "impact": 0.54,
+        "discipline": 0.88
+      }
+    },
+    "S1": {
+      "id": "SFB-S1",
+      "firstName": "Camden",
+      "lastName": "Whitaker",
+      "number": 86,
+      "ratings": {
+        "speed": 6.95,
+        "accel": 16.23,
+        "agility": 1.21,
+        "strength": 0.96,
+        "awareness": 1.1,
+        "catch": 1.12,
+        "throwPow": 0.52,
+        "throwAcc": 0.93,
+        "tackle": 0.74
+      },
+      "modifiers": {
+        "impact": 0.8,
+        "discipline": 0.9
+      }
+    },
+    "S2": {
+      "id": "SFB-S2",
+      "firstName": "Jalen",
+      "lastName": "Bennett",
+      "number": 67,
+      "ratings": {
+        "speed": 6.58,
+        "accel": 18.74,
+        "agility": 1.26,
+        "strength": 0.94,
+        "awareness": 1.13,
+        "catch": 0.82,
+        "throwPow": 0.93,
+        "throwAcc": 0.51,
+        "tackle": 1.09
+      },
+      "modifiers": {
+        "impact": 0.68,
+        "discipline": 0.71
+      }
+    },
+    "NB": {
+      "id": "SFB-NB",
+      "firstName": "Grayson",
+      "lastName": "Henderson",
+      "number": 85,
+      "ratings": {
+        "speed": 5.99,
+        "accel": 18.38,
+        "agility": 1.22,
+        "strength": 0.9,
+        "awareness": 0.87,
+        "catch": 0.87,
+        "throwPow": 0.51,
+        "throwAcc": 0.94,
+        "tackle": 0.98
+      },
+      "modifiers": {
+        "impact": 0.85,
+        "discipline": 0.56
+      }
+    }
+  },
+  "specialTeams": {
+    "K": {
+      "id": "SFB-K",
+      "firstName": "Asher",
+      "lastName": "York",
+      "number": 36,
+      "maxDistance": 58,
+      "accuracy": 0.82
+    }
+  }
+}

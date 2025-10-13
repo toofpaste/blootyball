@@ -1,14 +1,46 @@
 // src/ui/Scoreboard.jsx
 import React from 'react';
-import { COLORS } from '../engine/constants';
+
+function TeamPanel({ team = {}, align = 'left' }) {
+    const {
+        displayName = 'Team',
+        abbr = '',
+        recordText = '0-0-0',
+        score = 0,
+        color = '#e8ffe8',
+    } = team;
+
+    const isRight = align === 'right';
+    const flexDirection = isRight ? 'row-reverse' : 'row';
+
+    return (
+        <div style={{ display: 'flex', flexDirection, alignItems: 'center', gap: 10 }}>
+            <div style={{
+                width: 12,
+                height: 12,
+                borderRadius: 9999,
+                background: color || '#e8ffe8',
+                boxShadow: '0 0 6px rgba(0,0,0,0.35)'
+            }} />
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: isRight ? 'flex-end' : 'flex-start', gap: 2 }}>
+                <span style={{ fontWeight: 700, letterSpacing: 0.4, textTransform: 'uppercase' }}>{abbr || displayName}</span>
+                <span style={{ fontWeight: 500, fontSize: 14, opacity: 0.85 }}>{displayName}</span>
+                <span style={{ fontSize: 12, color: '#b0e8b0' }}>{recordText}</span>
+            </div>
+            <span style={{ fontSize: 28, fontWeight: 800, minWidth: 32, textAlign: 'center' }}>{score}</span>
+        </div>
+    );
+}
 
 export default function Scoreboard({
-    redScore = 0,
-    blkScore = 0,
+    home = {},
+    away = {},
     quarter = 1,
     timeLeftText = '15:00',
     down = 1,
     toGo = 10,
+    gameLabel = '',
+    onShowSeasonStats = null,
 }) {
     return (
         <div style={{
@@ -20,40 +52,51 @@ export default function Scoreboard({
             color: '#e8ffe8',
             display: 'grid',
             gridTemplateColumns: '1fr auto 1fr',
-            alignItems: 'center',
-            padding: '10px 12px',
+            alignItems: 'stretch',
+            padding: '12px 14px',
             boxShadow: '0 6px 18px rgba(0,0,0,0.35)',
-            gap: 8
+            gap: 8,
+            position: 'relative'
         }}>
-            {/* Left team: RED */}
-            <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
-                <span style={{
-                    display: 'inline-block',
-                    width: 10, height: 10, borderRadius: 9999,
-                    background: COLORS.red
-                }} />
-                <span style={{ fontWeight: 700, letterSpacing: 0.2 }}>Red</span>
-                <span style={{ marginLeft: 'auto', fontSize: 22, fontWeight: 800 }}>{redScore}</span>
-            </div>
+            <TeamPanel team={home} align="left" />
 
-            {/* Center: down & distance and clock */}
-            <div style={{ textAlign: 'center', fontWeight: 700 }}>
+            <div style={{ textAlign: 'center', fontWeight: 700, display: 'flex', flexDirection: 'column', gap: 6, justifyContent: 'center' }}>
+                <div style={{ fontSize: 13, opacity: 0.8 }}>{gameLabel}</div>
                 <div style={{ fontSize: 14, opacity: 0.9 }}>
                     {ordinal(down)} & {Math.max(1, Math.round(toGo))} • Q{quarter}
                 </div>
                 <div style={{ fontSize: 18 }}>{timeLeftText}</div>
             </div>
 
-            {/* Right team: BLACK */}
-            <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, justifyContent: 'flex-end' }}>
-                <span style={{ fontSize: 22, fontWeight: 800 }}>{blkScore}</span>
-                <span style={{ fontWeight: 700, letterSpacing: 0.2 }}>Black</span>
-                <span style={{
-                    display: 'inline-block',
-                    width: 10, height: 10, borderRadius: 9999,
-                    background: COLORS.black
-                }} />
-            </div>
+            <TeamPanel team={away} align="right" />
+
+            {typeof onShowSeasonStats === 'function' ? (
+                <button
+                    type="button"
+                    onClick={onShowSeasonStats}
+                    style={{
+                        position: 'absolute',
+                        top: 8,
+                        right: 8,
+                        background: 'rgba(255,255,255,0.1)',
+                        color: '#e8ffe8',
+                        border: '1px solid rgba(200,255,200,0.25)',
+                        borderRadius: 9999,
+                        padding: '6px 14px',
+                        fontSize: 12,
+                        letterSpacing: 0.3,
+                        textTransform: 'uppercase',
+                        cursor: 'pointer',
+                        transition: 'all 160ms ease',
+                    }}
+                    onMouseOver={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.2)'; }}
+                    onFocus={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.2)'; }}
+                    onMouseOut={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.1)'; }}
+                    onBlur={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.1)'; }}
+                >
+                    Season Stats
+                </button>
+            ) : null}
         </div>
     );
 }

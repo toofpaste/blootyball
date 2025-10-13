@@ -1,0 +1,92 @@
+{
+  "teams": [
+    {
+      "id": "SFB",
+      "file": "sfb.json",
+      "name": "Bay Guardians",
+      "city": "San Francisco",
+      "abbr": "SFB",
+      "colors": {
+        "primary": "#f44336",
+        "secondary": "#0f3554"
+      }
+    },
+    {
+      "id": "LAX",
+      "file": "lax.json",
+      "name": "Solar Kings",
+      "city": "Los Angeles",
+      "abbr": "LAX",
+      "colors": {
+        "primary": "#ff9800",
+        "secondary": "#1b1b1b"
+      }
+    },
+    {
+      "id": "NYC",
+      "file": "nyc.json",
+      "name": "Empire Hawks",
+      "city": "New York",
+      "abbr": "NYC",
+      "colors": {
+        "primary": "#1565c0",
+        "secondary": "#e0e0e0"
+      }
+    },
+    {
+      "id": "MIA",
+      "file": "mia.json",
+      "name": "Coastal Wave",
+      "city": "Miami",
+      "abbr": "MIA",
+      "colors": {
+        "primary": "#00bcd4",
+        "secondary": "#ff6f61"
+      }
+    },
+    {
+      "id": "TOR",
+      "file": "tor.json",
+      "name": "Northern Lights",
+      "city": "Toronto",
+      "abbr": "TOR",
+      "colors": {
+        "primary": "#6a1b9a",
+        "secondary": "#d1c4e9"
+      }
+    },
+    {
+      "id": "CHI",
+      "file": "chi.json",
+      "name": "Wind Guardians",
+      "city": "Chicago",
+      "abbr": "CHI",
+      "colors": {
+        "primary": "#1a237e",
+        "secondary": "#ffa000"
+      }
+    },
+    {
+      "id": "RNO",
+      "file": "rno.json",
+      "name": "High Desert Rush",
+      "city": "Reno",
+      "abbr": "RNO",
+      "colors": {
+        "primary": "#4e342e",
+        "secondary": "#c5e1a5"
+      }
+    },
+    {
+      "id": "NJY",
+      "file": "njy.json",
+      "name": "Garden State Charge",
+      "city": "New Jersey",
+      "abbr": "NJY",
+      "colors": {
+        "primary": "#2e7d32",
+        "secondary": "#c8e6c9"
+      }
+    }
+  ]
+}
