@@ -2,7 +2,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import Toolbar from './ui/Toolbar';
 import Scoreboard from './ui/Scoreboard';
-import { FIELD_PIX_W, FIELD_PIX_H } from './engine/constants';
+import { FIELD_PIX_W, FIELD_PIX_H, COLORS } from './engine/constants';
 import { createInitialGameState, stepGame, betweenPlays, withForceNextOutcome, withForceNextPlay } from './engine/state';
 import { getDiagnostics } from './engine/diagnostics';
 import { TEAM_RED, TEAM_BLK } from './engine/constants';
@@ -11,6 +11,7 @@ import PlayLog from './ui/PlayLog';
 import StatsSummary from './ui/StatsSummary';
 import SeasonStatsModal from './ui/SeasonStatsModal';
 import { formatRecord } from './engine/league';
+import { resolveTeamColor } from './engine/colors';
 import './AppLayout.css';
 
 export default function App() {
@@ -74,6 +75,8 @@ export default function App() {
     const record = entry?.record || { wins: 0, losses: 0, ties: 0 };
     const recordText = formatRecord(record);
     const colors = (identity?.colors || entry?.info?.colors) || {};
+    const defaultColor = slot === TEAM_RED ? COLORS.red : COLORS.black;
+    const resolvedColor = resolveTeamColor(colors, defaultColor);
     const displayName = identity?.displayName || entry?.info?.displayName || identity?.name || teamId || slot;
     const label = identity?.abbr || entry?.info?.abbr || displayName;
     return {
@@ -82,7 +85,7 @@ export default function App() {
       label,
       recordText,
       score: activeScores?.[slot] ?? 0,
-      color: colors.primary || (slot === TEAM_RED ? '#e53935' : '#111111'),
+      color: resolvedColor,
       info: entry?.info || identity || {},
     };
   };
