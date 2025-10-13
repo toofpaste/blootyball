@@ -78,22 +78,24 @@ export default function StatsSummary({ stats = {}, directory = {} }) {
         <>
             <div
                 style={{
-                    background: '#062c06',
-                    color: '#e8ffe8',
-                    border: '1px solid #0b4a0b',
-                    borderRadius: 12,
-                    boxShadow: '0 6px 18px rgba(0,0,0,0.35)',
+                    background: 'linear-gradient(180deg, rgba(6,44,6,0.96) 0%, rgba(4,28,4,0.98) 100%)',
+                    color: '#f2fff2',
+                    border: '1px solid #165e16',
+                    borderRadius: 16,
+                    boxShadow: '0 14px 30px rgba(0,0,0,0.35)',
                     overflow: 'hidden',
                     width: '100%',
                 }}
             >
                 <div
                     style={{
-                        padding: '10px 12px',
-                        borderBottom: '1px solid #0b4a0b',
+                        padding: '12px 18px',
+                        borderBottom: '1px solid rgba(9,72,9,0.85)',
                         fontWeight: 700,
-                        fontSize: 15,
-                        background: '#083b08',
+                        fontSize: 16,
+                        letterSpacing: 0.4,
+                        textTransform: 'uppercase',
+                        background: 'rgba(12,64,12,0.85)',
                     }}
                 >
                     Team Leaders
@@ -101,51 +103,71 @@ export default function StatsSummary({ stats = {}, directory = {} }) {
                 {hasAnyRows ? (
                     <div style={{ display: 'flex', flexDirection: 'column' }}>
                         {teamSections.map(({ team, rows }) => (
-                            <div key={team} style={{ borderTop: '1px solid rgba(11,74,11,0.7)' }}>
+                            <div key={team} style={{ borderTop: '1px solid rgba(14,74,14,0.7)' }}>
                                 <div
                                     style={{
                                         display: 'flex',
                                         justifyContent: 'space-between',
                                         alignItems: 'center',
-                                        padding: '8px 12px',
-                                        background: 'rgba(8,59,8,0.9)',
+                                        padding: '10px 18px',
+                                        background: 'rgba(8,59,8,0.85)',
                                         fontWeight: 600,
-                                        fontSize: 13,
+                                        fontSize: 14,
                                     }}
                                 >
                                     <span>{TEAM_LABELS[team] || team}</span>
                                     <button
                                         onClick={() => setOpenTeam(team)}
                                         style={{
-                                            background: '#145c14',
-                                            color: '#e8ffe8',
-                                            border: '1px solid rgba(232,255,232,0.35)',
-                                            borderRadius: 6,
-                                            padding: '4px 8px',
+                                            background: 'rgba(20,92,20,0.75)',
+                                            color: '#f2fff2',
+                                            border: '1px solid rgba(232,255,232,0.25)',
+                                            borderRadius: 999,
+                                            padding: '6px 12px',
                                             fontSize: 11,
                                             cursor: 'pointer',
+                                            transition: 'all 140ms ease',
+                                            boxShadow: '0 6px 12px rgba(0,0,0,0.25)',
                                         }}
                                     >
                                         View Full Stats
                                     </button>
                                 </div>
                                 {rows.length ? (
-                                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                                    <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: 0, fontSize: 12 }}>
+                                        <thead>
+                                            <tr style={{ background: 'rgba(10,70,10,0.85)' }}>
+                                                <Th>Player</Th>
+                                                <Th align="right">Passing</Th>
+                                                <Th align="right">Rushing</Th>
+                                                <Th align="right">Receiving</Th>
+                                                <Th align="right">Defense</Th>
+                                            </tr>
+                                        </thead>
                                         <tbody>
-                                            {rows.map(row => (
-                                                <tr key={row.id} style={{ borderTop: '1px solid rgba(11,74,11,0.5)' }}>
-                                                    <Td style={{ fontWeight: 600 }}>
-                                                        {row.number ? `#${row.number} ${row.name}` : row.name}
-                                                        <span style={{ display: 'block', fontWeight: 400, color: '#9bd79b' }}>
-                                                            {row.role}
-                                                        </span>
-                                                    </Td>
-                                                    <Td mono>{row.pass}</Td>
-                                                    <Td mono>{row.rush}</Td>
-                                                    <Td mono>{row.receive}</Td>
-                                                    <Td mono>{row.defense}</Td>
-                                                </tr>
-                                            ))}
+                                            {rows.map((row, idx) => {
+                                                const isStriped = idx % 2 === 0;
+                                                return (
+                                                    <tr
+                                                        key={row.id}
+                                                        style={{
+                                                            borderTop: '1px solid rgba(14,74,14,0.35)',
+                                                            background: isStriped ? 'rgba(7,45,7,0.75)' : 'rgba(5,32,5,0.9)'
+                                                        }}
+                                                    >
+                                                        <Td style={{ fontWeight: 600 }}>
+                                                            <span style={{ display: 'block' }}>{row.name}</span>
+                                                            <span style={{ display: 'block', fontWeight: 400, color: '#9bd79b', fontSize: 11 }}>
+                                                                {row.role} {row.number ? `• #${row.number}` : ''}
+                                                            </span>
+                                                        </Td>
+                                                        <Td mono align="right">{row.pass}</Td>
+                                                        <Td mono align="right">{row.rush}</Td>
+                                                        <Td mono align="right">{row.receive}</Td>
+                                                        <Td mono align="right">{row.defense}</Td>
+                                                    </tr>
+                                                );
+                                            })}
                                         </tbody>
                                     </table>
                                 ) : (
@@ -176,13 +198,32 @@ export default function StatsSummary({ stats = {}, directory = {} }) {
     );
 }
 
-function Td({ children, mono, style }) {
+function Th({ children, align = 'left' }) {
+    return (
+        <th
+            style={{
+                textAlign: align,
+                padding: '10px 14px',
+                fontWeight: 600,
+                fontSize: 11,
+                letterSpacing: 0.4,
+                textTransform: 'uppercase',
+                color: '#c1f0c1'
+            }}
+        >
+            {children}
+        </th>
+    );
+}
+
+function Td({ children, mono, style, align = 'left' }) {
     return (
         <td
             style={{
-                padding: '8px 10px',
+                padding: '10px 14px',
                 fontFamily: mono ? 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace' : 'inherit',
                 verticalAlign: 'top',
+                textAlign: align,
                 ...(style || {}),
             }}
         >
