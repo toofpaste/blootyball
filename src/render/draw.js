@@ -60,25 +60,66 @@ function drawContent(ctx, state) {
 
 
     // Players
-    const { off = {}, def = {} } = state.play.formation || {};
-    const safePlayers = (obj) => Object.values(obj || []).filter(
-        (p) => p && p.pos && Number.isFinite(p.pos.x) && Number.isFinite(p.pos.y)
-    );
-    const offenseColor = state.possession === TEAM_RED ? COLORS.red : COLORS.black;
-    const defenseColor = state.possession === TEAM_RED ? COLORS.black : COLORS.red;
-    safePlayers(def).forEach(p => drawPlayer(ctx, p, defenseColor));
-    safePlayers(off).forEach(p => drawPlayer(ctx, p, offenseColor));
+    const isFieldGoal = state.play?.phase === 'FIELD_GOAL' && state.play?.specialTeams?.visual;
+    if (isFieldGoal) {
+        drawFieldGoalScene(ctx, state);
+    } else {
+        const { off = {}, def = {} } = state.play.formation || {};
+        const safePlayers = (obj) => Object.values(obj || []).filter(
+            (p) => p && p.pos && Number.isFinite(p.pos.x) && Number.isFinite(p.pos.y)
+        );
+        const offenseColor = state.possession === TEAM_RED ? COLORS.red : COLORS.black;
+        const defenseColor = state.possession === TEAM_RED ? COLORS.black : COLORS.red;
+        safePlayers(def).forEach(p => drawPlayer(ctx, p, defenseColor));
+        safePlayers(off).forEach(p => drawPlayer(ctx, p, offenseColor));
 
-    // Ball
-    try {
-        const bp = getBallPix(state);
-        if (bp && Number.isFinite(bp.x) && Number.isFinite(bp.y)) drawBall(ctx, bp, state.play.ball);
-    } catch { }
+        // Ball
+        try {
+            const bp = getBallPix(state);
+            if (bp && Number.isFinite(bp.x) && Number.isFinite(bp.y)) drawBall(ctx, bp, state.play.ball);
+        } catch { }
+    }
 
     // HUD (top-left of portrait space -> left side of landscape)
     ctx.fillStyle = COLORS.text;
     ctx.font = '14px ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto';
     ctx.fillText(`${state.play.resultText || ''}`, 12, 24);
+}
+
+function drawFieldGoalScene(ctx, state) {
+    const special = state.play?.specialTeams;
+    const visual = special?.visual;
+    if (!visual) return;
+    const offenseColor = state.possession === TEAM_RED ? COLORS.red : COLORS.black;
+    const defenseColor = state.possession === TEAM_RED ? COLORS.black : COLORS.red;
+
+    const drawGroup = (arr, color) => {
+        (arr || []).forEach((p) => {
+            if (!p?.renderPos) return;
+            const fakePlayer = { role: p.role, pos: p.renderPos };
+            drawPlayer(ctx, fakePlayer, color);
+        });
+    };
+
+    if (visual.line) drawGroup(visual.line, offenseColor);
+    if (visual.snapper?.renderPos) {
+        drawPlayer(ctx, { role: 'C', pos: visual.snapper.renderPos }, offenseColor);
+    }
+    if (visual.holder?.renderPos) {
+        drawPlayer(ctx, { role: 'QB', pos: visual.holder.renderPos }, offenseColor);
+    }
+    if (visual.kicker?.renderPos) {
+        drawPlayer(ctx, { role: 'K', pos: visual.kicker.renderPos }, offenseColor);
+    }
+    if (visual.rushers) drawGroup(visual.rushers, defenseColor);
+
+    if (visual.ball?.pos) {
+        drawBall(ctx, visual.ball.pos, { flight: { height: visual.ball.height }, shadowPos: visual.ball.shadow });
+    }
+
+    if (visual.phase === 'RESULT' && special?.outcome?.success) {
+        highlightUprights(ctx, visual.uprights);
+    }
 }
 
 /* ------------ Field rendering with hashes & numbers ------------ */
@@ -167,6 +208,20 @@ function drawGoalPost(ctx, goalLineY, dir = 1) {
     line(ctx, centerX - crossbarHalf, goalLineY + offset, centerX + crossbarHalf, goalLineY + offset);
     line(ctx, centerX - crossbarHalf, goalLineY + offset, centerX - crossbarHalf, uprightEnd);
     line(ctx, centerX + crossbarHalf, goalLineY + offset, centerX + crossbarHalf, uprightEnd);
+    ctx.restore();
+}
+
+function highlightUprights(ctx, uprights) {
+    if (!uprights) return;
+    ctx.save();
+    ctx.strokeStyle = 'rgba(255, 232, 128, 0.85)';
+    ctx.lineWidth = 5;
+    ctx.shadowColor = 'rgba(255, 220, 90, 0.55)';
+    ctx.shadowBlur = 18;
+    ctx.beginPath();
+    ctx.moveTo(uprights.centerX - uprights.halfWidth, uprights.crossbarY);
+    ctx.lineTo(uprights.centerX + uprights.halfWidth, uprights.crossbarY);
+    ctx.stroke();
     ctx.restore();
 }
 

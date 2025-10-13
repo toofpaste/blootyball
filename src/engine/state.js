@@ -23,6 +23,10 @@ const DEFAULT_CLOCK_MANAGEMENT = {
 };
 
 const PENALTY_CHANCE = 0.07;
+const lerp = (a, b, t) => a + (b - a) * t;
+const smoothStep = (t) => t * t * (3 - 2 * t);
+const easeOutQuad = (t) => 1 - (1 - t) * (1 - t);
+const easeInOutQuad = (t) => (t < 0.5) ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
 
 function ensureDrive(s) {
     if (!s.drive || typeof s.drive.losYards !== 'number') {
@@ -76,29 +80,96 @@ function kickerSuccessChance(kicker, distance) {
     return clamp(base + shortBonus - longPenalty, 0.05, 0.99);
 }
 
-function executeFieldGoalAttempt(state, {
-    team,
-    distance,
-    isPat = false,
-    startLos,
-    startDown,
-    startToGo,
-    logAttempt = true,
-    autoAdvanceAfter = false,
-}) {
+function createFieldGoalVisual({ losYards, distance }) {
+    const yard = yardsToPixY(1);
+    const losPixY = yardsToPixY(ENDZONE_YARDS + (losYards ?? 25));
+    const holderDepth = 7;
+    const holderY = losPixY - yard * holderDepth;
+    const centerX = FIELD_PIX_W / 2;
+    const holderX = centerX - yard * 0.3;
+    const snapperY = losPixY - yard * 0.6;
+    const kickerStart = { x: holderX - yard * 2.4, y: holderY - yard * 1.3 };
+    const kickerPlant = { x: holderX - yard * 0.5, y: holderY + yard * 0.25 };
+    const kickerFollow = { x: holderX + yard * 0.9, y: holderY - yard * 0.2 };
+
+    const lineBaseY = losPixY - yard * 0.4;
+    const guardSpacing = yard * 0.9;
+
+    return {
+        phase: 'PREP',
+        phaseTime: 0,
+        totalTime: 0,
+        prepDuration: 0.55,
+        approachDuration: 0.85,
+        swingDuration: 0.24,
+        flightDuration: Math.min(1.9, Math.max(1.15, distance * 0.02 + 0.95)),
+        resultDuration: 1.2,
+        kicker: { pos: { ...kickerStart }, start: kickerStart, plant: kickerPlant, follow: kickerFollow, renderPos: { ...kickerStart } },
+        holder: {
+            pos: { x: holderX, y: holderY },
+            kneel: { x: holderX, y: holderY + yard * 0.45 },
+            renderPos: { x: holderX, y: holderY },
+        },
+        snapper: { pos: { x: holderX - yard * 0.25, y: snapperY }, renderPos: { x: holderX - yard * 0.25, y: snapperY } },
+        line: [
+            { role: 'LT', pos: { x: holderX - guardSpacing * 2.2, y: lineBaseY }, renderPos: { x: holderX - guardSpacing * 2.2, y: lineBaseY } },
+            { role: 'LG', pos: { x: holderX - guardSpacing * 1.1, y: lineBaseY }, renderPos: { x: holderX - guardSpacing * 1.1, y: lineBaseY } },
+            { role: 'C', pos: { x: holderX - guardSpacing * 0.1, y: lineBaseY }, renderPos: { x: holderX - guardSpacing * 0.1, y: lineBaseY } },
+            { role: 'RG', pos: { x: holderX + guardSpacing * 0.9, y: lineBaseY }, renderPos: { x: holderX + guardSpacing * 0.9, y: lineBaseY } },
+            { role: 'RT', pos: { x: holderX + guardSpacing * 2.0, y: lineBaseY }, renderPos: { x: holderX + guardSpacing * 2.0, y: lineBaseY } },
+        ],
+        rushers: [
+            { role: 'LE', pos: { x: holderX - guardSpacing * 3, y: lineBaseY - yard * 0.4 }, renderPos: { x: holderX - guardSpacing * 3, y: lineBaseY - yard * 0.4 } },
+            { role: 'RE', pos: { x: holderX + guardSpacing * 3, y: lineBaseY - yard * 0.4 }, renderPos: { x: holderX + guardSpacing * 3, y: lineBaseY - yard * 0.4 } },
+        ],
+        ball: {
+            pos: { x: holderX, y: holderY },
+            shadow: { x: holderX, y: holderY },
+            height: 0,
+        },
+        contactPoint: { x: holderX, y: holderY },
+        uprights: {
+            goalLineY: yardsToPixY(ENDZONE_YARDS + PLAYING_YARDS_H),
+            crossbarY: yardsToPixY(ENDZONE_YARDS + PLAYING_YARDS_H) - yardsToPixY(3.33),
+            halfWidth: 38,
+            centerX,
+        },
+        distance,
+    };
+}
+
+function resolveFieldGoalAttempt(state, { team, distance, isPat = false }) {
     if (!team || !Number.isFinite(distance)) {
-        return { success: false, distance: distance ?? 0, summary: 'No kick attempted' };
+        return { success: false, distance: distance ?? 0, summary: 'No kick attempted', isPat, team, chance: 0, roll: 1, kicker: null };
     }
-    if (!state.scores) state.scores = { [TEAM_RED]: 0, [TEAM_BLK]: 0 };
     const kicker = getTeamKicker(state, team);
     const chance = kickerSuccessChance(kicker, distance);
     const roll = Math.random();
     const success = roll <= chance;
-    const points = isPat ? 1 : 3;
     const label = isPat ? 'Extra point' : 'Field goal';
-    const resultSummary = success
+    const summary = success
         ? `${label} good from ${distance} yards`
         : `${label} missed from ${distance} yards`;
+
+    return {
+        team,
+        distance,
+        isPat,
+        kicker,
+        chance,
+        roll,
+        success,
+        summary,
+        points: isPat ? 1 : 3,
+    };
+}
+
+function applyFieldGoalOutcome(state, ctx, outcome, { logAttempt = true } = {}) {
+    if (!outcome) return outcome;
+    const { team, distance, isPat, success, chance, roll, kicker, summary, points } = outcome;
+    if (!team) return outcome;
+
+    if (!state.scores) state.scores = { [TEAM_RED]: 0, [TEAM_BLK]: 0 };
 
     recordPlayEvent(state, {
         type: 'kick:field-goal',
@@ -114,49 +185,260 @@ function executeFieldGoalAttempt(state, {
     if (kicker) recordKickingAttempt(state, kicker.id, { distance, made: success, isPat });
     if (success) state.scores[team] = (state.scores[team] ?? 0) + points;
 
-    if (logAttempt && startDown != null && startToGo != null) {
+    if (logAttempt && ctx.startDown != null && ctx.startToGo != null) {
+        const label = isPat ? 'Extra point' : 'Field goal';
         pushPlayLog(state, {
             name: label,
-            startDown,
-            startToGo,
-            startLos,
-            endLos: startLos,
+            startDown: ctx.startDown,
+            startToGo: ctx.startToGo,
+            startLos: ctx.startLos,
+            endLos: ctx.startLos,
             gained: 0,
-            result: resultSummary,
+            result: summary,
             offense: team,
             turnover: !success && !isPat,
         });
     }
 
-    if (autoAdvanceAfter) {
-        stopClock(state, resultSummary);
-        const defense = otherTeam(team);
-        if (!state.teams) state.teams = createTeams();
-        if (success) {
-            state.possession = defense;
-            state.roster = rosterForPossession(state.teams, state.possession);
-            state.drive = { losYards: 25, down: 1, toGo: 10 };
-        } else {
-            state.possession = defense;
-            state.roster = rosterForPossession(state.teams, state.possession);
-            const takeoverLos = clamp(100 - (startLos ?? 20), 1, 99);
-            state.drive = { losYards: takeoverLos, down: 1, toGo: Math.min(10, 100 - takeoverLos) };
-        }
+    state.play.resultText = summary;
+    return outcome;
+}
 
-        finalizePlayDiagnostics(state, {
-            result: resultSummary,
-            gained: 0,
-            endLos: state.drive.losYards,
-            turnover: !success,
-        });
-
-        state.roster.__ownerState = state;
-        state.play = createPlayState(state.roster, state.drive);
-        state.play.resultText = resultSummary;
-        beginPlayDiagnostics(state);
+function advanceFieldGoalState(state, ctx, outcome) {
+    if (!outcome || !ctx) return;
+    const { team, success, summary } = outcome;
+    stopClock(state, summary);
+    const defense = otherTeam(team);
+    if (!state.teams) state.teams = createTeams();
+    state.possession = defense;
+    state.roster = rosterForPossession(state.teams, state.possession);
+    if (success) {
+        state.drive = { losYards: 25, down: 1, toGo: 10 };
+    } else {
+        const takeoverLos = clamp(100 - (ctx.startLos ?? 20), 1, 99);
+        state.drive = { losYards: takeoverLos, down: 1, toGo: Math.min(10, 100 - takeoverLos) };
     }
 
-    return { success, distance, chance, roll, kicker, summary: resultSummary };
+    finalizePlayDiagnostics(state, {
+        result: summary,
+        gained: 0,
+        endLos: state.drive.losYards,
+        turnover: !success,
+    });
+
+    state.roster.__ownerState = state;
+    state.play = createPlayState(state.roster, state.drive);
+    state.play.resultText = summary;
+    beginPlayDiagnostics(state);
+}
+
+function computeFieldGoalTarget(visual, outcome) {
+    const { uprights, contactPoint } = visual;
+    if (!uprights) return { ...contactPoint };
+    const baseY = uprights.crossbarY - 14;
+    let targetX = uprights.centerX;
+    let targetY = baseY;
+    if (outcome?.success) {
+        const sway = (Math.random() - 0.5) * uprights.halfWidth * 0.6;
+        targetX += sway;
+        targetY = baseY;
+    } else {
+        const delta = (outcome?.roll ?? 1) - (outcome?.chance ?? 0);
+        if (delta > 0.12) {
+            targetX = uprights.centerX + uprights.halfWidth + 34;
+            targetY = baseY + 16;
+        } else if (delta > 0.02) {
+            targetX = uprights.centerX - uprights.halfWidth - 34;
+            targetY = baseY + 16;
+        } else {
+            targetX = uprights.centerX + (Math.random() - 0.5) * uprights.halfWidth * 0.4;
+            targetY = Math.max(contactPoint.y + 40, uprights.goalLineY - yardsToPixY(1 + Math.random() * 1.5));
+        }
+    }
+    return {
+        x: clamp(targetX, 18, FIELD_PIX_W - 18),
+        y: targetY,
+    };
+}
+
+function computeFieldGoalApex(distance, outcome) {
+    const base = clamp(distance * 0.32, 18, 42);
+    const modifier = outcome?.success ? 1 : 0.8;
+    return yardsToPixY(base * modifier);
+}
+
+function updateFieldGoalAttempt(state, dt) {
+    const play = state.play;
+    if (!play?.specialTeams) return false;
+    const special = play.specialTeams;
+    const losYards = play.startLos ?? state.drive?.losYards ?? 25;
+    const distance = special.distance ?? fieldGoalDistanceYards(losYards);
+    if (!special.visual) {
+        special.visual = createFieldGoalVisual({ losYards, distance });
+    }
+    const visual = special.visual;
+    const ctx = {
+        team: state.possession,
+        distance,
+        isPat: !!special.isPat,
+        startLos: losYards,
+        startDown: play.startDown ?? state.drive?.down ?? 1,
+        startToGo: play.startToGo ?? state.drive?.toGo ?? 10,
+    };
+
+    if (visual.snapper) {
+        const crouch = visual.phase === 'PREP' ? Math.min(8, visual.phaseTime * 12) : 8;
+        visual.snapper.renderPos = {
+            x: visual.snapper.pos.x,
+            y: visual.snapper.pos.y + crouch,
+        };
+    }
+
+    const phase = visual.phase || 'PREP';
+    const dtClamped = Math.min(dt, 0.05);
+    visual.totalTime = (visual.totalTime || 0) + dtClamped;
+    visual.phaseTime = (visual.phaseTime || 0) + dtClamped;
+
+    const updateHolder = (t) => {
+        if (!visual.holder) return;
+        const eased = smoothStep(clamp(t, 0, 1));
+        visual.holder.renderPos = {
+            x: lerp(visual.holder.pos.x, visual.holder.kneel.x, eased),
+            y: lerp(visual.holder.pos.y, visual.holder.kneel.y, eased),
+        };
+    };
+
+    const setKicker = (p) => {
+        if (!visual.kicker) return;
+        visual.kicker.renderPos = { x: p.x, y: p.y };
+    };
+
+    const ensureBallState = () => {
+        play.ball.renderPos = { ...visual.ball.pos };
+        play.ball.shadowPos = { ...visual.ball.shadow };
+        play.ball.flight = { height: visual.ball.height };
+    };
+
+    switch (phase) {
+        case 'PREP': {
+            updateHolder(visual.phaseTime / visual.prepDuration);
+            if (visual.phaseTime >= visual.prepDuration) {
+                visual.phase = 'APPROACH';
+                visual.phaseTime = 0;
+            }
+            break;
+        }
+        case 'APPROACH': {
+            updateHolder(1);
+            const t = clamp(visual.phaseTime / visual.approachDuration, 0, 1);
+            const eased = easeOutQuad(t);
+            const pos = {
+                x: lerp(visual.kicker.start.x, visual.kicker.plant.x, eased),
+                y: lerp(visual.kicker.start.y, visual.kicker.plant.y, eased),
+            };
+            visual.kicker.pos = pos;
+            setKicker(pos);
+            if (t >= 1) {
+                visual.phase = 'SWING';
+                visual.phaseTime = 0;
+            }
+            break;
+        }
+        case 'SWING': {
+            updateHolder(1);
+            const t = clamp(visual.phaseTime / visual.swingDuration, 0, 1);
+            const eased = easeInOutQuad(t);
+            const pos = {
+                x: lerp(visual.kicker.plant.x, visual.kicker.follow.x, eased),
+                y: lerp(visual.kicker.plant.y, visual.kicker.follow.y, eased),
+            };
+            visual.kicker.pos = pos;
+            setKicker(pos);
+            if (t >= 0.45 && !special.outcome) {
+                special.outcome = resolveFieldGoalAttempt(state, ctx);
+                visual.flight = {
+                    from: { ...visual.contactPoint },
+                    to: computeFieldGoalTarget(visual, special.outcome),
+                    duration: visual.flightDuration,
+                    elapsed: 0,
+                    apex: computeFieldGoalApex(distance, special.outcome),
+                };
+                visual.ball.pos = { ...visual.contactPoint };
+                visual.ball.shadow = { ...visual.contactPoint };
+                play.resultText = special.outcome.isPat ? 'Extra point is up...' : 'Kick is on the way...';
+            }
+            if (t >= 1 && special.outcome) {
+                visual.phase = 'FLIGHT';
+                visual.phaseTime = 0;
+            }
+            break;
+        }
+        case 'FLIGHT': {
+            updateHolder(1);
+            if (!visual.flight) {
+                visual.phase = 'RESULT';
+                visual.phaseTime = 0;
+                break;
+            }
+            visual.flight.elapsed += dtClamped;
+            const tRaw = clamp(visual.flight.elapsed / visual.flight.duration, 0, 1);
+            const eased = smoothStep(tRaw);
+            const pos = {
+                x: lerp(visual.flight.from.x, visual.flight.to.x, eased),
+                y: lerp(visual.flight.from.y, visual.flight.to.y, eased),
+            };
+            const shadowY = lerp(visual.flight.from.y, visual.uprights.goalLineY, eased);
+            visual.ball.pos = pos;
+            visual.ball.shadow = { x: pos.x, y: shadowY };
+            visual.ball.height = Math.sin(Math.PI * tRaw) * visual.flight.apex;
+            setKicker(visual.kicker.follow);
+            if (tRaw >= 1) {
+                visual.phase = 'RESULT';
+                visual.phaseTime = 0;
+            }
+            break;
+        }
+        case 'RESULT': {
+            updateHolder(1);
+            setKicker(visual.kicker.follow);
+            if (!visual.outcomeApplied && special.outcome) {
+                applyFieldGoalOutcome(state, ctx, special.outcome, { logAttempt: true });
+                visual.outcomeApplied = true;
+            }
+            if (visual.phaseTime >= visual.resultDuration) {
+                if (!visual.finalized && special.outcome) {
+                    visual.finalized = true;
+                    advanceFieldGoalState(state, ctx, special.outcome);
+                    return true;
+                }
+            }
+            break;
+        }
+        default:
+            break;
+    }
+
+    ensureBallState();
+    return false;
+}
+
+function executeFieldGoalAttempt(state, {
+    team,
+    distance,
+    isPat = false,
+    startLos,
+    startDown,
+    startToGo,
+    logAttempt = true,
+    autoAdvanceAfter = false,
+}) {
+    const ctx = { team, distance, isPat, startLos, startDown, startToGo };
+    const outcome = resolveFieldGoalAttempt(state, ctx);
+    applyFieldGoalOutcome(state, ctx, outcome, { logAttempt });
+    if (autoAdvanceAfter) {
+        advanceFieldGoalState(state, ctx, outcome);
+    }
+    return outcome;
 }
 
 function attemptExtraPoint(state, team, { startLos = null, startDown = null, startToGo = null } = {}) {
@@ -880,7 +1162,13 @@ export function createPlayState(roster, drive) {
             distance: Math.round(fieldGoalPlan.distance),
             isPat: false,
             kickerId: fieldGoalPlan.kicker?.id || null,
+            visual: createFieldGoalVisual({ losYards: safeDrive.losYards, distance: Math.round(fieldGoalPlan.distance) }),
         };
+        const snapPoint = play.specialTeams.visual?.ball?.pos || play.specialTeams.visual?.contactPoint || { x: FIELD_PIX_W / 2, y: losPixY };
+        play.ball.renderPos = { ...snapPoint };
+        play.ball.shadowPos = { ...snapPoint };
+        play.ball.flight = { height: 0 };
+        play.ball.carrierId = null;
         play.resultText = `FG attempt from ${Math.round(fieldGoalPlan.distance)} yds`;
         play.preSnap = null;
         return play;
@@ -909,21 +1197,8 @@ export function stepGame(state, dt) {
 
     switch (s.play.phase) {
         case 'FIELD_GOAL': {
-            const special = s.play.specialTeams || {};
-            const distance = special.distance ?? fieldGoalDistanceYards(s.play.startLos ?? s.drive.losYards);
-            const startLos = s.play.startLos ?? s.drive.losYards;
-            const startDown = s.play.startDown ?? s.drive.down;
-            const startToGo = s.play.startToGo ?? s.drive.toGo;
-            executeFieldGoalAttempt(s, {
-                team: s.possession,
-                distance,
-                isPat: !!special.isPat,
-                startLos,
-                startDown,
-                startToGo,
-                logAttempt: true,
-                autoAdvanceAfter: true,
-            });
+            const done = updateFieldGoalAttempt(s, dt);
+            if (done) return s;
             return s;
         }
         case 'PRESNAP': {
