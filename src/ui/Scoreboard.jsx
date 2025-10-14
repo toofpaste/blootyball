@@ -40,7 +40,6 @@ export default function Scoreboard({
     down = 1,
     toGo = 10,
     gameLabel = '',
-    onShowSeasonStats = null,
 }) {
     return (
         <div style={{
@@ -69,34 +68,6 @@ export default function Scoreboard({
             </div>
 
             <TeamPanel team={away} align="right" />
-
-            {typeof onShowSeasonStats === 'function' ? (
-                <button
-                    type="button"
-                    onClick={onShowSeasonStats}
-                    style={{
-                        position: 'absolute',
-                        top: 8,
-                        right: 8,
-                        background: 'rgba(255,255,255,0.1)',
-                        color: '#e8ffe8',
-                        border: '1px solid rgba(200,255,200,0.25)',
-                        borderRadius: 9999,
-                        padding: '6px 14px',
-                        fontSize: 12,
-                        letterSpacing: 0.3,
-                        textTransform: 'uppercase',
-                        cursor: 'pointer',
-                        transition: 'all 160ms ease',
-                    }}
-                    onMouseOver={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.2)'; }}
-                    onFocus={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.2)'; }}
-                    onMouseOut={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.1)'; }}
-                    onBlur={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.1)'; }}
-                >
-                    Season Stats
-                </button>
-            ) : null}
         </div>
     );
 }

@@ -23,29 +23,34 @@
   display: flex;
   align-items: flex-start;
   justify-content: center;
-  gap: 16px;
+  gap: 20px;
 }
 
-.sidebar {
+.field-column {
+  flex: 1 1 720px;
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  width: 100%;
-}
-
-.sidebar--log {
-  flex: 0 0 260px;
-}
-
-.sidebar--stats {
-  flex: 0 0 280px;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
 }
 
 .field-wrapper {
-  flex: 1 1 720px;
+  width: 100%;
   display: flex;
   justify-content: center;
   min-width: 0;
+}
+
+.stats-column {
+  flex: 0 0 280px;
+  display: flex;
+  justify-content: center;
+  min-width: 240px;
+}
+
+.stats-column > * {
+  width: 100%;
 }
 
 .field-canvas {
@@ -58,6 +63,62 @@
   aspect-ratio: 720 / 320;
 }
 
+.last-play-banner {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: linear-gradient(135deg, rgba(6, 44, 6, 0.96) 0%, rgba(3, 26, 3, 0.98) 100%);
+  border: 1px solid rgba(18, 94, 18, 0.65);
+  border-radius: 14px;
+  padding: 12px 16px;
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.45);
+  color: #e8ffe8;
+  box-sizing: border-box;
+}
+
+.last-play-banner__label {
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: #a7e0a7;
+}
+
+.last-play-banner__text {
+  flex: 1;
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 1.4;
+  min-height: 1.4em;
+}
+
+.last-play-banner__history {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(232, 255, 232, 0.3);
+  border-radius: 999px;
+  color: #e8ffe8;
+  padding: 6px 14px;
+  font-size: 12px;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: background 160ms ease, transform 160ms ease;
+}
+
+.last-play-banner__history:hover,
+.last-play-banner__history:focus-visible {
+  background: rgba(255, 255, 255, 0.16);
+  transform: translateY(-1px);
+}
+
+.last-play-banner__history:disabled {
+  opacity: 0.5;
+  cursor: default;
+  background: rgba(255, 255, 255, 0.08);
+  transform: none;
+}
+
 @media (max-width: 1280px) {
   .app-layout {
     flex-direction: column;
@@ -65,22 +126,10 @@
     width: 100%;
   }
 
-  .field-wrapper {
-    order: 0;
-    width: 100%;
-    max-width: 720px;
-    flex: initial;
-  }
-
-  .sidebar--log,
-  .sidebar--stats {
-    order: 1;
+  .field-column,
+  .stats-column {
     width: min(100%, 520px);
     flex: initial;
-  }
-
-  .sidebar--stats {
-    order: 2;
   }
 }
 
@@ -95,8 +144,19 @@
     gap: 20px;
   }
 
-  .sidebar--log,
-  .sidebar--stats {
+  .field-column,
+  .stats-column {
     width: 100%;
+    min-width: 0;
+  }
+
+  .last-play-banner {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+
+  .last-play-banner__history {
+    align-self: flex-end;
   }
 }

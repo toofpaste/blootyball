@@ -117,7 +117,7 @@ function gatherTopPlayers(stats = {}, directory = {}, teamId) {
     return rows.slice(0, 3);
 }
 
-export default function StatsSummary({ stats = {}, directory = {}, teams = [] }) {
+export default function StatsSummary({ stats = {}, directory = {}, teams = [], title = 'Team Leaders' }) {
     const [openTeam, setOpenTeam] = useState(null);
 
     const teamSections = teams.map(team => ({
@@ -151,7 +151,7 @@ export default function StatsSummary({ stats = {}, directory = {}, teams = [] })
                         background: 'rgba(12,64,12,0.85)',
                     }}
                 >
-                    Team Leaders
+                    {title}
                 </div>
                 {hasAnyRows ? (
                     <div style={{ display: 'flex', flexDirection: 'column' }}>

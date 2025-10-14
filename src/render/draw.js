@@ -33,12 +33,9 @@ export function draw(canvas, state) {
     ctx.restore();
 }
 
-/* ---- (the rest of file stays the same as your latest, including drawContent, drawField, etc.) ---- */
-
-
 /* ---------- portrait-space content (unchanged logic) ---------- */
 function drawContent(ctx, state) {
-    drawField(ctx);
+    drawField(ctx, state);
 
     // --- LOS & Line To Gain (dashed) ---
     // Robustly compute: LOS = current drive.losYards
@@ -135,7 +132,10 @@ function drawFieldGoalScene(ctx, state) {
 }
 
 /* ------------ Field rendering with hashes & numbers ------------ */
-function drawField(ctx) {
+function drawField(ctx, state) {
+    const homeIdentity = getTeamVisualIdentity(state, TEAM_RED);
+    const awayIdentity = getTeamVisualIdentity(state, TEAM_BLK);
+
     ctx.fillStyle = COLORS.fieldGreen;
     ctx.fillRect(0, 0, FIELD_PIX_W, FIELD_PIX_H);
 
@@ -191,6 +191,15 @@ function drawField(ctx) {
         const y = yardsToPixY(ydsFromTopGL);
         drawNumber(ctx, leftNumX, y - 10, seq[i], 'left');
         drawNumber(ctx, rightNumX, y + 10, seq[i], 'right');
+    }
+
+    drawHomeAccents(ctx, homeIdentity, ezPix);
+
+    if (awayIdentity?.shortName) {
+        drawEndzoneLabel(ctx, ezPix / 2, awayIdentity.shortName, awayIdentity?.color, true);
+    }
+    if (homeIdentity?.shortName) {
+        drawEndzoneLabel(ctx, FIELD_PIX_H - ezPix / 2, homeIdentity.shortName, homeIdentity?.color, false);
     }
 
     drawGoalPost(ctx, yardsToPixY(ENDZONE_YARDS), -1);
@@ -316,4 +325,93 @@ function drawBall(ctx, pos, ballState) {
     ctx.lineTo(pos.x + radiusMajor * 0.6, pos.y - offsetY);
     ctx.stroke();
     ctx.restore();
+}
+
+function drawHomeAccents(ctx, identity, ezPix) {
+    if (!identity?.color) return;
+    ctx.save();
+    ctx.strokeStyle = withAlpha(identity.color, 0.55);
+    ctx.lineWidth = 6;
+    ctx.strokeRect(10, 10, FIELD_PIX_W - 20, FIELD_PIX_H - 20);
+    ctx.restore();
+
+    ctx.save();
+    ctx.fillStyle = withAlpha(identity.color, 0.35);
+    const inset = 12;
+    const size = 36;
+    const bottomY = FIELD_PIX_H - ezPix;
+    ctx.beginPath();
+    ctx.moveTo(inset, bottomY + inset);
+    ctx.lineTo(inset + size, bottomY + inset);
+    ctx.lineTo(inset, bottomY + inset + size);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.beginPath();
+    ctx.moveTo(FIELD_PIX_W - inset, bottomY + inset);
+    ctx.lineTo(FIELD_PIX_W - inset - size, bottomY + inset);
+    ctx.lineTo(FIELD_PIX_W - inset, bottomY + inset + size);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+}
+
+function drawEndzoneLabel(ctx, centerY, text, color, rotate180 = false) {
+    if (!text) return;
+    const upper = String(text).toUpperCase();
+    const fontSize = upper.length > 10 ? 28 : 34;
+    ctx.save();
+    ctx.translate(FIELD_PIX_W / 2, centerY);
+    if (rotate180) ctx.rotate(Math.PI);
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.font = `700 ${fontSize}px "Arial Narrow", "Oswald", sans-serif`;
+    ctx.lineWidth = 6;
+    ctx.strokeStyle = 'rgba(0,0,0,0.55)';
+    ctx.strokeText(upper, 0, 0);
+    ctx.fillStyle = color || '#f0f0f0';
+    ctx.fillText(upper, 0, 0);
+    ctx.restore();
+}
+
+function getTeamVisualIdentity(state, slot) {
+    if (!state) return null;
+    const matchup = state.matchup || state.lastCompletedGame?.matchup || null;
+    const identities = matchup?.identities || {};
+    const slotIdentity = identities[slot] || null;
+    const slotToTeam = matchup?.slotToTeam || {};
+    const teamId = slotToTeam?.[slot];
+    const seasonInfo = teamId ? state.season?.teams?.[teamId]?.info : null;
+    const info = slotIdentity || seasonInfo || null;
+    const displayName = info?.displayName || info?.name || teamId || slot;
+    const abbr = info?.abbr || displayName;
+    const colors = info?.colors || resolveSlotColors(state, slot, 'offense') || resolveSlotColors(state, slot, 'defense');
+    const fallback = slot === TEAM_RED ? COLORS.red : COLORS.black;
+    const color = resolveTeamColor(colors, fallback);
+    return {
+        displayName,
+        shortName: (abbr || displayName || '').toString().trim() || null,
+        color,
+    };
+}
+
+function withAlpha(hex, alpha = 1) {
+    const rgb = hexToRgb(hex);
+    if (!rgb) return `rgba(255,255,255,${alpha})`;
+    const { r, g, b } = rgb;
+    return `rgba(${r}, ${g}, ${b}, ${Math.max(0, Math.min(1, alpha))})`;
+}
+
+function hexToRgb(hex) {
+    if (typeof hex !== 'string') return null;
+    const normalized = hex.trim().replace(/^#/, '');
+    if (![3, 6].includes(normalized.length)) return null;
+    const full = normalized.length === 3
+        ? normalized.split('').map(ch => ch + ch).join('')
+        : normalized;
+    const r = parseInt(full.slice(0, 2), 16);
+    const g = parseInt(full.slice(2, 4), 16);
+    const b = parseInt(full.slice(4, 6), 16);
+    if ([r, g, b].some(v => Number.isNaN(v))) return null;
+    return { r, g, b };
 }
