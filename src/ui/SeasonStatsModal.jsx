@@ -85,9 +85,7 @@ function CurrentGameSummary({ season, matchup, scores }) {
   );
 }
 
-export default function SeasonStatsModal({
-  open,
-  onClose,
+export function SeasonStatsContent({
   season,
   currentMatchup = null,
   currentScores = {},
@@ -99,98 +97,110 @@ export default function SeasonStatsModal({
   const completedCount = season?.completedGames || completed.length || 0;
 
   return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+      <div style={{ fontSize: 14, color: '#cde8cd' }}>
+        Progress: {completedCount} / {totalGames || '—'} games completed
+      </div>
+
+      <CurrentGameSummary season={season} matchup={currentMatchup} scores={currentScores} />
+
+      <div>
+        <h3 style={{ margin: '0 0 10px', fontSize: 16, fontWeight: 700, letterSpacing: 0.4 }}>Team Standings</h3>
+        <div style={{ overflowX: 'auto' }}>
+          <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: 0 }}>
+            <thead>
+              <tr style={{ background: 'rgba(10,70,10,0.85)', color: '#f2fff2' }}>
+                <th style={thStyle}>Team</th>
+                <th style={thStyle}>Record</th>
+                <th style={thStyle}>GP</th>
+                <th style={thStyle}>PF</th>
+                <th style={thStyle}>PA</th>
+                <th style={thStyle}>Diff</th>
+                <th style={thStyle}>Pass Yds</th>
+                <th style={thStyle}>Rush Yds</th>
+                <th style={thStyle}>Rec Yds</th>
+                <th style={thStyle}>Sacks</th>
+                <th style={thStyle}>INT</th>
+              </tr>
+            </thead>
+            <tbody>
+              {teamRows.length ? teamRows.map((row, idx) => {
+                const isEven = idx % 2 === 0;
+                return (
+                  <tr key={row.id} style={{ background: isEven ? 'rgba(7,45,7,0.75)' : 'rgba(5,32,5,0.9)', color: '#f2fff2' }}>
+                    <td style={tdStyle}>{row.name}</td>
+                    <td style={tdStyle}>{row.recordText}</td>
+                    <td style={tdStyle}>{row.gamesPlayed}</td>
+                    <td style={tdStyle}>{row.pointsFor}</td>
+                    <td style={tdStyle}>{row.pointsAgainst}</td>
+                    <td style={tdStyle}>{row.diff}</td>
+                    <td style={tdStyle}>{row.passingYards}</td>
+                    <td style={tdStyle}>{row.rushingYards}</td>
+                    <td style={tdStyle}>{row.receivingYards}</td>
+                    <td style={tdStyle}>{row.sacks}</td>
+                    <td style={tdStyle}>{row.interceptions}</td>
+                  </tr>
+                );
+              }) : (
+                <tr>
+                  <td style={{ ...tdStyle, textAlign: 'center' }} colSpan={11}>No team statistics available yet.</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div>
+        <h3 style={{ margin: '0 0 10px', fontSize: 16, fontWeight: 700, letterSpacing: 0.4 }}>Completed Games</h3>
+        {completed.length ? (
+          <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {completed.map(game => (
+              <li
+                key={game.id}
+                style={{
+                  background: 'rgba(8,59,8,0.65)',
+                  border: '1px solid rgba(26,92,26,0.35)',
+                  borderRadius: 10,
+                  padding: '10px 14px',
+                  color: '#e4ffe4'
+                }}
+              >
+                <div style={{ fontWeight: 600 }}>{game.label}</div>
+                <div style={{ fontSize: 14 }}>{game.summary}</div>
+                <div style={{ fontSize: 12, color: '#b5e5b5' }}>Winner: {game.winner}</div>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <div style={{ fontStyle: 'italic', color: '#cde8cd' }}>No games completed yet.</div>
+        )}
+      </div>
+
+      {!currentMatchup && lastCompletedGame?.matchup && !completed.length ? (
+        <div style={{ fontSize: 13, color: '#cde8cd' }}>
+          Last result: {getTeamName(season, lastCompletedGame.matchup.slotToTeam?.[TEAM_RED])} {lastCompletedGame.scores?.[TEAM_RED] ?? 0} - {lastCompletedGame.scores?.[TEAM_BLK] ?? 0} {getTeamName(season, lastCompletedGame.matchup.slotToTeam?.[TEAM_BLK])}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+export default function SeasonStatsModal({
+  open,
+  onClose,
+  title = 'Season Overview',
+  width = 'min(96vw, 960px)',
+  ...contentProps
+}) {
+  return (
     <Modal
       open={open}
       onClose={onClose}
-      title="Season Overview"
-      width="min(96vw, 960px)"
+      title={title}
+      width={width}
     >
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-        <div style={{ fontSize: 14, color: '#cde8cd' }}>
-          Progress: {completedCount} / {totalGames || '—'} games completed
-        </div>
-
-        <CurrentGameSummary season={season} matchup={currentMatchup} scores={currentScores} />
-
-        <div>
-          <h3 style={{ margin: '0 0 10px', fontSize: 16, fontWeight: 700, letterSpacing: 0.4 }}>Team Standings</h3>
-          <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: 0 }}>
-              <thead>
-                <tr style={{ background: 'rgba(10,70,10,0.85)', color: '#f2fff2' }}>
-                  <th style={thStyle}>Team</th>
-                  <th style={thStyle}>Record</th>
-                  <th style={thStyle}>GP</th>
-                  <th style={thStyle}>PF</th>
-                  <th style={thStyle}>PA</th>
-                  <th style={thStyle}>Diff</th>
-                  <th style={thStyle}>Pass Yds</th>
-                  <th style={thStyle}>Rush Yds</th>
-                  <th style={thStyle}>Rec Yds</th>
-                  <th style={thStyle}>Sacks</th>
-                  <th style={thStyle}>INT</th>
-                </tr>
-              </thead>
-              <tbody>
-                {teamRows.length ? teamRows.map((row, idx) => {
-                  const isEven = idx % 2 === 0;
-                  return (
-                    <tr key={row.id} style={{ background: isEven ? 'rgba(7,45,7,0.75)' : 'rgba(5,32,5,0.9)', color: '#f2fff2' }}>
-                      <td style={tdStyle}>{row.name}</td>
-                      <td style={tdStyle}>{row.recordText}</td>
-                      <td style={tdStyle}>{row.gamesPlayed}</td>
-                      <td style={tdStyle}>{row.pointsFor}</td>
-                      <td style={tdStyle}>{row.pointsAgainst}</td>
-                      <td style={tdStyle}>{row.diff}</td>
-                      <td style={tdStyle}>{row.passingYards}</td>
-                      <td style={tdStyle}>{row.rushingYards}</td>
-                      <td style={tdStyle}>{row.receivingYards}</td>
-                      <td style={tdStyle}>{row.sacks}</td>
-                      <td style={tdStyle}>{row.interceptions}</td>
-                    </tr>
-                  );
-                }) : (
-                  <tr>
-                    <td style={{ ...tdStyle, textAlign: 'center' }} colSpan={11}>No team statistics available yet.</td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
-
-        <div>
-          <h3 style={{ margin: '0 0 10px', fontSize: 16, fontWeight: 700, letterSpacing: 0.4 }}>Completed Games</h3>
-          {completed.length ? (
-            <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {completed.map(game => (
-                <li
-                  key={game.id}
-                  style={{
-                    background: 'rgba(8,59,8,0.65)',
-                    border: '1px solid rgba(26,92,26,0.35)',
-                    borderRadius: 10,
-                    padding: '10px 14px',
-                    color: '#e4ffe4'
-                  }}
-                >
-                  <div style={{ fontWeight: 600 }}>{game.label}</div>
-                  <div style={{ fontSize: 14 }}>{game.summary}</div>
-                  <div style={{ fontSize: 12, color: '#b5e5b5' }}>Winner: {game.winner}</div>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <div style={{ fontStyle: 'italic', color: '#cde8cd' }}>No games completed yet.</div>
-          )}
-        </div>
-
-        {!currentMatchup && lastCompletedGame?.matchup && !completed.length ? (
-          <div style={{ fontSize: 13, color: '#cde8cd' }}>
-            Last result: {getTeamName(season, lastCompletedGame.matchup.slotToTeam?.[TEAM_RED])} {lastCompletedGame.scores?.[TEAM_RED] ?? 0} - {lastCompletedGame.scores?.[TEAM_BLK] ?? 0} {getTeamName(season, lastCompletedGame.matchup.slotToTeam?.[TEAM_BLK])}
-          </div>
-        ) : null}
-      </div>
+      <SeasonStatsContent {...contentProps} />
     </Modal>
   );
 }
