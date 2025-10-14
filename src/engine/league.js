@@ -1,6 +1,10 @@
 import { TEAM_IDS, getTeamData, getTeamIdentity } from './data/teamLibrary';
 import { TEAM_RED, TEAM_BLK } from './constants';
 import { clamp, rand } from './helpers';
+import {
+  initializeLeaguePersonnel,
+  ensureSeasonPersonnel,
+} from './personnel';
 
 const ATTRIBUTE_KEYS = ['speed', 'accel', 'agility', 'strength', 'awareness', 'catch', 'throwPow', 'throwAcc', 'tackle'];
 
@@ -95,7 +99,7 @@ export function createLeagueContext() {
   Object.keys(playerDirectory).forEach((playerId) => {
     playerAges[playerId] = computeInitialAge(playerId);
   });
-  return {
+  const league = {
     seasonNumber: 1,
     playerDevelopment: {},
     playerAges,
@@ -106,6 +110,9 @@ export function createLeagueContext() {
     teamChampionships: {},
     lastChampion: null,
   };
+  initializeLeaguePersonnel(league);
+  ensureSeasonPersonnel(league, league.seasonNumber);
+  return league;
 }
 
 function cloneRecord(record) {

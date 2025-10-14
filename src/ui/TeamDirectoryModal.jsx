@@ -150,7 +150,7 @@ function buildTeamDirectoryData(season, league) {
         [TEAM_BLK]: getTeamIdentity(fallbackId) || null,
       },
     };
-    const rosters = createTeams(matchup);
+    const rosters = createTeams(matchup, league);
     const coaches = prepareCoachesForMatchup(matchup);
     applyLongTermAdjustments(rosters, coaches, development);
     const identity = getTeamIdentity(teamId) || team.info || { id: teamId, displayName: teamId };
