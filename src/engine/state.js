@@ -1426,8 +1426,22 @@ function updatePreSnap(state, dt) {
 /* =========================================================
    Game state factories
    ========================================================= */
-export function createInitialGameState() {
+export function createInitialGameState(options = {}) {
+    const { startGameIndex = 0 } = options || {};
     const season = createSeasonState();
+    if (Number.isFinite(startGameIndex) && startGameIndex > 0) {
+        const desiredIndex = Math.max(0, Math.floor(startGameIndex));
+        const scheduleLength = season.schedule?.length ?? 0;
+        if (scheduleLength > 0) {
+            if (desiredIndex >= scheduleLength) {
+                season.currentGameIndex = scheduleLength;
+                season.completedGames = scheduleLength;
+            } else {
+                season.currentGameIndex = desiredIndex;
+                season.completedGames = desiredIndex;
+            }
+        }
+    }
     const matchup = prepareSeasonMatchup(season);
     const state = {
         season,

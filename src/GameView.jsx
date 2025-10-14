@@ -31,7 +31,7 @@ export default function GameView({
   const canvasRef = useRef(null);
   const [running, setRunning] = useState(false);
   const [simSpeed, setSimSpeed] = useState(1);
-  const [state, setState] = useState(() => createInitialGameState());
+  const [state, setState] = useState(() => createInitialGameState({ startGameIndex: gameIndex }));
   const [seasonModalOpen, setSeasonModalOpen] = useState(false);
   const lastResetTokenRef = useRef(resetSignal?.token ?? 0);
   const notifiedCompleteRef = useRef(false);
@@ -96,7 +96,7 @@ export default function GameView({
     const shouldResume = !!resetSignal?.autoResume?.[gameIndex];
     notifiedCompleteRef.current = false;
     setSeasonModalOpen(false);
-    setState(createInitialGameState());
+    setState(createInitialGameState({ startGameIndex: gameIndex }));
     setRunning(shouldResume);
     onManualReset?.(gameIndex);
   }, [resetSignal, gameIndex, onManualReset]);
@@ -163,7 +163,7 @@ export default function GameView({
 
   const handleManualResetInternal = () => {
     setSeasonModalOpen(false);
-    setState(createInitialGameState());
+    setState(createInitialGameState({ startGameIndex: gameIndex }));
     setRunning(false);
     notifiedCompleteRef.current = false;
     onManualReset?.(gameIndex);
