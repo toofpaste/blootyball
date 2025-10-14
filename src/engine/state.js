@@ -295,6 +295,8 @@ function maybeTriggerInjury(state, {
     });
     if (replacement && irEntry?.player?.id && league.injuredReserve?.[irEntry.player.id]) {
         league.injuredReserve[irEntry.player.id].replacementId = replacement.id;
+        league.injuredReserve[irEntry.player.id].replacementGames ||= 0;
+        league.injuredReserve[irEntry.player.id].replacementLastGameId ||= null;
     }
     state.teams = createTeams(state.matchup, league);
     state.roster = rosterForPossession(state.teams, state.possession);

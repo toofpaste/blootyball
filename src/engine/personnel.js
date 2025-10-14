@@ -577,6 +577,8 @@ export function registerPlayerInjury(league, {
     gamesRemaining: gamesMissed,
     description,
     degrade,
+    replacementGames: 0,
+    replacementLastGameId: null,
   };
   league.injuredReserve[player.id] = irEntry;
   trackInjury(league, player.id, irEntry);
@@ -620,6 +622,9 @@ function reinstatePlayer(league, irEntry) {
   const replacementId = irEntry.replacementId
     ?? league.injuredReserve?.[returning.id]?.replacementId
     ?? null;
+  const replacementGames = irEntry.replacementGames
+    ?? league.injuredReserve?.[returning.id]?.replacementGames
+    ?? 0;
   if (!occupant || occupant.id === returning.id) {
     assignPlayerToRoster(league, teamId, role, returning);
     recordNewsInternal(league, {
@@ -695,6 +700,41 @@ function reinstatePlayer(league, irEntry) {
       }
     }
   });
+
+  const replacementCandidates = candidates.filter((entry) => entry.replacement && !entry.returning);
+  const primaryReplacement = replacementCandidates.reduce((best, entry) => {
+    if (!best || entry.evaluation > best.evaluation) return entry;
+    return best;
+  }, null);
+  let allowReplacementRetention = false;
+  if (cutCandidate?.returning && primaryReplacement?.player?.origin === 'free-agent') {
+    const evaluationGap = primaryReplacement.evaluation - cutCandidate.evaluation;
+    if (replacementGames >= 1 && evaluationGap > 0.25) {
+      const retentionChance = evaluationGap > 0.45 ? 0.5 : 0.2;
+      if (Math.random() < retentionChance) {
+        allowReplacementRetention = true;
+      }
+    }
+  }
+
+  if (cutCandidate?.returning && !allowReplacementRetention) {
+    let fallback = null;
+    candidates.forEach((entry) => {
+      if (entry.returning) return;
+      if (!fallback || entry.evaluation < fallback.evaluation - 0.01) {
+        fallback = entry;
+      } else if (fallback && Math.abs(entry.evaluation - fallback.evaluation) <= 0.01) {
+        if (entry.replacement && !fallback.replacement) {
+          fallback = entry;
+        }
+      }
+    });
+    if (fallback) {
+      cutCandidate = fallback;
+    } else if (primaryReplacement) {
+      cutCandidate = primaryReplacement;
+    }
+  }
 
   let released = null;
   let movedReplacement = null;
@@ -794,6 +834,24 @@ export function applyPostGameMoodAdjustments(league, game, scores, playerStats =
       coach,
     });
     refreshTeamMood(league, teamId);
+    if (league.injuredReserve) {
+      Object.values(league.injuredReserve).forEach((entry) => {
+        if (!entry || entry.teamId !== teamId || !entry.replacementId) return;
+        const side = roleSide(entry.role);
+        const occupant = side === 'offense'
+          ? roster.offense?.[entry.role] || null
+          : side === 'defense'
+            ? roster.defense?.[entry.role] || null
+            : roster.special?.K || null;
+        if (occupant?.id === entry.replacementId) {
+          const marker = game?.id ?? `${game?.homeTeam || 'unknown'}-${game?.awayTeam || 'unknown'}-${game?.index ?? '0'}`;
+          if (entry.replacementLastGameId !== marker) {
+            entry.replacementGames = (entry.replacementGames || 0) + 1;
+            entry.replacementLastGameId = marker;
+          }
+        }
+      });
+    }
     (temperamentResult.tradeCandidates || []).forEach((candidate) => {
       const role = candidate.role || findPlayerRole(roster, candidate.id);
       if (!role) return;
