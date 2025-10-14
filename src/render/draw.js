@@ -193,6 +193,11 @@ function drawField(ctx, state) {
         drawNumber(ctx, rightNumX, y + 10, seq[i], 'right', numbersColor, numberOutline);
     }
 
+    const activeTag = state?.matchup?.tag || state?.lastCompletedGame?.matchup?.tag || null;
+    if (activeTag === 'playoff-championship') {
+        drawBluperBowlCenterpiece(ctx);
+    }
+
     if (homeIdentity?.shortName) {
         const labelColor = homeIdentity?.color;
         drawEndzoneLabel(ctx, ezPix / 2, homeIdentity.shortName, labelColor, true);
@@ -347,6 +352,20 @@ function drawEndzoneLabel(ctx, centerY, text, color, rotate180 = false) {
     ctx.strokeText(upper, 0, 0);
     ctx.fillStyle = color || '#f0f0f0';
     ctx.fillText(upper, 0, 0);
+    ctx.restore();
+}
+
+function drawBluperBowlCenterpiece(ctx) {
+    ctx.save();
+    ctx.translate(FIELD_PIX_W / 2, FIELD_PIX_H / 2);
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.font = '700 52px "Arial Black", "Oswald", sans-serif';
+    ctx.lineWidth = 7;
+    ctx.strokeStyle = 'rgba(0, 0, 0, 0.55)';
+    ctx.strokeText('BLUPERBOWL', 0, 0);
+    ctx.fillStyle = '#d7b957';
+    ctx.fillText('BLUPERBOWL', 0, 0);
     ctx.restore();
 }
 

@@ -1,5 +1,112 @@
 import { TEAM_IDS, getTeamData, getTeamIdentity } from './data/teamLibrary';
 import { TEAM_RED, TEAM_BLK } from './constants';
+import { clamp, rand } from './helpers';
+
+const ATTRIBUTE_KEYS = ['speed', 'accel', 'agility', 'strength', 'awareness', 'catch', 'throwPow', 'throwAcc', 'tackle'];
+
+function hashString(value = '') {
+  let hash = 0;
+  for (let i = 0; i < value.length; i += 1) {
+    hash = (hash << 5) - hash + value.charCodeAt(i);
+    hash |= 0; // eslint-disable-line no-bitwise
+  }
+  return hash;
+}
+
+function computeInitialAge(playerId) {
+  const base = Math.abs(hashString(playerId)) % 14; // 0-13
+  return 21 + base;
+}
+
+function buildGlobalPlayerDirectory() {
+  const directory = {};
+  TEAM_IDS.forEach((teamId) => {
+    const data = getTeamData(teamId) || {};
+    const register = (collection = {}, side) => {
+      Object.entries(collection).forEach(([role, entry]) => {
+        if (!entry) return;
+        const playerId = entry.id || `${teamId}-${role}`;
+        directory[playerId] = {
+          id: playerId,
+          teamId,
+          side,
+          role,
+          firstName: entry.firstName || role,
+          lastName: entry.lastName || '',
+          fullName: `${entry.firstName || role}${entry.lastName ? ` ${entry.lastName}` : ''}`,
+          number: entry.number ?? null,
+        };
+      });
+    };
+    register(data.offense, 'Offense');
+    register(data.defense, 'Defense');
+    if (data.specialTeams?.K) {
+      const kicker = data.specialTeams.K;
+      const playerId = kicker.id || `${teamId}-K`;
+      directory[playerId] = {
+        id: playerId,
+        teamId,
+        side: 'Special Teams',
+        role: 'K',
+        firstName: kicker.firstName || 'Kicker',
+        lastName: kicker.lastName || '',
+        fullName: `${kicker.firstName || 'Kicker'}${kicker.lastName ? ` ${kicker.lastName}` : ''}`,
+        number: kicker.number ?? null,
+      };
+    }
+  });
+  return directory;
+}
+
+function cloneAwards(entry = {}) {
+  if (!entry) return null;
+  return {
+    seasonNumber: entry.seasonNumber ?? null,
+    mvp: entry.mvp ? { ...entry.mvp } : null,
+    offensive: entry.offensive ? { ...entry.offensive } : null,
+    defensive: entry.defensive ? { ...entry.defensive } : null,
+  };
+}
+
+function clonePlayoffBracket(bracket) {
+  if (!bracket) return null;
+  return {
+    stage: bracket.stage || 'regular',
+    seeds: Array.isArray(bracket.seeds) ? [...bracket.seeds] : [],
+    semifinalGames: Array.isArray(bracket.semifinalGames)
+      ? bracket.semifinalGames.map((game) => ({ ...game }))
+      : [],
+    championshipGame: bracket.championshipGame ? { ...bracket.championshipGame } : null,
+    champion: bracket.champion ?? null,
+  };
+}
+
+function normalizeRecord(record) {
+  return {
+    wins: record?.wins ?? 0,
+    losses: record?.losses ?? 0,
+    ties: record?.ties ?? 0,
+  };
+}
+
+export function createLeagueContext() {
+  const playerDirectory = buildGlobalPlayerDirectory();
+  const playerAges = {};
+  Object.keys(playerDirectory).forEach((playerId) => {
+    playerAges[playerId] = computeInitialAge(playerId);
+  });
+  return {
+    seasonNumber: 1,
+    playerDevelopment: {},
+    playerAges,
+    playerDirectory,
+    careerStats: {},
+    playerAwards: {},
+    awardsHistory: [],
+    teamChampionships: {},
+    lastChampion: null,
+  };
+}
 
 function cloneRecord(record) {
   return {
@@ -10,9 +117,10 @@ function cloneRecord(record) {
 }
 
 export function formatRecord(record) {
-  if (!record) return '0-0-0';
+  if (!record) return '0-0';
   const { wins = 0, losses = 0, ties = 0 } = record;
-  return `${wins}-${losses}-${ties}`;
+  const base = `${wins}-${losses}`;
+  return ties ? `${base}-${ties}` : base;
 }
 
 export function generateSeasonSchedule(teamIds = TEAM_IDS) {
@@ -83,7 +191,14 @@ export function generateSeasonSchedule(teamIds = TEAM_IDS) {
   }));
 }
 
-export function createSeasonState() {
+export function createSeasonState(options = {}) {
+  const {
+    seasonNumber = 1,
+    playerDevelopment = {},
+    playerAges = {},
+    previousAwards = [],
+  } = options;
+
   const schedule = generateSeasonSchedule();
   const teams = {};
   TEAM_IDS.forEach((id) => {
@@ -109,16 +224,24 @@ export function createSeasonState() {
   });
 
   return {
-    seasonNumber: 1,
+    seasonNumber,
     teams,
     schedule,
+    regularSeasonLength: schedule.length,
     currentGameIndex: 0,
     completedGames: 0,
     results: [],
     playerStats: {},
-    playerDevelopment: {},
+    playerDevelopment,
+    playerAges,
     relationships: {},
     coachStates: {},
+    phase: 'regular',
+    playoffBracket: null,
+    awards: null,
+    previousAwards,
+    championTeamId: null,
+    championResult: null,
   };
 }
 
@@ -129,6 +252,8 @@ export function createMatchupFromGame(game) {
   return {
     gameId: game.id,
     index: game.index,
+    tag: game.tag || null,
+    round: game.round || null,
     homeTeamId: game.homeTeam,
     awayTeamId: game.awayTeam,
     slotToTeam: {
@@ -139,6 +264,7 @@ export function createMatchupFromGame(game) {
       [TEAM_RED]: homeIdentity,
       [TEAM_BLK]: awayIdentity,
     },
+    meta: game.meta ? { ...game.meta } : null,
   };
 }
 
@@ -165,6 +291,336 @@ function cloneTeamSeasonEntry(team) {
       interceptions: stats.interceptions ?? 0,
     },
   };
+}
+
+function compareStandings(a, b) {
+  if (b.record.wins !== a.record.wins) return b.record.wins - a.record.wins;
+  if (a.record.losses !== b.record.losses) return a.record.losses - b.record.losses;
+  if (b.record.ties !== a.record.ties) return b.record.ties - a.record.ties;
+  if (b.diff !== a.diff) return b.diff - a.diff;
+  if (b.pointsFor !== a.pointsFor) return b.pointsFor - a.pointsFor;
+  return (a.name || '').localeCompare(b.name || '');
+}
+
+function buildStandings(season) {
+  const entries = Object.values(season?.teams || {}).map((team) => {
+    const record = normalizeRecord(team.record);
+    const pointsFor = team.pointsFor || 0;
+    const pointsAgainst = team.pointsAgainst || 0;
+    return {
+      id: team.id,
+      name: team.info?.displayName || team.id,
+      record,
+      diff: pointsFor - pointsAgainst,
+      pointsFor,
+      pointsAgainst,
+    };
+  });
+  return entries.sort(compareStandings);
+}
+
+export function computeStandings(season) {
+  return buildStandings(season);
+}
+
+export function computeAssignmentTotals(scheduleLength, offset, stride) {
+  if (!Number.isFinite(scheduleLength) || scheduleLength <= 0) return 0;
+  const safeStride = Math.max(1, stride || 1);
+  const safeOffset = Math.min(Math.max(0, offset || 0), scheduleLength);
+  return Math.max(0, Math.ceil((scheduleLength - safeOffset) / safeStride));
+}
+
+export function recomputeAssignmentTotals(season) {
+  if (!season) return;
+  const stride = Math.max(1, season.assignmentStride || season.assignment?.stride || 1);
+  const offset = season.assignmentOffset ?? season.assignment?.offset ?? 0;
+  const totalGames = computeAssignmentTotals(season.schedule?.length || 0, offset, stride);
+  if (season.assignment) {
+    season.assignment.totalGames = totalGames;
+  }
+  season.assignmentStride = stride;
+  season.assignmentOffset = offset;
+  season.assignmentTotalGames = totalGames;
+}
+
+function registerAward(league, key, info, seasonNumber) {
+  if (!league || !info?.playerId) return;
+  if (!league.playerAwards[info.playerId]) {
+    league.playerAwards[info.playerId] = [];
+  }
+  const existing = league.playerAwards[info.playerId].find((entry) => entry.season === seasonNumber && entry.award === key);
+  if (!existing) {
+    league.playerAwards[info.playerId].push({
+      season: seasonNumber,
+      award: key,
+      teamId: info.teamId || null,
+    });
+  }
+}
+
+function ensureAwardsHistory(league, seasonNumber, awards) {
+  if (!league || !awards) return;
+  const already = league.awardsHistory.find((entry) => entry.seasonNumber === seasonNumber);
+  if (!already) {
+    league.awardsHistory.push({ seasonNumber, ...awards });
+  }
+}
+
+function offenseScore(stat = {}) {
+  const passing = stat.passing || {};
+  const rushing = stat.rushing || {};
+  const receiving = stat.receiving || {};
+  return (
+    (passing.yards || 0) * 0.04 +
+    (passing.touchdowns || 0) * 6 -
+    (passing.interceptions || 0) * 5 +
+    (rushing.yards || 0) * 0.085 +
+    (rushing.touchdowns || 0) * 6 -
+    (rushing.fumbles || 0) * 4 +
+    (receiving.yards || 0) * 0.085 +
+    (receiving.touchdowns || 0) * 6 -
+    (receiving.drops || 0) * 2
+  );
+}
+
+function defenseScore(stat = {}) {
+  const defense = stat.defense || {};
+  return (
+    (defense.tackles || 0) * 1.2 +
+    (defense.sacks || 0) * 6.5 +
+    (defense.interceptions || 0) * 7 +
+    (defense.forcedFumbles || 0) * 6
+  );
+}
+
+function mvpScore(stat = {}) {
+  const off = offenseScore(stat);
+  const def = defenseScore(stat) * 0.75;
+  const passing = stat.passing || {};
+  const misc = (passing.completions || 0) * 0.4 - (stat.misc?.fumbles || 0) * 3;
+  return off + def + misc;
+}
+
+function pickAwardWinner(stats, directory, scoreFn) {
+  let best = null;
+  Object.entries(stats || {}).forEach(([playerId, stat]) => {
+    const score = scoreFn(stat);
+    if (score <= 0) return;
+    if (!best || score > best.score) {
+      best = {
+        playerId,
+        score,
+        teamId: directory?.[playerId]?.teamId || null,
+        name: directory?.[playerId]?.fullName || null,
+      };
+    }
+  });
+  return best;
+}
+
+export function computeSeasonAwards(season, league) {
+  if (!season) return null;
+  if (season.awards) return season.awards;
+  const stats = season.playerStats || {};
+  if (!Object.keys(stats).length) return null;
+  const directory = league?.playerDirectory || {};
+  const mvp = pickAwardWinner(stats, directory, mvpScore);
+  const offensive = pickAwardWinner(stats, directory, offenseScore);
+  const defensive = pickAwardWinner(stats, directory, defenseScore);
+  const awards = {
+    seasonNumber: season.seasonNumber,
+    mvp,
+    offensive,
+    defensive,
+  };
+  season.awards = cloneAwards(awards);
+  if (league) {
+    registerAward(league, 'MVP', mvp, season.seasonNumber);
+    registerAward(league, 'Offensive Player', offensive, season.seasonNumber);
+    registerAward(league, 'Defensive Player', defensive, season.seasonNumber);
+    ensureAwardsHistory(league, season.seasonNumber, awards);
+  }
+  return season.awards;
+}
+
+function buildSemifinalGame({
+  seasonNumber,
+  homeTeam,
+  awayTeam,
+  index,
+  order,
+}) {
+  return {
+    id: `PO${String(seasonNumber).padStart(2, '0')}-SF${order}`,
+    homeTeam,
+    awayTeam,
+    tag: 'playoff-semifinal',
+    round: `Semifinal ${order}`,
+    index,
+    week: null,
+    slot: 0,
+    meta: { order },
+  };
+}
+
+export function ensurePlayoffsScheduled(season, league) {
+  if (!season) return [];
+  if (season.playoffBracket && season.playoffBracket.stage !== 'regular') return [];
+  const seeds = buildStandings(season).slice(0, 4).map((entry) => entry.id).filter(Boolean);
+  if (seeds.length < 4) return [];
+  season.regularSeasonStandings = buildStandings(season);
+  const startIndex = season.schedule.length;
+  const games = [
+    buildSemifinalGame({ seasonNumber: season.seasonNumber, homeTeam: seeds[0], awayTeam: seeds[3], index: startIndex, order: 1 }),
+    buildSemifinalGame({ seasonNumber: season.seasonNumber, homeTeam: seeds[1], awayTeam: seeds[2], index: startIndex + 1, order: 2 }),
+  ];
+  games.forEach((game, idx) => {
+    const entry = { ...game, index: startIndex + idx, week: (season.regularSeasonLength || startIndex) + idx + 1 };
+    season.schedule.push(entry);
+  });
+  season.playoffBracket = {
+    stage: 'semifinals',
+    seeds: [...seeds],
+    semifinalGames: games.map((game, idx) => ({
+      index: startIndex + idx,
+      winner: null,
+      homeTeam: game.homeTeam,
+      awayTeam: game.awayTeam,
+      label: game.round,
+    })),
+    championshipGame: null,
+    champion: null,
+  };
+  season.phase = 'playoffs';
+  recomputeAssignmentTotals(season);
+  computeSeasonAwards(season, league);
+  return games.map((_, idx) => startIndex + idx);
+}
+
+export function ensureChampionshipScheduled(season) {
+  if (!season?.playoffBracket) return [];
+  const bracket = season.playoffBracket;
+  if (bracket.stage !== 'semifinals') return [];
+  const winners = bracket.semifinalGames.filter((game) => game.winner);
+  if (winners.length < 2) return [];
+  if (bracket.championshipGame) return [];
+  const seeds = bracket.seeds || [];
+  winners.sort((a, b) => seeds.indexOf(a.winner) - seeds.indexOf(b.winner));
+  const homeTeam = winners[0].winner;
+  const awayTeam = winners[1].winner;
+  if (!homeTeam || !awayTeam) return [];
+  const index = season.schedule.length;
+  const entry = {
+    id: `PO${String(season.seasonNumber).padStart(2, '0')}-CH`,
+    homeTeam,
+    awayTeam,
+    tag: 'playoff-championship',
+    round: 'BluperBowl',
+    index,
+    week: (season.regularSeasonLength || index) + (bracket.semifinalGames.length) + 1,
+    meta: { seeds: [seeds.indexOf(homeTeam) + 1, seeds.indexOf(awayTeam) + 1] },
+  };
+  season.schedule.push(entry);
+  bracket.championshipGame = {
+    index,
+    winner: null,
+    homeTeam,
+    awayTeam,
+    label: 'BluperBowl',
+  };
+  bracket.stage = 'championship';
+  season.phase = 'championship';
+  recomputeAssignmentTotals(season);
+  return [index];
+}
+
+export function registerChampion(season, league, result) {
+  if (!season || !result) return;
+  const winner = result.winner;
+  if (!winner) return;
+  season.championTeamId = winner;
+  season.championResult = { ...result };
+  season.phase = 'complete';
+  season.playoffBracket ||= { stage: 'complete', champion: winner };
+  if (season.playoffBracket.championshipGame) {
+    season.playoffBracket.championshipGame.winner = winner;
+  }
+  season.playoffBracket.champion = winner;
+  season.playoffBracket.stage = 'complete';
+  if (league) {
+    league.lastChampion = { teamId: winner, seasonNumber: season.seasonNumber };
+    if (!league.teamChampionships[winner]) {
+      league.teamChampionships[winner] = { count: 0, seasons: [] };
+    }
+    const record = league.teamChampionships[winner];
+    if (!record.seasons.includes(season.seasonNumber)) {
+      record.count += 1;
+      record.seasons.push(season.seasonNumber);
+    }
+  }
+}
+
+export function mergePlayerStatsIntoCareer(careerMap, seasonStats = {}) {
+  if (!careerMap) return;
+  Object.entries(seasonStats).forEach(([playerId, stat]) => {
+    if (!careerMap[playerId]) {
+      careerMap[playerId] = clonePlayerSeasonEntry(stat);
+      return;
+    }
+    mergeCategory(careerMap[playerId].passing, stat.passing || {}, ['attempts', 'completions', 'yards', 'touchdowns', 'interceptions', 'sacks', 'sackYards']);
+    mergeCategory(careerMap[playerId].rushing, stat.rushing || {}, ['attempts', 'yards', 'touchdowns', 'fumbles']);
+    mergeCategory(careerMap[playerId].receiving, stat.receiving || {}, ['targets', 'receptions', 'yards', 'touchdowns', 'drops']);
+    mergeCategory(careerMap[playerId].defense, stat.defense || {}, ['tackles', 'sacks', 'interceptions', 'forcedFumbles']);
+    mergeCategory(careerMap[playerId].misc, stat.misc || {}, ['fumbles']);
+    mergeCategory(careerMap[playerId].kicking, stat.kicking || {}, ['attempts', 'made', 'long', 'patAttempts', 'patMade']);
+  });
+}
+
+export function incrementPlayerAges(league) {
+  if (!league?.playerAges) return;
+  Object.keys(league.playerAges).forEach((playerId) => {
+    league.playerAges[playerId] = (league.playerAges[playerId] || 0) + 1;
+  });
+}
+
+function decayDevelopment(map, retention = 0.88) {
+  Object.entries(map || {}).forEach(([playerId, attrs]) => {
+    Object.entries(attrs || {}).forEach(([attr, value]) => {
+      const next = value * retention;
+      if (Math.abs(next) < 1e-3) delete attrs[attr];
+      else attrs[attr] = next;
+    });
+    if (!Object.keys(attrs || {}).length) delete map[playerId];
+  });
+}
+
+function adjustDevelopment(map, playerId, attr, amount) {
+  if (!map[playerId]) map[playerId] = {};
+  const current = map[playerId][attr] || 0;
+  const next = clamp(current + amount, -0.5, 0.65);
+  if (Math.abs(next) < 1e-3) {
+    delete map[playerId][attr];
+    if (!Object.keys(map[playerId]).length) delete map[playerId];
+  } else {
+    map[playerId][attr] = next;
+  }
+}
+
+export function applyOffseasonDevelopment(league) {
+  if (!league) return;
+  league.playerDevelopment ||= {};
+  decayDevelopment(league.playerDevelopment, 0.9);
+  Object.entries(league.playerAges || {}).forEach(([playerId, age]) => {
+    let base;
+    if (age <= 25) base = rand(0.02, 0.08);
+    else if (age <= 28) base = rand(-0.01, 0.05);
+    else if (age <= 32) base = rand(-0.05, 0.03);
+    else base = rand(-0.08, -0.015);
+    ATTRIBUTE_KEYS.forEach((attr) => {
+      const variance = rand(-0.015, 0.015);
+      adjustDevelopment(league.playerDevelopment, playerId, attr, base + variance);
+    });
+  });
 }
 
 function clonePlayerSeasonEntry(entry) {
@@ -249,7 +705,7 @@ export function mergePlayerStatsIntoSeason(season, playerStats = {}) {
     mergeCategory(entry.passing, stat.passing || {}, ['attempts', 'completions', 'yards', 'touchdowns', 'interceptions', 'sacks', 'sackYards']);
     mergeCategory(entry.rushing, stat.rushing || {}, ['attempts', 'yards', 'touchdowns', 'fumbles']);
     mergeCategory(entry.receiving, stat.receiving || {}, ['targets', 'receptions', 'yards', 'touchdowns', 'drops']);
-    mergeCategory(entry.defense, stat.defense || {}, ['tackles', 'sacks', 'interceptions']);
+    mergeCategory(entry.defense, stat.defense || {}, ['tackles', 'sacks', 'interceptions', 'forcedFumbles']);
     mergeCategory(entry.misc, stat.misc || {}, ['fumbles']);
     mergeCategory(entry.kicking, stat.kicking || {}, ['attempts', 'made', 'long', 'patAttempts', 'patMade']);
   });
@@ -285,6 +741,7 @@ export function applyGameResultToSeason(season, game, scores, directory, playerS
   const awayId = game.awayTeam;
   const homeScore = scores?.[TEAM_RED] ?? 0;
   const awayScore = scores?.[TEAM_BLK] ?? 0;
+  const tag = game.tag || null;
 
   const homeEntry = cloneTeamSeasonEntry(season.teams[homeId]);
   const awayEntry = cloneTeamSeasonEntry(season.teams[awayId]);
@@ -331,10 +788,31 @@ export function applyGameResultToSeason(season, game, scores, directory, playerS
     score: { [homeId]: homeScore, [awayId]: awayScore },
     winner: homeScore === awayScore ? null : (homeScore > awayScore ? homeId : awayId),
     playLog: Array.isArray(playLog) ? [...playLog] : [],
+    tag,
   };
   nextSeason.results.push(result);
   nextSeason.schedule[game.index] = { ...game, played: true, result };
   nextSeason.completedGames = (season.completedGames || 0) + 1;
+
+  if (tag === 'playoff-semifinal' && nextSeason.playoffBracket) {
+    const semifinal = nextSeason.playoffBracket.semifinalGames?.find((entry) => entry.index === game.index);
+    if (semifinal) {
+      semifinal.winner = result.winner;
+      semifinal.score = result.score;
+    }
+  } else if (tag === 'playoff-championship' && nextSeason.playoffBracket) {
+    if (!nextSeason.playoffBracket.championshipGame || nextSeason.playoffBracket.championshipGame.index === game.index) {
+      nextSeason.playoffBracket.championshipGame = {
+        ...(nextSeason.playoffBracket.championshipGame || {}),
+        index: game.index,
+        winner: result.winner,
+        score: result.score,
+        homeTeam: homeId,
+        awayTeam: awayId,
+        label: 'BluperBowl',
+      };
+    }
+  }
 
   return nextSeason;
 }

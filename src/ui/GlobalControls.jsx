@@ -7,6 +7,7 @@ export default function GlobalControls({
   onSimSpeedChange,
   onShowTeamDirectory,
   onShowSeasonStats,
+  onShowLeaderboards,
 }) {
   const handleSpeedChange = (event) => {
     const value = parseFloat(event.target.value);
@@ -33,6 +34,13 @@ export default function GlobalControls({
         onClick={onShowSeasonStats}
       >
         Season Stats
+      </button>
+      <button
+        type="button"
+        className="global-controls__button global-controls__button--secondary"
+        onClick={onShowLeaderboards}
+      >
+        Leaderboards
       </button>
       <label className="global-controls__speed">
         <span className="global-controls__speed-label">Speed</span>
