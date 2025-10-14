@@ -7,6 +7,63 @@ import {
 } from './personnel';
 
 const ATTRIBUTE_KEYS = ['speed', 'accel', 'agility', 'strength', 'awareness', 'catch', 'throwPow', 'throwAcc', 'tackle'];
+const TEAM_STAT_KEYS = [
+  'passingYards',
+  'passingTD',
+  'rushingYards',
+  'rushingTD',
+  'receivingYards',
+  'receivingTD',
+  'tackles',
+  'sacks',
+  'interceptions',
+];
+
+function createEmptyTeamTotals(teamId = null, info = null) {
+  const stats = TEAM_STAT_KEYS.reduce((acc, key) => {
+    acc[key] = 0;
+    return acc;
+  }, {});
+  return {
+    id: teamId,
+    info: info || null,
+    record: { wins: 0, losses: 0, ties: 0 },
+    pointsFor: 0,
+    pointsAgainst: 0,
+    stats,
+  };
+}
+
+function cloneTeamTotals(entry = {}, fallbackInfo = null) {
+  const base = createEmptyTeamTotals(entry.id ?? null, entry.info || fallbackInfo || null);
+  if (entry.record) {
+    base.record = {
+      wins: entry.record.wins ?? 0,
+      losses: entry.record.losses ?? 0,
+      ties: entry.record.ties ?? 0,
+    };
+  }
+  base.pointsFor = entry.pointsFor ?? 0;
+  base.pointsAgainst = entry.pointsAgainst ?? 0;
+  TEAM_STAT_KEYS.forEach((key) => {
+    base.stats[key] = entry.stats?.[key] ?? 0;
+  });
+  return base;
+}
+
+function cloneAssignmentTotalsMap(map = {}, teams = {}) {
+  const totals = {};
+  Object.entries(teams).forEach(([teamId, team]) => {
+    const existing = map[teamId];
+    totals[teamId] = cloneTeamTotals(existing || { id: teamId, info: team?.info || null }, team?.info || null);
+  });
+  Object.entries(map).forEach(([teamId, entry]) => {
+    if (!totals[teamId]) {
+      totals[teamId] = cloneTeamTotals(entry);
+    }
+  });
+  return totals;
+}
 
 function hashString(value = '') {
   let hash = 0;
@@ -208,6 +265,7 @@ export function createSeasonState(options = {}) {
 
   const schedule = generateSeasonSchedule();
   const teams = {};
+  const assignmentTotals = {};
   TEAM_IDS.forEach((id) => {
     const info = getTeamIdentity(id) || { id, name: id, city: id, abbr: id, colors: {} };
     teams[id] = {
@@ -228,6 +286,7 @@ export function createSeasonState(options = {}) {
         interceptions: 0,
       },
     };
+    assignmentTotals[id] = createEmptyTeamTotals(id, info);
   });
 
   return {
@@ -239,6 +298,7 @@ export function createSeasonState(options = {}) {
     completedGames: 0,
     results: [],
     playerStats: {},
+    assignmentTotals,
     playerDevelopment,
     playerAges,
     relationships: {},
@@ -754,20 +814,35 @@ export function applyGameResultToSeason(season, game, scores, directory, playerS
   const awayEntry = cloneTeamSeasonEntry(season.teams[awayId]);
   if (!homeEntry || !awayEntry) return season;
 
+  const assignmentTotals = cloneAssignmentTotalsMap(season.assignmentTotals || {}, season.teams || {});
+  const homeTotals = assignmentTotals[homeId] || createEmptyTeamTotals(homeId, homeEntry.info || null);
+  const awayTotals = assignmentTotals[awayId] || createEmptyTeamTotals(awayId, awayEntry.info || null);
+
   homeEntry.pointsFor = (homeEntry.pointsFor || 0) + homeScore;
   homeEntry.pointsAgainst = (homeEntry.pointsAgainst || 0) + awayScore;
   awayEntry.pointsFor = (awayEntry.pointsFor || 0) + awayScore;
   awayEntry.pointsAgainst = (awayEntry.pointsAgainst || 0) + homeScore;
 
+  homeTotals.pointsFor = (homeTotals.pointsFor || 0) + homeScore;
+  homeTotals.pointsAgainst = (homeTotals.pointsAgainst || 0) + awayScore;
+  awayTotals.pointsFor = (awayTotals.pointsFor || 0) + awayScore;
+  awayTotals.pointsAgainst = (awayTotals.pointsAgainst || 0) + homeScore;
+
   if (homeScore > awayScore) {
     homeEntry.record.wins += 1;
     awayEntry.record.losses += 1;
+    homeTotals.record.wins += 1;
+    awayTotals.record.losses += 1;
   } else if (awayScore > homeScore) {
     awayEntry.record.wins += 1;
     homeEntry.record.losses += 1;
+    awayTotals.record.wins += 1;
+    homeTotals.record.losses += 1;
   } else {
     homeEntry.record.ties += 1;
     awayEntry.record.ties += 1;
+    homeTotals.record.ties += 1;
+    awayTotals.record.ties += 1;
   }
 
   const updatedTeams = {
@@ -776,15 +851,20 @@ export function applyGameResultToSeason(season, game, scores, directory, playerS
     [awayId]: awayEntry,
   };
 
+  assignmentTotals[homeId] = homeTotals;
+  assignmentTotals[awayId] = awayTotals;
+
   const nextSeason = {
     ...season,
     teams: updatedTeams,
     schedule: [...season.schedule],
     results: [...(season.results || [])],
     playerStats: { ...(season.playerStats || {}) },
+    assignmentTotals: { ...assignmentTotals },
   };
 
   accumulateTeamStatsFromPlayers(nextSeason, directory, playerStats);
+  accumulateTeamStatsFromPlayers({ teams: assignmentTotals }, directory, playerStats);
   mergePlayerStatsIntoSeason(nextSeason, playerStats);
 
   const result = {

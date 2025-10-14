@@ -213,12 +213,38 @@ function cloneSeason(season) {
   const results = Array.isArray(season.results)
     ? season.results.map((result) => cloneResult(result)).filter(Boolean)
     : [];
+  const assignmentTotals = Object.entries(season.assignmentTotals || {}).reduce((acc, [teamId, totals]) => {
+    acc[teamId] = {
+      id: totals.id ?? teamId,
+      info: totals.info ? { ...totals.info } : null,
+      record: {
+        wins: totals.record?.wins ?? 0,
+        losses: totals.record?.losses ?? 0,
+        ties: totals.record?.ties ?? 0,
+      },
+      pointsFor: totals.pointsFor ?? 0,
+      pointsAgainst: totals.pointsAgainst ?? 0,
+      stats: {
+        passingYards: totals.stats?.passingYards ?? 0,
+        passingTD: totals.stats?.passingTD ?? 0,
+        rushingYards: totals.stats?.rushingYards ?? 0,
+        rushingTD: totals.stats?.rushingTD ?? 0,
+        receivingYards: totals.stats?.receivingYards ?? 0,
+        receivingTD: totals.stats?.receivingTD ?? 0,
+        tackles: totals.stats?.tackles ?? 0,
+        sacks: totals.stats?.sacks ?? 0,
+        interceptions: totals.stats?.interceptions ?? 0,
+      },
+    };
+    return acc;
+  }, {});
 
   return {
     ...season,
     teams,
     schedule,
     results,
+    assignmentTotals,
     playerStats: clonePlayerStatsMap(season.playerStats || {}),
     playerDevelopment: clonePlayerDevelopmentMap(season.playerDevelopment || {}),
     completedGames: Number.isFinite(season.completedGames)
@@ -269,6 +295,15 @@ function mergeSeasonData(target, source) {
       return;
     }
     mergeTeamEntry(target.teams[id], team);
+  });
+
+  target.assignmentTotals ||= {};
+  Object.entries(source.assignmentTotals || {}).forEach(([id, totals]) => {
+    if (!target.assignmentTotals[id]) {
+      target.assignmentTotals[id] = cloneTeamEntry(totals);
+      return;
+    }
+    mergeTeamEntry(target.assignmentTotals[id], totals);
   });
 
   const seenResults = new Set(

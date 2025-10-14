@@ -341,7 +341,10 @@ function aggregateSeasonsData(seasons) {
     const teams = {};
     const resultsMap = new Map();
     seasons.forEach((season) => {
-        Object.entries(season.teams || {}).forEach(([teamId, team]) => {
+        const sourceTeams = (season.assignmentTotals && Object.keys(season.assignmentTotals).length)
+            ? season.assignmentTotals
+            : season.teams || {};
+        Object.entries(sourceTeams).forEach(([teamId, team]) => {
             if (!teams[teamId]) {
                 teams[teamId] = {
                     id: teamId,
@@ -353,14 +356,16 @@ function aggregateSeasonsData(seasons) {
                 };
             }
             const agg = teams[teamId];
-            agg.info = agg.info || team.info || null;
+            const info = season.teams?.[teamId]?.info || team.info || null;
+            agg.info = agg.info || info;
             agg.record.wins += team.record?.wins || 0;
             agg.record.losses += team.record?.losses || 0;
             agg.record.ties += team.record?.ties || 0;
             agg.pointsFor += team.pointsFor || 0;
             agg.pointsAgainst += team.pointsAgainst || 0;
             TEAM_STAT_KEYS.forEach((key) => {
-                agg.stats[key] += team.stats?.[key] || 0;
+                const statSource = team.stats?.[key] ?? season.teams?.[teamId]?.stats?.[key] ?? 0;
+                agg.stats[key] += statSource;
             });
         });
 

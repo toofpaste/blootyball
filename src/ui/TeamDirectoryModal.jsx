@@ -602,6 +602,7 @@ export default function TeamDirectoryModal({ open, onClose, season, league = nul
                 padding: 12,
                 maxHeight: '70vh',
                 overflowY: 'auto',
+                minHeight: 0,
               }}
             >
               <div style={{ fontWeight: 700, fontSize: 14, letterSpacing: 0.4, marginBottom: 4 }}>Teams</div>
@@ -627,7 +628,18 @@ export default function TeamDirectoryModal({ open, onClose, season, league = nul
                 );
               })}
             </div>
-            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 16, overflow: 'auto', maxHeight: '70vh' }}>
+            <div
+              style={{
+                flex: 1,
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 16,
+                overflowY: 'auto',
+                maxHeight: '70vh',
+                minHeight: 0,
+                paddingRight: 4,
+              }}
+            >
               <div>
                 <div style={{ fontSize: 20, fontWeight: 700 }}>
                   {selectedTeam.identity?.displayName || selectedTeam.identity?.name || selectedTeam.id}
