@@ -1,6 +1,17 @@
-import { ROLES_OFF, ROLES_DEF } from './constants';
+import { ROLES_OFF, ROLES_DEF, TEAM_RED, TEAM_BLK } from './constants';
 import { TEAM_IDS, getTeamData, getTeamIdentity } from './data/teamLibrary';
 import { clamp, choice, rand } from './helpers';
+import {
+  ensurePlayerTemperament,
+  cloneTemperament,
+  computeTeamMood,
+  updateTeamTemperament,
+  temperamentScoutAdjustment,
+  resetTemperamentToNeutral,
+  roleGroupFor,
+  getTeamCoach,
+  adjustPlayerMood,
+} from './temperament';
 
 const ATTR_RANGES = {
   speed: [4.2, 7.2],
@@ -99,6 +110,7 @@ function clonePlayerData(data = {}) {
     archetype: data.archetype || null,
     health: data.health || { durability: 1, history: [] },
     age: data.age ?? null,
+    temperament: cloneTemperament(data.temperament),
   };
 }
 
@@ -155,6 +167,7 @@ function decoratePlayerMetrics(player, role) {
   if (!updated.health) {
     updated.health = { durability: clamp(rand(0.7, 1.05), 0.5, 1.2), history: [] };
   }
+  ensurePlayerTemperament(updated);
   return updated;
 }
 
@@ -282,6 +295,45 @@ function ensureInjuryTracking(league) {
   if (!league.injuryCounts) league.injuryCounts = {};
 }
 
+function recordMoodFromSeasonEntry(entry) {
+  if (!entry) return 0;
+  const record = entry.record || {};
+  const wins = record.wins || 0;
+  const losses = record.losses || 0;
+  const ties = record.ties || 0;
+  const total = wins + losses + ties;
+  if (!total) return 0;
+  return clamp((wins - losses) / Math.max(1, total), -1, 1) * 0.65;
+}
+
+function refreshTeamMood(league, teamId) {
+  if (!league || !teamId) return;
+  ensureTeamRosterShell(league);
+  const roster = league.teamRosters?.[teamId];
+  if (!roster) return;
+  const seasonEntry = league.seasonSnapshot?.teams?.[teamId]
+    || league.season?.teams?.[teamId]
+    || null;
+  const recordMood = recordMoodFromSeasonEntry(seasonEntry);
+  const coach = getTeamCoach(league, teamId);
+  const mood = computeTeamMood(roster, coach, { recordMood });
+  league.teamMoods ||= {};
+  league.teamMoods[teamId] = { ...mood, updatedAt: Date.now() };
+}
+
+function findPlayerRole(roster, playerId) {
+  if (!roster || !playerId) return null;
+  let found = null;
+  Object.entries(roster.offense || {}).forEach(([role, player]) => {
+    if (player && player.id === playerId) found = role;
+  });
+  Object.entries(roster.defense || {}).forEach(([role, player]) => {
+    if (player && player.id === playerId) found = role;
+  });
+  if (roster.special?.K && roster.special.K.id === playerId) found = 'K';
+  return found;
+}
+
 export function initializeLeaguePersonnel(league) {
   if (!league) return;
   ensureTeamRosterShell(league);
@@ -290,6 +342,10 @@ export function initializeLeaguePersonnel(league) {
   ensureNewsFeed(league);
   ensureInjuryTracking(league);
   if (!Array.isArray(league.freeAgents)) league.freeAgents = [];
+  league.teamMoods ||= {};
+  Object.keys(league.teamRosters || {}).forEach((teamId) => {
+    refreshTeamMood(league, teamId);
+  });
 }
 
 function recordNewsInternal(league, entry) {
@@ -372,8 +428,9 @@ function removeDirectoryEntry(league, playerId) {
 function pushPlayerToFreeAgency(league, player, role, reason) {
   if (!league || !player) return;
   league.freeAgents ||= [];
-  const released = { ...player, role, releasedReason: reason || 'released' };
+  const released = { ...player, role, releasedReason: reason || 'released', temperament: cloneTemperament(player.temperament) };
   decoratePlayerMetrics(released, role);
+  ensurePlayerTemperament(released);
   league.freeAgents.push(released);
 }
 
@@ -381,6 +438,7 @@ function assignPlayerToRoster(league, teamId, role, player) {
   if (!league || !teamId || !player) return;
   const rosters = ensureTeamRosterShell(league);
   const side = roleSide(role);
+  player.role = role;
   if (!rosters[teamId]) {
     rosters[teamId] = { offense: {}, defense: {}, special: {} };
   }
@@ -450,11 +508,15 @@ export function signBestFreeAgentForRole(league, teamId, role, {
     candidates.push({ player: emergency, index: league.freeAgents.length - 1 });
   }
   const strategy = mode || teamStrategyFromRecord(league?.seasonSnapshot?.teams?.[teamId]);
+  const coach = getTeamCoach(league, teamId);
+  const teamMood = league.teamMoods?.[teamId] || null;
   let best = null;
   candidates.forEach(({ player, index }) => {
     const assessment = scoutEvaluationForPlayer(league, teamId, role, player, strategy);
-    if (!best || assessment.evaluation > best.score) {
-      best = { ...assessment, index, player };
+    const temperamentBonus = temperamentScoutAdjustment(player, { coach, teamMood });
+    const score = assessment.evaluation + temperamentBonus;
+    if (!best || score > best.score) {
+      best = { ...assessment, index, player, score };
     }
   });
   if (!best) return null;
@@ -473,6 +535,7 @@ export function signBestFreeAgentForRole(league, teamId, role, {
     detail: reason,
     seasonNumber: league.seasonNumber || null,
   });
+  refreshTeamMood(league, teamId);
   return assigned;
 }
 
@@ -505,6 +568,7 @@ export function registerPlayerInjury(league, {
     assignPlayerToRoster(league, teamId, role, player);
   }
   const removed = removePlayerFromRoster(league, teamId, role);
+  if (removed) adjustPlayerMood(removed, -0.18);
   const irEntry = {
     player: decoratePlayerMetrics({ ...removed, role }, role),
     teamId,
@@ -534,32 +598,158 @@ export function registerPlayerInjury(league, {
     severity,
     seasonNumber: season,
   });
+  refreshTeamMood(league, teamId);
   return irEntry;
 }
 
 function reinstatePlayer(league, irEntry) {
   if (!league || !irEntry?.player) return;
+  const teamId = irEntry.teamId;
+  const role = irEntry.role;
   const rosters = ensureTeamRosterShell(league);
-  const roster = rosters[irEntry.teamId] || null;
-  const side = roleSide(irEntry.role);
-  let occupant = null;
-  if (roster) {
-    if (side === 'offense') occupant = roster.offense?.[irEntry.role] || null;
-    else if (side === 'defense') occupant = roster.defense?.[irEntry.role] || null;
-    else occupant = roster.special?.K || null;
+  const roster = rosters[teamId] || null;
+  const side = roleSide(role);
+  if (!roster) return;
+  const returning = decoratePlayerMetrics({ ...irEntry.player, role }, role);
+  ensurePlayerTemperament(returning);
+  const occupant = side === 'offense'
+    ? roster.offense?.[role] || null
+    : side === 'defense'
+      ? roster.defense?.[role] || null
+      : roster.special?.K || null;
+  const replacementId = irEntry.replacementId
+    ?? league.injuredReserve?.[returning.id]?.replacementId
+    ?? null;
+  if (!occupant || occupant.id === returning.id) {
+    assignPlayerToRoster(league, teamId, role, returning);
+    recordNewsInternal(league, {
+      type: 'return',
+      teamId,
+      text: `${returning.firstName} ${returning.lastName} (${role}) returns from injury`,
+      detail: 'Activated from injured list',
+      seasonNumber: league.seasonNumber || null,
+    });
+    delete league.injuredReserve[returning.id];
+    adjustPlayerMood(returning, 0.12);
+    refreshTeamMood(league, teamId);
+    return;
   }
-  if (occupant && occupant.id !== irEntry.player.id) {
-    pushPlayerToFreeAgency(league, occupant, irEntry.role, 'injury replacement released');
-  }
-  assignPlayerToRoster(league, irEntry.teamId, irEntry.role, irEntry.player);
-  recordNewsInternal(league, {
-    type: 'return',
-    teamId: irEntry.teamId,
-    text: `${irEntry.player.firstName} ${irEntry.player.lastName} (${irEntry.role}) returns from injury`,
-    detail: 'Activated from injured list',
-    seasonNumber: league.seasonNumber || null,
+
+  const occupantId = occupant?.id || null;
+  const coach = getTeamCoach(league, teamId);
+  const teamMood = league.teamMoods?.[teamId] || null;
+  const strategy = teamStrategyFromRecord(league?.seasonSnapshot?.teams?.[teamId]);
+  const groupRoles = roleGroupFor(role);
+  const collectPlayer = (r, roleKey) => {
+    if (!r) return null;
+    const player = side === 'offense'
+      ? roster.offense?.[roleKey] || null
+      : side === 'defense'
+        ? roster.defense?.[roleKey] || null
+        : roster.special?.K || null;
+    if (!player) return null;
+    ensurePlayerTemperament(player);
+    const base = evaluatePlayerTrueValue(player, strategy);
+    const temperamentBonus = temperamentScoutAdjustment(player, { coach, teamMood }) * 0.2;
+    const moodBonus = (player.temperament?.mood || 0) * 6;
+    return {
+      role: roleKey,
+      player,
+      evaluation: base + temperamentBonus + moodBonus,
+      replacement: player.id === replacementId || (occupantId && player.id === occupantId && player.id !== returning.id),
+    };
+  };
+
+  const candidates = [];
+  groupRoles.forEach((groupRole) => {
+    const entry = collectPlayer(roster, groupRole);
+    if (entry) candidates.push(entry);
   });
-  delete league.injuredReserve[irEntry.player.id];
+  const returningEval = evaluatePlayerTrueValue(returning, strategy)
+    + temperamentScoutAdjustment(returning, { coach, teamMood }) * 0.2
+    + (returning.temperament?.mood || 0) * 6;
+  candidates.push({ role, player: returning, evaluation: returningEval, returning: true });
+
+  if (candidates.length <= 1) {
+    assignPlayerToRoster(league, teamId, role, returning);
+    recordNewsInternal(league, {
+      type: 'return',
+      teamId,
+      text: `${returning.firstName} ${returning.lastName} (${role}) returns from injury`,
+      detail: 'Activated from injured list',
+      seasonNumber: league.seasonNumber || null,
+    });
+    delete league.injuredReserve[returning.id];
+    adjustPlayerMood(returning, 0.12);
+    refreshTeamMood(league, teamId);
+    return;
+  }
+
+  let cutCandidate = null;
+  candidates.forEach((entry) => {
+    if (!cutCandidate || entry.evaluation < cutCandidate.evaluation - 0.01) {
+      cutCandidate = entry;
+    } else if (cutCandidate && Math.abs(entry.evaluation - cutCandidate.evaluation) <= 0.01) {
+      if (entry.replacement && !cutCandidate.replacement) {
+        cutCandidate = entry;
+      }
+    }
+  });
+
+  let released = null;
+  let movedReplacement = null;
+  if (cutCandidate?.returning) {
+    pushPlayerToFreeAgency(league, returning, role, 'recovered but replaced');
+    recordNewsInternal(league, {
+      type: 'release',
+      teamId,
+      text: `${returning.firstName} ${returning.lastName} (${role}) released after recovery`,
+      detail: 'Replacement retained',
+      seasonNumber: league.seasonNumber || null,
+    });
+    released = returning;
+  } else if (cutCandidate?.replacement) {
+    const removed = removePlayerFromRoster(league, teamId, role);
+    if (removed) {
+      pushPlayerToFreeAgency(league, removed, role, 'injury replacement released');
+      adjustPlayerMood(removed, -0.22);
+    }
+    assignPlayerToRoster(league, teamId, role, returning);
+    adjustPlayerMood(returning, 0.14);
+  } else if (cutCandidate) {
+    const removed = removePlayerFromRoster(league, teamId, cutCandidate.role);
+    if (removed) {
+      pushPlayerToFreeAgency(league, removed, cutCandidate.role, 'roster shuffle (injury)');
+      adjustPlayerMood(removed, -0.2);
+    }
+    const replacementPlayer = (occupant && occupant.id !== returning.id) ? occupant : null;
+    if (replacementPlayer && cutCandidate.role !== role) {
+      removePlayerFromRoster(league, teamId, role);
+      movedReplacement = { ...replacementPlayer, role: cutCandidate.role };
+    }
+    assignPlayerToRoster(league, teamId, role, returning);
+    if (movedReplacement) {
+      assignPlayerToRoster(league, teamId, cutCandidate.role, movedReplacement);
+    }
+    adjustPlayerMood(returning, 0.12);
+  }
+
+  if (!cutCandidate?.returning) {
+    recordNewsInternal(league, {
+      type: 'return',
+      teamId,
+      text: `${returning.firstName} ${returning.lastName} (${role}) returns from injury`,
+      detail: cutCandidate?.replacement ? 'Replacement waived' : cutCandidate ? `Roster move: ${cutCandidate.role}` : 'Activated from injured list',
+      seasonNumber: league.seasonNumber || null,
+    });
+  }
+
+  if (released) {
+    delete league.injuredReserve[released.id];
+  } else {
+    delete league.injuredReserve[returning.id];
+  }
+  refreshTeamMood(league, teamId);
 }
 
 export function decrementInjuryTimers(league, teamId) {
@@ -571,6 +761,59 @@ export function decrementInjuryTimers(league, teamId) {
       reinstatePlayer(league, entry);
     }
   });
+}
+
+export function applyPostGameMoodAdjustments(league, game, scores, playerStats = {}, slotToTeam = {}) {
+  if (!league || !game) return;
+  ensureTeamRosterShell(league);
+  const redTeam = slotToTeam[TEAM_RED] || game.homeTeam;
+  const blkTeam = slotToTeam[TEAM_BLK] || game.awayTeam;
+  const redScore = scores?.[TEAM_RED] ?? 0;
+  const blkScore = scores?.[TEAM_BLK] ?? 0;
+  const scoreByTeam = {
+    [redTeam]: redScore,
+    [blkTeam]: blkScore,
+  };
+
+  const homeId = game.homeTeam;
+  const awayId = game.awayTeam;
+  const homeScore = scoreByTeam[homeId] ?? 0;
+  const awayScore = scoreByTeam[awayId] ?? 0;
+  const tie = homeScore === awayScore;
+  const homeWon = homeScore > awayScore;
+  const awayWon = awayScore > homeScore;
+
+  const processTeam = (teamId, outcome) => {
+    if (!teamId) return;
+    const roster = league.teamRosters?.[teamId];
+    if (!roster) return;
+    const coach = getTeamCoach(league, teamId);
+    const temperamentResult = updateTeamTemperament(roster, playerStats, {
+      won: outcome === 'win',
+      tie,
+      coach,
+    });
+    refreshTeamMood(league, teamId);
+    (temperamentResult.tradeCandidates || []).forEach((candidate) => {
+      const role = candidate.role || findPlayerRole(roster, candidate.id);
+      if (!role) return;
+      const traded = attemptTradeForUnhappyPlayer(league, teamId, role, candidate);
+      if (!traded) {
+        recordNewsInternal(league, {
+          type: 'rumor',
+          teamId,
+          text: `${candidate.firstName || 'Player'} ${candidate.lastName || ''} (${role}) requests a trade but remains with the team`,
+          detail: 'Market check cooled',
+          seasonNumber: league.seasonNumber || null,
+        });
+        adjustPlayerMood(candidate, -0.08);
+      }
+    });
+    refreshTeamMood(league, teamId);
+  };
+
+  processTeam(homeId, homeWon ? 'win' : tie ? 'tie' : 'loss');
+  processTeam(awayId, awayWon ? 'win' : tie ? 'tie' : 'loss');
 }
 
 function pickTradeRole() {
@@ -673,20 +916,78 @@ function fillRosterNeeds(league, teamId, needs, { reason, mode }) {
   });
 }
 
+function attemptTradeForUnhappyPlayer(league, teamId, role, player) {
+  if (!league || !teamId || !role || !player) return false;
+  const rosters = ensureTeamRosterShell(league);
+  const side = roleSide(role);
+  const teamStrategy = teamStrategyFromRecord(league?.seasonSnapshot?.teams?.[teamId]);
+  let best = null;
+  TEAM_IDS.forEach((otherId) => {
+    if (otherId === teamId) return;
+    const otherRoster = rosters[otherId];
+    if (!otherRoster) return;
+    const otherPlayer = side === 'offense'
+      ? otherRoster.offense?.[role] || null
+      : side === 'defense'
+        ? otherRoster.defense?.[role] || null
+        : otherRoster.special?.K || null;
+    if (!otherPlayer || otherPlayer.id === player.id) return;
+    const otherStrategy = teamStrategyFromRecord(league?.seasonSnapshot?.teams?.[otherId]);
+    const gainForOther = tradeValue(league, otherId, role, player, otherStrategy)
+      - tradeValue(league, otherId, role, otherPlayer, otherStrategy);
+    if (gainForOther < -2.5) return;
+    const gainForTeam = tradeValue(league, teamId, role, otherPlayer, teamStrategy)
+      - tradeValue(league, teamId, role, player, teamStrategy);
+    const interest = gainForOther + gainForTeam * 0.6;
+    if (interest <= -6) return;
+    if (!best || interest > best.interest) {
+      best = { otherId, otherPlayer, gainForOther, gainForTeam, interest };
+    }
+  });
+  if (!best || best.interest < 0.5) return false;
+  const outgoing = removePlayerFromRoster(league, teamId, role) || player;
+  const incoming = removePlayerFromRoster(league, best.otherId, role) || best.otherPlayer;
+  const incomingClone = { ...incoming, origin: 'trade-request' };
+  const outgoingClone = { ...outgoing, origin: 'trade-request' };
+  resetTemperamentToNeutral(incomingClone);
+  resetTemperamentToNeutral(outgoingClone);
+  assignPlayerToRoster(league, teamId, role, incomingClone);
+  assignPlayerToRoster(league, best.otherId, role, outgoingClone);
+  recordNewsInternal(league, {
+    type: 'trade',
+    teamId,
+    partnerTeam: best.otherId,
+    text: `${getTeamIdentity(teamId)?.abbr || teamId} trade ${outgoing.firstName} ${outgoing.lastName} (${role}) to ${getTeamIdentity(best.otherId)?.abbr || best.otherId}`,
+    seasonNumber: league.seasonNumber || null,
+  });
+  recordNewsInternal(league, {
+    type: 'trade',
+    teamId: best.otherId,
+    partnerTeam: teamId,
+    text: `${getTeamIdentity(best.otherId)?.abbr || best.otherId} welcome ${outgoing.firstName} ${outgoing.lastName} (${role})`,
+    seasonNumber: league.seasonNumber || null,
+  });
+  refreshTeamMood(league, teamId);
+  refreshTeamMood(league, best.otherId);
+  return true;
+}
+
 function simulateRosterCuts(league, teamId, mode) {
   const roster = ensureTeamRosterShell(league)[teamId];
   const candidates = [];
   ROLES_OFF.forEach((role) => {
     const player = roster.offense[role];
     if (!player) return;
-    if (player.overall < 52 && Math.random() < 0.25) {
+    const temperament = ensurePlayerTemperament(player);
+    if ((player.overall < 52 && Math.random() < 0.25) || (temperament.mood <= -0.55 && Math.random() < 0.6)) {
       candidates.push({ role, player });
     }
   });
   ROLES_DEF.forEach((role) => {
     const player = roster.defense[role];
     if (!player) return;
-    if (player.overall < 52 && Math.random() < 0.25) {
+    const temperament = ensurePlayerTemperament(player);
+    if ((player.overall < 52 && Math.random() < 0.25) || (temperament.mood <= -0.55 && Math.random() < 0.6)) {
       candidates.push({ role, player });
     }
   });
@@ -700,6 +1001,7 @@ function simulateRosterCuts(league, teamId, mode) {
     const pick = candidates[i];
     const removed = removePlayerFromRoster(league, teamId, pick.role);
     if (removed) {
+      adjustPlayerMood(removed, -0.15);
       pushPlayerToFreeAgency(league, removed, pick.role, 'waived');
       recordNewsInternal(league, {
         type: 'release',
@@ -711,6 +1013,7 @@ function simulateRosterCuts(league, teamId, mode) {
       signBestFreeAgentForRole(league, teamId, pick.role, { reason: 'replacing waived player', mode });
     }
   }
+  refreshTeamMood(league, teamId);
 }
 
 function processOffseasonInjuries(league) {
@@ -736,6 +1039,7 @@ export function advanceLeagueOffseason(league, season) {
     }
   });
   runTradeMarket(league, season);
+  TEAM_IDS.forEach((teamId) => refreshTeamMood(league, teamId));
 }
 
 export function getRosterSnapshot(league, teamId) {

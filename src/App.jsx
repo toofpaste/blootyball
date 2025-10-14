@@ -381,6 +381,7 @@ function clonePlayerRecordForLeague(player = {}) {
     ...player,
     ratings: { ...(player.ratings || {}) },
     modifiers: { ...(player.modifiers || {}) },
+    temperament: player.temperament ? { ...player.temperament } : null,
   };
 }
 
@@ -445,6 +446,10 @@ function cloneLeague(league) {
     acc[teamId] = { ...scout };
     return acc;
   }, {});
+  const teamMoods = Object.entries(league.teamMoods || {}).reduce((acc, [teamId, mood]) => {
+    acc[teamId] = mood ? { ...mood } : null;
+    return acc;
+  }, {});
   const teamRosters = Object.entries(league.teamRosters || {}).reduce((acc, [teamId, roster]) => {
     acc[teamId] = cloneTeamRoster(roster);
     return acc;
@@ -474,6 +479,7 @@ function cloneLeague(league) {
     seasonNumber: league.seasonNumber ?? 1,
     playerDirectory,
     teamScouts,
+    teamMoods,
     teamRosters,
     freeAgents,
     newsFeed,
@@ -552,6 +558,11 @@ function mergeLeagueData(target, source) {
       target.teamScouts[teamId] = { ...scout };
     }
   });
+  const mergedMoods = { ...(target.teamMoods || {}) };
+  Object.entries(source.teamMoods || {}).forEach(([teamId, mood]) => {
+    mergedMoods[teamId] = mood ? { ...mood } : null;
+  });
+  target.teamMoods = mergedMoods;
 
   if (!target.teamRosters && source.teamRosters) {
     target.teamRosters = Object.entries(source.teamRosters).reduce((acc, [teamId, roster]) => {
