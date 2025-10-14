@@ -74,17 +74,30 @@ function buildSummary(stat = {}) {
     return sections.filter(Boolean).join('  |  ');
 }
 
-function buildRow(playerId, meta = {}, stat = {}) {
+function buildRow(playerId, meta = {}, stat = {}, injuredReserve = {}) {
     const passing = stat.passing || {};
     const rushing = stat.rushing || {};
     const receiving = stat.receiving || {};
     const defense = stat.defense || {};
+    const irEntry = injuredReserve[playerId] || null;
+    const irPlayer = irEntry?.player || null;
+    const fallbackName = irPlayer
+        ? `${irPlayer.firstName || ''}${irPlayer.lastName ? ` ${irPlayer.lastName}` : ''}`.trim() || irPlayer.fullName || playerId
+        : playerId;
+    const resolvedName = meta.fullName || meta.name || fallbackName;
 
     return {
         id: playerId,
-        name: meta.fullName || playerId,
+        name: resolvedName,
         number: meta.number,
         role: meta.role || '—',
+        onInjuredReserve: Boolean(irEntry),
+        injury: irEntry
+            ? {
+                description: irEntry.description || '',
+                gamesRemaining: irEntry.gamesRemaining ?? null,
+            }
+            : null,
         pass:
             passing.attempts || passing.completions || passing.yards
                 ? `${passing.completions ?? 0}/${passing.attempts ?? 0}, ${Math.round(passing.yards || 0)} yds, ${passing.touchdowns ?? 0} TD / ${passing.interceptions ?? 0} INT`
@@ -104,11 +117,11 @@ function buildRow(playerId, meta = {}, stat = {}) {
     };
 }
 
-function gatherTopPlayers(stats = {}, directory = {}, teamId) {
+function gatherTopPlayers(stats = {}, directory = {}, teamId, injuredReserve = {}) {
     const rows = Object.entries(directory)
         .filter(([, meta]) => meta.team === teamId)
         .map(([id, meta]) => ({
-            ...buildRow(id, meta, stats[id] || {}),
+            ...buildRow(id, meta, stats[id] || {}, injuredReserve),
         }))
         .filter(row => row.pass !== '—' || row.rush !== '—' || row.receive !== '—' || row.defense !== '—');
 
@@ -117,12 +130,12 @@ function gatherTopPlayers(stats = {}, directory = {}, teamId) {
     return rows.slice(0, 3);
 }
 
-export default function StatsSummary({ stats = {}, directory = {}, teams = [], title = 'Team Leaders' }) {
+export default function StatsSummary({ stats = {}, directory = {}, teams = [], title = 'Team Leaders', injuredReserve = {} }) {
     const [openTeam, setOpenTeam] = useState(null);
 
     const teamSections = teams.map(team => ({
         team,
-        rows: gatherTopPlayers(stats, directory, team.id),
+        rows: gatherTopPlayers(stats, directory, team.id, injuredReserve),
     }));
 
     const hasAnyRows = teamSections.some(section => section.rows.length > 0);
@@ -214,10 +227,38 @@ export default function StatsSummary({ stats = {}, directory = {}, teams = [], t
                                                         }}
                                                     >
                                                         <Td style={{ fontWeight: 600 }}>
-                                                            <span style={{ display: 'block' }}>{row.name}</span>
+                                                            <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                                                <span style={{ display: 'block' }}>{row.name}</span>
+                                                                {row.onInjuredReserve ? (
+                                                                    <span
+                                                                        style={{
+                                                                            display: 'inline-flex',
+                                                                            alignItems: 'center',
+                                                                            padding: '1px 6px',
+                                                                            borderRadius: 999,
+                                                                            background: 'rgba(124,22,22,0.25)',
+                                                                            color: '#ff8282',
+                                                                            fontSize: 9,
+                                                                            fontWeight: 700,
+                                                                            letterSpacing: 0.8,
+                                                                            textTransform: 'uppercase',
+                                                                        }}
+                                                                    >
+                                                                        IR
+                                                                    </span>
+                                                                ) : null}
+                                                            </span>
                                                             <span style={{ display: 'block', fontWeight: 400, color: '#9bd79b', fontSize: 11 }}>
                                                                 {row.role} {row.number ? `• #${row.number}` : ''}
                                                             </span>
+                                                            {row.onInjuredReserve && (row.injury?.description || row.injury?.gamesRemaining != null) ? (
+                                                                <span style={{ display: 'block', fontWeight: 400, color: '#ff9f9f', fontSize: 11 }}>
+                                                                    {row.injury?.description || 'Injured'}
+                                                                    {row.injury?.gamesRemaining != null
+                                                                        ? ` • ${row.injury.gamesRemaining} game${row.injury.gamesRemaining === 1 ? '' : 's'} remaining`
+                                                                        : ''}
+                                                                </span>
+                                                            ) : null}
                                                         </Td>
                                                         <Td
                                                             mono

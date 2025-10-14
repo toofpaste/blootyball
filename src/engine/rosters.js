@@ -154,15 +154,19 @@ export function buildPlayerDirectory(teams, slotToTeam = {}, identities = {}) {
                 if (!player) return;
                 const actualTeamId = player.meta?.teamId || slotToTeam[team] || team;
                 const identity = identities[team] || getTeamIdentity(actualTeamId) || { displayName: actualTeamId, abbr: actualTeamId };
+                const profile = player.profile || {};
+                const firstName = profile.firstName || player.firstName || role;
+                const lastName = profile.lastName || player.lastName || '';
+                const fullName = profile.fullName || player.fullName || `${firstName}${lastName ? ` ${lastName}` : ''}` || role;
                 dir[player.id] = {
                     team: actualTeamId,
                     teamSlot: team,
                     role,
                     side,
-                    firstName: player.profile?.firstName || role,
-                    lastName: player.profile?.lastName || '',
-                    fullName: player.profile?.fullName || role,
-                    number: player.profile?.number ?? null,
+                    firstName,
+                    lastName,
+                    fullName,
+                    number: profile.number ?? player.number ?? null,
                     teamName: identity.displayName || actualTeamId,
                     teamAbbr: identity.abbr || actualTeamId,
                 };
@@ -174,15 +178,19 @@ export function buildPlayerDirectory(teams, slotToTeam = {}, identities = {}) {
             const k = group.special.K;
             const actualTeamId = k.meta?.teamId || slotToTeam[team] || team;
             const identity = identities[team] || getTeamIdentity(actualTeamId) || { displayName: actualTeamId, abbr: actualTeamId };
+            const profile = k.profile || {};
+            const firstName = profile.firstName || k.firstName || 'Kicker';
+            const lastName = profile.lastName || k.lastName || '';
+            const fullName = profile.fullName || k.fullName || `${firstName}${lastName ? ` ${lastName}` : ''}` || 'Kicker';
             dir[k.id] = {
                 team: actualTeamId,
                 teamSlot: team,
                 role: 'K',
                 side: 'special',
-                firstName: k.profile?.firstName || 'Kicker',
-                lastName: k.profile?.lastName || '',
-                fullName: k.profile?.fullName || 'Kicker',
-                number: k.profile?.number ?? null,
+                firstName,
+                lastName,
+                fullName,
+                number: profile.number ?? k.number ?? null,
                 teamName: identity.displayName || actualTeamId,
                 teamAbbr: identity.abbr || actualTeamId,
             };

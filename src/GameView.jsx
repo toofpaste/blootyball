@@ -216,6 +216,7 @@ const GameView = React.forwardRef(function GameView({
                 directory={state.playerDirectory}
                 teams={[awayStatsTeam]}
                 title={`${awayStatsTeam.displayName || awayStatsTeam.label || 'Away'} Leaders`}
+                injuredReserve={state.league?.injuredReserve || {}}
               />
             </div>
           ) : null}
@@ -232,6 +233,7 @@ const GameView = React.forwardRef(function GameView({
                 directory={state.playerDirectory}
                 teams={[homeStatsTeam]}
                 title={`${homeStatsTeam.displayName || homeStatsTeam.label || 'Home'} Leaders`}
+                injuredReserve={state.league?.injuredReserve || {}}
               />
             </div>
           ) : null}

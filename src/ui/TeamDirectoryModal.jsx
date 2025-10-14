@@ -44,6 +44,27 @@ function formatBoostValue(value) {
   return value > 0 ? `+${fixed}` : fixed;
 }
 
+function formatNewsTimestamp(value) {
+  if (!value) return '';
+  try {
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return '';
+    return date.toLocaleString(undefined, {
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  } catch (err) {
+    return '';
+  }
+}
+
+function headlineType(type) {
+  if (!type) return 'Update';
+  return type.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
 function buildStatLines(stat = {}) {
   const passing = stat.passing || {};
   const rushing = stat.rushing || {};
@@ -82,14 +103,18 @@ function createPlayerEntry(player, role, sideLabel, statsMap = {}, league = null
   const attrs = player.attrs ? { ...player.attrs } : null;
   const baseAttrs = player.baseAttrs ? { ...player.baseAttrs } : null;
   const profile = player.profile || {};
+  const firstName = profile.firstName || player.firstName || role;
+  const lastName = profile.lastName || player.lastName || '';
+  const nameFromParts = `${firstName}${lastName ? ` ${lastName}` : ''}`.trim();
+  const fullName = profile.fullName || player.fullName || nameFromParts || role;
   const entry = {
     id: player.id,
     role,
     side: sideLabel,
-    number: player.number ?? null,
-    name: profile.fullName || role,
-    firstName: profile.firstName || '',
-    lastName: profile.lastName || '',
+    number: player.number ?? profile.number ?? null,
+    name: fullName,
+    firstName,
+    lastName,
     stats,
     lines: buildStatLines(stats),
     attrs,
@@ -98,6 +123,15 @@ function createPlayerEntry(player, role, sideLabel, statsMap = {}, league = null
     age: league?.playerAges?.[player.id] ?? null,
     awards: Array.isArray(league?.playerAwards?.[player.id]) ? [...league.playerAwards[player.id]] : [],
   };
+  const irEntry = league?.injuredReserve?.[player.id] || null;
+  entry.onInjuredReserve = Boolean(irEntry);
+  if (irEntry) {
+    entry.injury = {
+      description: irEntry.description || '',
+      severity: irEntry.severity || null,
+      gamesRemaining: irEntry.gamesRemaining ?? null,
+    };
+  }
   if (player.temperament) {
     entry.temperament = { ...player.temperament };
     entry.temperamentLabel = describeTemperament(player.temperament);
@@ -111,7 +145,7 @@ function createPlayerEntry(player, role, sideLabel, statsMap = {}, league = null
   return entry;
 }
 
-function buildRosterGroup(collection = {}, order = [], sideLabel, statsMap, league) {
+function buildRosterGroup(collection = {}, order = [], sideLabel, statsMap, league, teamId, sideKey) {
   const list = [];
   const seen = new Set();
   order.forEach((role) => {
@@ -126,15 +160,56 @@ function buildRosterGroup(collection = {}, order = [], sideLabel, statsMap, leag
     const entry = createPlayerEntry(player, role, sideLabel, statsMap, league);
     if (entry) list.push(entry);
   });
+  const injuredReserve = league?.injuredReserve || {};
+  Object.values(injuredReserve)
+    .filter((irEntry) => {
+      if (!irEntry?.player || irEntry.teamId !== teamId) return false;
+      if (sideKey === 'offense') return ROLES_OFF.includes(irEntry.role);
+      if (sideKey === 'defense') return ROLES_DEF.includes(irEntry.role);
+      return irEntry.role === 'K';
+    })
+    .forEach((irEntry) => {
+      if (list.some((existing) => existing.id === irEntry.player.id)) {
+        return;
+      }
+      const injuredPlayer = createPlayerEntry(irEntry.player, irEntry.role, sideLabel, statsMap, league);
+      if (injuredPlayer) {
+        injuredPlayer.onInjuredReserve = true;
+        injuredPlayer.injury = {
+          description: irEntry.description || injuredPlayer.injury?.description || '',
+          severity: irEntry.severity || injuredPlayer.injury?.severity || null,
+          gamesRemaining: irEntry.gamesRemaining ?? injuredPlayer.injury?.gamesRemaining ?? null,
+        };
+        list.push(injuredPlayer);
+      }
+    });
   return list;
 }
 
-function buildSpecialGroup(special = {}, statsMap, league) {
+function buildSpecialGroup(special = {}, statsMap, league, teamId) {
   const list = [];
   if (special.K) {
     const entry = createPlayerEntry(special.K, 'K', 'Special Teams', statsMap, league);
     if (entry) list.push(entry);
   }
+  const injuredReserve = league?.injuredReserve || {};
+  Object.values(injuredReserve)
+    .filter((irEntry) => irEntry?.player && irEntry.teamId === teamId && irEntry.role === 'K')
+    .forEach((irEntry) => {
+      if (list.some((existing) => existing.id === irEntry.player.id)) {
+        return;
+      }
+      const injuredPlayer = createPlayerEntry(irEntry.player, 'K', 'Special Teams', statsMap, league);
+      if (injuredPlayer) {
+        injuredPlayer.onInjuredReserve = true;
+        injuredPlayer.injury = {
+          description: irEntry.description || injuredPlayer.injury?.description || '',
+          severity: irEntry.severity || injuredPlayer.injury?.severity || null,
+          gamesRemaining: irEntry.gamesRemaining ?? injuredPlayer.injury?.gamesRemaining ?? null,
+        };
+        list.push(injuredPlayer);
+      }
+    });
   return list;
 }
 
@@ -165,9 +240,9 @@ function buildTeamDirectoryData(season, league) {
     const titles = teamTitles[teamId]?.seasons || [];
 
     const group = rosters[TEAM_RED] || { off: {}, def: {}, special: {} };
-    const offense = buildRosterGroup(group.off, ROLES_OFF, 'Offense', statsMap, league);
-    const defense = buildRosterGroup(group.def, ROLES_DEF, 'Defense', statsMap, league);
-    const special = buildSpecialGroup(group.special, statsMap, league);
+    const offense = buildRosterGroup(group.off, ROLES_OFF, 'Offense', statsMap, league, teamId, 'offense');
+    const defense = buildRosterGroup(group.def, ROLES_DEF, 'Defense', statsMap, league, teamId, 'defense');
+    const special = buildSpecialGroup(group.special, statsMap, league, teamId);
 
     return {
       id: teamId,
@@ -242,10 +317,38 @@ function RosterSection({ title, players, onPlayerSelect }) {
                     <td style={{ padding: '8px 10px', fontWeight: 600 }}>{player.role}</td>
                     <td style={{ padding: '8px 10px' }}>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                        <span style={{ fontWeight: 600 }}>{player.name}</span>
+                        <span style={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <span>{player.name}</span>
+                          {player.onInjuredReserve ? (
+                            <span
+                              style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                padding: '2px 6px',
+                                borderRadius: 999,
+                                background: 'rgba(124,22,22,0.25)',
+                                color: '#ff8282',
+                                fontSize: 10,
+                                fontWeight: 700,
+                                letterSpacing: 0.8,
+                                textTransform: 'uppercase',
+                              }}
+                            >
+                              IR
+                            </span>
+                          ) : null}
+                        </span>
                         <span style={{ fontSize: 11, color: '#9bd79b' }}>
                           {player.number != null ? `#${player.number}` : '—'}
                         </span>
+                        {player.onInjuredReserve && (player.injury?.description || player.injury?.gamesRemaining != null) ? (
+                          <span style={{ fontSize: 11, color: '#ff9f9f' }}>
+                            {player.injury?.description || 'Injured'}
+                            {player.injury?.gamesRemaining != null
+                              ? ` • ${player.injury.gamesRemaining} game${player.injury.gamesRemaining === 1 ? '' : 's'} remaining`
+                              : ''}
+                          </span>
+                        ) : null}
                       </div>
                     </td>
                     <td style={{ padding: '8px 10px' }}>{player.lines.passing}</td>
@@ -626,12 +729,33 @@ export default function TeamDirectoryModal({ open, onClose, season, league = nul
   const [playerFocus, setPlayerFocus] = useState(null);
   const [coachFocus, setCoachFocus] = useState(null);
   const [scoutFocus, setScoutFocus] = useState(null);
+  const [teamNewsOpen, setTeamNewsOpen] = useState(false);
+
+  const teamNewsItems = useMemo(() => {
+    if (!league?.newsFeed || !selectedTeamId) return [];
+    return league.newsFeed
+      .filter((entry) => entry.teamId === selectedTeamId || entry.partnerTeam === selectedTeamId)
+      .map((entry) => {
+        const ts = entry.createdAt ? new Date(entry.createdAt).getTime() : 0;
+        const sortKey = Number.isNaN(ts) ? 0 : ts;
+        return {
+          id: entry.id || `${entry.type}-${entry.text}-${sortKey}`,
+          type: headlineType(entry.type),
+          text: entry.text,
+          detail: entry.detail || '',
+          createdAt: formatNewsTimestamp(entry.createdAt),
+          sortKey,
+        };
+      })
+      .sort((a, b) => b.sortKey - a.sortKey);
+  }, [league, selectedTeamId]);
 
   useEffect(() => {
     if (!open) {
       setPlayerFocus(null);
       setCoachFocus(null);
       setScoutFocus(null);
+      setTeamNewsOpen(false);
       return;
     }
     if (!teams.length) {
@@ -643,6 +767,10 @@ export default function TeamDirectoryModal({ open, onClose, season, league = nul
       return teams[0]?.id || null;
     });
   }, [open, teams]);
+
+  useEffect(() => {
+    setTeamNewsOpen(false);
+  }, [selectedTeamId]);
 
   const selectedTeam = teams.find((team) => team.id === selectedTeamId) || null;
 
@@ -729,6 +857,25 @@ export default function TeamDirectoryModal({ open, onClose, season, league = nul
                 <div style={{ fontSize: 12, color: '#9bd79b', marginTop: 4 }}>
                   BluperBowl Titles: {selectedTeam.titles || 0}
                   {selectedTeam.titleSeasons?.length ? ` • Seasons ${selectedTeam.titleSeasons.join(', ')}` : ''}
+                </div>
+                <div style={{ marginTop: 12 }}>
+                  <button
+                    type="button"
+                    onClick={() => setTeamNewsOpen(true)}
+                    disabled={!teamNewsItems.length}
+                    style={{
+                      padding: '6px 12px',
+                      borderRadius: 8,
+                      border: '1px solid rgba(198,255,198,0.4)',
+                      background: teamNewsItems.length ? 'rgba(12,64,12,0.65)' : 'rgba(12,64,12,0.25)',
+                      color: '#f2fff2',
+                      fontWeight: 600,
+                      cursor: teamNewsItems.length ? 'pointer' : 'not-allowed',
+                      opacity: teamNewsItems.length ? 1 : 0.65,
+                    }}
+                  >
+                    {teamNewsItems.length ? 'Show Team News' : 'No Team News'}
+                  </button>
                 </div>
               </div>
 
@@ -830,6 +977,57 @@ export default function TeamDirectoryModal({ open, onClose, season, league = nul
         scout={scoutFocus?.scout || null}
         team={scoutFocus?.team || null}
       />
+      <Modal
+        open={teamNewsOpen}
+        onClose={() => setTeamNewsOpen(false)}
+        title={`${selectedTeam?.identity?.displayName || selectedTeam?.identity?.name || selectedTeam?.id || 'Team'} News`}
+        width="min(92vw, 640px)"
+      >
+        {teamNewsItems.length ? (
+          <div
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 12,
+              maxHeight: '60vh',
+              overflowY: 'auto',
+              paddingRight: 4,
+            }}
+          >
+            {teamNewsItems.map((item) => (
+              <article
+                key={item.id}
+                style={{
+                  border: '1px solid rgba(26,92,26,0.4)',
+                  borderRadius: 12,
+                  background: 'rgba(4,28,4,0.92)',
+                  padding: '12px 16px',
+                  boxShadow: '0 2px 6px rgba(0,0,0,0.35)',
+                }}
+              >
+                <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+                  <div style={{ fontWeight: 700, color: '#e0ffd7', fontSize: 15, letterSpacing: 0.4 }}>
+                    {item.type}
+                  </div>
+                  {item.createdAt ? (
+                    <div style={{ fontSize: 11, color: 'rgba(205,232,205,0.7)' }}>{item.createdAt}</div>
+                  ) : null}
+                </header>
+                <p style={{ margin: '8px 0 4px', fontSize: 14, color: '#f0fff0', lineHeight: 1.4 }}>
+                  {item.text}
+                </p>
+                {item.detail ? (
+                  <p style={{ margin: 0, fontSize: 13, color: 'rgba(205,232,205,0.8)' }}>{item.detail}</p>
+                ) : null}
+              </article>
+            ))}
+          </div>
+        ) : (
+          <div style={{ color: '#cde8cd', fontSize: 14 }}>
+            No transactions or injuries have been reported for this team yet.
+          </div>
+        )}
+      </Modal>
     </>
   );
 }
