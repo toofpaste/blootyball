@@ -191,6 +191,75 @@ export function generateSeasonSchedule(teamIds = TEAM_IDS) {
   const ids = [...teamIds];
   if (!ids.length) return [];
 
+  if (ids.length === 8) {
+    const baseWeeks = [
+      [
+        [0, 7],
+        [1, 6],
+        [2, 5],
+        [3, 4],
+      ],
+      [
+        [0, 6],
+        [1, 5],
+        [2, 4],
+        [3, 7],
+      ],
+      [
+        [0, 5],
+        [1, 4],
+        [2, 7],
+        [3, 6],
+      ],
+      [
+        [0, 4],
+        [1, 7],
+        [2, 6],
+        [3, 5],
+      ],
+      [
+        [0, 3],
+        [1, 2],
+        [4, 7],
+        [5, 6],
+      ],
+      [
+        [0, 2],
+        [1, 3],
+        [4, 6],
+        [5, 7],
+      ],
+      [
+        [0, 1],
+        [2, 3],
+        [4, 5],
+        [6, 7],
+      ],
+    ];
+
+    const buildWeek = (pairs, tag, swapHome) => pairs.map(([homeIndex, awayIndex]) => ({
+      homeTeam: swapHome ? ids[awayIndex] : ids[homeIndex],
+      awayTeam: swapHome ? ids[homeIndex] : ids[awayIndex],
+      tag,
+    }));
+
+    const firstHalf = baseWeeks.map((pairs) => buildWeek(pairs, 'regular-season', false));
+    const secondHalf = baseWeeks.map((pairs) => buildWeek(pairs, 'regular-season-rematch', true));
+    const weeks = [...firstHalf, ...secondHalf];
+
+    return weeks
+      .flatMap((games, weekIndex) => games.map((game, slotIndex) => ({
+        ...game,
+        week: weekIndex + 1,
+        slot: slotIndex,
+      })))
+      .map((game, index) => ({
+        ...game,
+        id: `G${String(index + 1).padStart(3, '0')}`,
+        index,
+      }));
+  }
+
   const circle = [...ids];
   const totalTeams = circle.length;
   const half = totalTeams / 2;

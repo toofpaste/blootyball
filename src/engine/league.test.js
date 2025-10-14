@@ -2,7 +2,7 @@ import { generateSeasonSchedule } from './league';
 import { TEAM_IDS } from './data/teamLibrary';
 
 describe('generateSeasonSchedule', () => {
-  it('creates a balanced 16-game season for each team', () => {
+  it('creates a balanced 14-game season for each team', () => {
     const schedule = generateSeasonSchedule();
     const counts = new Map(TEAM_IDS.map((id) => [id, 0]));
     const pairCounts = new Map();
@@ -15,14 +15,14 @@ describe('generateSeasonSchedule', () => {
     });
 
     TEAM_IDS.forEach((id) => {
-      expect(counts.get(id)).toBe(16);
+      expect(counts.get(id)).toBe(14);
     });
 
     pairCounts.forEach((count) => {
-      expect(count).toBeGreaterThanOrEqual(2);
+      expect(count).toBe(2);
     });
 
-    expect(schedule).toHaveLength(64);
+    expect(schedule).toHaveLength(56);
   });
 
   it('ensures each team appears only once per week', () => {
@@ -35,7 +35,7 @@ describe('generateSeasonSchedule', () => {
       weeks.set(game.week, weekGames);
     });
 
-    expect(weeks.size).toBe(16);
+    expect(weeks.size).toBe(14);
 
     weeks.forEach((games) => {
       const seen = new Set();
@@ -46,6 +46,24 @@ describe('generateSeasonSchedule', () => {
         seen.add(awayTeam);
       });
       expect(seen.size).toBe(TEAM_IDS.length);
+    });
+  });
+
+  it('prevents back-to-back opponents for any team', () => {
+    const schedule = generateSeasonSchedule();
+    const byTeam = new Map(TEAM_IDS.map((id) => [id, []]));
+
+    schedule.forEach((game) => {
+      byTeam.get(game.homeTeam).push({ week: game.week, opponent: game.awayTeam });
+      byTeam.get(game.awayTeam).push({ week: game.week, opponent: game.homeTeam });
+    });
+
+    byTeam.forEach((entries) => {
+      const sorted = entries.sort((a, b) => a.week - b.week);
+      for (let i = 1; i < sorted.length; i += 1) {
+        expect(sorted[i].week).toBeGreaterThan(sorted[i - 1].week);
+        expect(sorted[i].opponent).not.toBe(sorted[i - 1].opponent);
+      }
     });
   });
 });
