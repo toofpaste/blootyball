@@ -27,10 +27,14 @@ const GameView = React.forwardRef(function GameView({
   onManualReset,
   globalRunning = false,
   simSpeed = 1,
+  parallelSlotCount = 1,
 }, ref) {
   const canvasRef = useRef(null);
   const [localRunning, setLocalRunning] = useState(false);
-  const [state, setState] = useState(() => createInitialGameState({ startGameIndex: gameIndex }));
+  const [state, setState] = useState(() => createInitialGameState({
+    assignmentOffset: gameIndex,
+    assignmentStride: parallelSlotCount,
+  }));
   const lastResetTokenRef = useRef(resetSignal?.token ?? 0);
   const notifiedCompleteRef = useRef(false);
   const prevGlobalRunningRef = useRef(globalRunning);
@@ -106,10 +110,13 @@ const GameView = React.forwardRef(function GameView({
     lastResetTokenRef.current = token;
     const shouldResume = !!resetSignal?.autoResume?.[gameIndex];
     notifiedCompleteRef.current = false;
-    setState(createInitialGameState({ startGameIndex: gameIndex }));
+    setState(createInitialGameState({
+      assignmentOffset: gameIndex,
+      assignmentStride: parallelSlotCount,
+    }));
     setLocalRunning(shouldResume);
     onManualReset?.(gameIndex);
-  }, [resetSignal, gameIndex, onManualReset]);
+  }, [resetSignal, gameIndex, onManualReset, parallelSlotCount]);
 
   useEffect(() => {
     if (globalRunning && !prevGlobalRunningRef.current && !state.gameComplete) {
@@ -119,10 +126,20 @@ const GameView = React.forwardRef(function GameView({
   }, [globalRunning, state.gameComplete]);
 
   const season = state.season || {};
-  const totalGames = season.schedule?.length || 0;
+  const assignmentStride = season.assignmentStride || season.assignment?.stride || 1;
+  const assignmentOffset = season.assignmentOffset ?? season.assignment?.offset ?? 0;
+  const totalGames = season.assignmentTotalGames || season.assignment?.totalGames || season.schedule?.length || 0;
   const activeMatchup = state.matchup || null;
   const fallbackMatchup = !activeMatchup ? state.lastCompletedGame?.matchup : null;
   const activeScores = activeMatchup ? state.scores : (state.lastCompletedGame?.scores || {});
+
+  const computeDisplayIndex = (indexValue) => {
+    if (indexValue == null || indexValue < 0) return null;
+    if (assignmentStride <= 1) return indexValue;
+    const normalized = indexValue - assignmentOffset;
+    if (normalized < 0) return null;
+    return Math.floor(normalized / assignmentStride);
+  };
 
   const buildTeam = (slot) => {
     const matchupInfo = activeMatchup || fallbackMatchup;
@@ -156,10 +173,13 @@ const GameView = React.forwardRef(function GameView({
       gameLabel = 'Season complete';
     } else if (activeMatchup) {
       const index = activeMatchup.index != null ? activeMatchup.index : season.currentGameIndex;
-      gameLabel = `Game ${Math.min((index ?? 0) + 1, totalGames)} of ${totalGames}`;
+      const displayIndex = computeDisplayIndex(index);
+      const gameNumber = displayIndex != null ? displayIndex + 1 : (index != null ? index + 1 : 1);
+      gameLabel = `Game ${Math.min(gameNumber, totalGames)} of ${totalGames}`;
     } else if (fallbackMatchup) {
       const index = fallbackMatchup.index != null ? fallbackMatchup.index : (season.completedGames ?? 1) - 1;
-      const safeIndex = index != null ? index : 0;
+      const displayIndex = computeDisplayIndex(index);
+      const safeIndex = displayIndex != null ? displayIndex : (index != null ? index : 0);
       gameLabel = `Final • Game ${Math.min(safeIndex + 1, totalGames)} of ${totalGames}`;
     }
   }

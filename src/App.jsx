@@ -120,6 +120,7 @@ export default function App() {
             onManualReset={handleGameReset}
             globalRunning={globalRunning}
             simSpeed={simSpeed}
+            parallelSlotCount={GAME_COUNT}
           />
         ))}
       </div>

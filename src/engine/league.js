@@ -347,8 +347,10 @@ export function prepareSeasonMatchup(season) {
 
 export function advanceSeasonPointer(season) {
   if (!season) return null;
-  const nextIndex = season.currentGameIndex + 1;
-  if (nextIndex >= season.schedule.length) {
+  const stride = Math.max(1, season.assignmentStride || season.assignment?.stride || 1);
+  const nextIndex = season.currentGameIndex + stride;
+  const scheduleLength = season.schedule?.length ?? 0;
+  if (nextIndex >= scheduleLength) {
     season.currentGameIndex = nextIndex;
     return null;
   }
