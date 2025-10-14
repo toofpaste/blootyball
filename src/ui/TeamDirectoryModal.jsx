@@ -924,7 +924,7 @@ export default function TeamDirectoryModal({ open, onClose, season, league = nul
 
   return (
     <>
-      <Modal open={open} onClose={onClose} title="Team Directory" width="min(98vw, 1180px)">
+      <Modal open={open} onClose={onClose} title="Team Directory" width="min(96vw, 1100px)">
         {teams.length && selectedTeam ? (
           <div style={{ display: 'flex', gap: 18, alignItems: 'stretch', minHeight: 420 }}>
             <div
@@ -937,7 +937,7 @@ export default function TeamDirectoryModal({ open, onClose, season, league = nul
                 border: '1px solid rgba(26,92,26,0.35)',
                 borderRadius: 12,
                 padding: 12,
-                maxHeight: '70vh',
+                maxHeight: '75vh',
                 overflowY: 'auto',
                 minHeight: 0,
               }}
@@ -972,9 +972,9 @@ export default function TeamDirectoryModal({ open, onClose, season, league = nul
                 flexDirection: 'column',
                 gap: 16,
                 overflowY: 'auto',
-                maxHeight: '70vh',
+                maxHeight: '75vh',
                 minHeight: 0,
-                paddingRight: 4,
+                paddingRight: 8,
               }}
             >
               <div>

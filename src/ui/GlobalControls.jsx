@@ -9,6 +9,8 @@ export default function GlobalControls({
   onShowSeasonStats,
   onShowLeaderboards,
   onShowNews,
+  seasonProgressLabel,
+  hasUnseenNews,
 }) {
   const handleSpeedChange = (event) => {
     const value = parseFloat(event.target.value);
@@ -17,8 +19,11 @@ export default function GlobalControls({
     }
   };
 
+  const progressText = seasonProgressLabel || 'Week 1 of 16';
+
   return (
     <div className="global-controls">
+      <span className="global-controls__season" aria-live="polite">{progressText}</span>
       <button type="button" className="global-controls__button" onClick={onToggleRunning}>
         {running ? 'Pause' : 'Start'}
       </button>
@@ -35,6 +40,7 @@ export default function GlobalControls({
         onClick={onShowNews}
       >
         League News
+        {hasUnseenNews ? <span className="global-controls__news-indicator" aria-hidden="true" /> : null}
       </button>
       <button
         type="button"

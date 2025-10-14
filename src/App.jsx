@@ -733,6 +733,73 @@ function combineSeasonSnapshots(rawSnapshots) {
   };
 }
 
+function computeSeasonProgress(season) {
+  if (!season) {
+    return { label: 'Week 1 of 16', currentWeek: 1, totalWeeks: 16, phase: 'regular' };
+  }
+
+  const schedule = Array.isArray(season.schedule) ? season.schedule : [];
+  const regularGames = schedule.filter((game) => {
+    const tag = String(game?.tag || '');
+    return !tag.startsWith('playoff');
+  });
+
+  const weekSet = new Set();
+  let gamesInWeekOne = 0;
+  regularGames.forEach((game) => {
+    if (!game) return;
+    const week = Number.isFinite(game.week) ? game.week : null;
+    if (week != null) {
+      weekSet.add(week);
+      if (week === 1) gamesInWeekOne += 1;
+    }
+  });
+
+  const inferredWeeks = weekSet.size;
+  const defaultWeeks = season.regularSeasonLength
+    ? Math.max(1, Math.round((season.regularSeasonLength || 0) / Math.max(1, gamesInWeekOne || 4)))
+    : 16;
+  const totalWeeks = inferredWeeks || defaultWeeks || 16;
+  const gamesPerWeek = Math.max(
+    1,
+    gamesInWeekOne || Math.round((regularGames.length || totalWeeks) / Math.max(1, totalWeeks)) || 4,
+  );
+
+  const playedRegular = regularGames.filter((game) => {
+    if (!game) return false;
+    if (game.played) return true;
+    const result = game.result || null;
+    return result && Object.keys(result).length > 0;
+  }).length;
+
+  const phase = season.phase || 'regular';
+  const bracketStage = season.playoffBracket?.stage || null;
+
+  if (phase === 'complete' || bracketStage === 'complete') {
+    return { label: 'Season Complete', currentWeek: totalWeeks, totalWeeks, phase: 'complete' };
+  }
+  if (phase === 'championship' || bracketStage === 'championship') {
+    return { label: 'Playoffs • Championship', currentWeek: totalWeeks, totalWeeks, phase: 'championship' };
+  }
+  if (phase === 'playoffs' || bracketStage === 'semifinals') {
+    return { label: 'Playoffs • Semifinals', currentWeek: totalWeeks, totalWeeks, phase: 'playoffs' };
+  }
+
+  if (!regularGames.length) {
+    return { label: 'Week 1 of 16', currentWeek: 1, totalWeeks: 16, phase: 'regular' };
+  }
+
+  if (playedRegular >= regularGames.length) {
+    return { label: 'Regular Season Complete', currentWeek: totalWeeks, totalWeeks, phase: 'regular' };
+  }
+
+  const completedWeeks = Math.floor(playedRegular / gamesPerWeek);
+  let currentWeek = Math.min(totalWeeks, completedWeeks + 1);
+  if (currentWeek <= 0) currentWeek = 1;
+
+  return { label: `Week ${currentWeek} of ${totalWeeks}`, currentWeek, totalWeeks, phase: 'regular' };
+}
+
 export default function App() {
   const [completionFlags, setCompletionFlags] = useState(() => Array(GAME_COUNT).fill(false));
   const autoResumeRef = useRef(Array(GAME_COUNT).fill(false));
@@ -743,6 +810,7 @@ export default function App() {
   const [teamDirectoryOpen, setTeamDirectoryOpen] = useState(false);
   const [leaderboardsOpen, setLeaderboardsOpen] = useState(false);
   const [newsOpen, setNewsOpen] = useState(false);
+  const [lastSeenNewsTimestamp, setLastSeenNewsTimestamp] = useState(0);
   const [seasonSnapshots, setSeasonSnapshots] = useState(() => []);
   const gameRefs = useRef([]);
 
@@ -808,6 +876,20 @@ export default function App() {
     return snapshots;
   }, []);
 
+  useEffect(() => {
+    collectSeasonSnapshots();
+  }, [collectSeasonSnapshots]);
+
+  useEffect(() => {
+    if (!completionFlags.some(Boolean)) return;
+    collectSeasonSnapshots();
+  }, [completionFlags, collectSeasonSnapshots]);
+
+  useEffect(() => {
+    if (!resetSignal?.token && resetSignal?.token !== 0) return;
+    collectSeasonSnapshots();
+  }, [resetSignal?.token, collectSeasonSnapshots]);
+
   const handleOpenSeasonStats = useCallback(() => {
     collectSeasonSnapshots();
     setSeasonStatsOpen(true);
@@ -833,6 +915,42 @@ export default function App() {
     [seasonSnapshots],
   );
 
+  const seasonProgress = useMemo(
+    () => computeSeasonProgress(aggregatedSeasonStats?.season || null),
+    [aggregatedSeasonStats],
+  );
+
+  const leagueNewsMeta = useMemo(() => {
+    const feed = aggregatedSeasonStats?.league?.newsFeed;
+    if (!Array.isArray(feed) || feed.length === 0) return { latest: 0, count: 0 };
+    let latest = 0;
+    feed.forEach((entry) => {
+      const value = entry?.createdAt ? new Date(entry.createdAt).getTime() : 0;
+      if (!Number.isNaN(value)) {
+        latest = Math.max(latest, value);
+      }
+    });
+    return { latest, count: feed.length };
+  }, [aggregatedSeasonStats?.league?.newsFeed]);
+
+  useEffect(() => {
+    if (!leagueNewsMeta.count) {
+      setLastSeenNewsTimestamp(0);
+    }
+  }, [leagueNewsMeta.count]);
+
+  useEffect(() => {
+    if (!newsOpen) return;
+    if (!leagueNewsMeta.count) {
+      setLastSeenNewsTimestamp(0);
+      return;
+    }
+    const latest = leagueNewsMeta.latest || Date.now();
+    setLastSeenNewsTimestamp(latest);
+  }, [newsOpen, leagueNewsMeta]);
+
+  const hasUnseenNews = leagueNewsMeta.count > 0 && leagueNewsMeta.latest > (lastSeenNewsTimestamp || 0);
+
   const modalTitle = aggregatedSeasonStats?.label
     ? `Season Overview • ${aggregatedSeasonStats.label}`
     : 'Season Overview';
@@ -841,14 +959,16 @@ export default function App() {
     <div className="app-root">
       <GlobalControls
         running={globalRunning}
-        onToggleRunning={handleToggleRunning}
-        simSpeed={simSpeed}
-        onSimSpeedChange={handleSimSpeedChange}
-        onShowTeamDirectory={handleOpenTeamDirectory}
-        onShowSeasonStats={handleOpenSeasonStats}
-        onShowLeaderboards={handleOpenLeaderboards}
-        onShowNews={handleOpenNews}
-      />
+      onToggleRunning={handleToggleRunning}
+      simSpeed={simSpeed}
+      onSimSpeedChange={handleSimSpeedChange}
+      onShowTeamDirectory={handleOpenTeamDirectory}
+      onShowSeasonStats={handleOpenSeasonStats}
+      onShowLeaderboards={handleOpenLeaderboards}
+      onShowNews={handleOpenNews}
+      seasonProgressLabel={seasonProgress.label}
+      hasUnseenNews={hasUnseenNews}
+    />
       <div className="games-stack">
         {Array.from({ length: GAME_COUNT }).map((_, index) => (
           <GameView

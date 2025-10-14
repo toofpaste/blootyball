@@ -481,6 +481,9 @@ function prepareGameForMatchup(state, matchup) {
         state.playerStats = {};
         state.playLog = [];
         state.gameDynamics = null;
+        state.pendingMatchup = null;
+        state.awaitingNextMatchup = false;
+        state.gameComplete = true;
         return state;
     }
 
@@ -509,6 +512,9 @@ function prepareGameForMatchup(state, matchup) {
     state.roster.__ownerState = state;
     state.play = createPlayState(state.roster, state.drive);
     beginPlayDiagnostics(state);
+    state.gameComplete = false;
+    state.pendingMatchup = null;
+    state.awaitingNextMatchup = false;
     return state;
 }
 
@@ -603,6 +609,17 @@ function finalizeCurrentGame(state) {
 
     if (currentTag === 'playoff-championship' && latestResult) {
         finalizeLeagueForSeason(state, latestResult);
+    }
+
+    if (state.lockstepAssignments) {
+        state.pendingMatchup = nextMatchup || null;
+        state.awaitingNextMatchup = !!nextMatchup;
+        state.gameComplete = true;
+        if (state.clock) {
+            state.clock.running = false;
+            if (!state.clock.stopReason) state.clock.stopReason = nextMatchup ? 'Awaiting next game' : state.clock.stopReason;
+        }
+        return { ...state, season: { ...state.season } };
     }
 
     if (nextMatchup) {
@@ -1810,6 +1827,7 @@ export function createInitialGameState(options = {}) {
         assignmentOffset = null,
         assignmentStride = 1,
         league: inputLeague = null,
+        lockstepAssignments = false,
     } = options || {};
 
     const league = inputLeague || createLeagueContext();
@@ -1865,6 +1883,9 @@ export function createInitialGameState(options = {}) {
         playLog: [],
         debug: { trace: false },
         league,
+        lockstepAssignments: !!lockstepAssignments,
+        pendingMatchup: null,
+        awaitingNextMatchup: false,
     };
     prepareGameForMatchup(state, matchup);
     if (!matchup) {
@@ -2044,11 +2065,46 @@ export function createPlayState(roster, drive) {
     return play;
 }
 
+export function resumeAssignedMatchup(state) {
+    if (!state) return state;
+    const next = { ...state };
+    if (next.season) {
+        next.season = { ...next.season };
+    }
+
+    if (!next.lockstepAssignments) {
+        const matchup = prepareSeasonMatchup(next.season);
+        if (matchup) {
+            prepareGameForMatchup(next, matchup);
+        } else {
+            next.gameComplete = true;
+        }
+        return next;
+    }
+
+    const nextMatchup = next.pendingMatchup || prepareSeasonMatchup(next.season);
+    if (nextMatchup) {
+        next.pendingMatchup = null;
+        next.awaitingNextMatchup = false;
+        prepareGameForMatchup(next, nextMatchup);
+    } else {
+        next.pendingMatchup = null;
+        next.awaitingNextMatchup = false;
+        next.gameComplete = true;
+    }
+
+    return next;
+}
+
 
 /* =========================================================
    Main step
    ========================================================= */
 export function stepGame(state, dt) {
+    if (state?.gameComplete) {
+        return state;
+    }
+
     let s = { ...state };
     ensureDrive(s);
 
