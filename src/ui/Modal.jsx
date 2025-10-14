@@ -65,7 +65,15 @@ export default function Modal({ open, onClose, title, children, width = 'min(90v
                         Close
                     </button>
                 </div>
-                <div style={{ padding: '12px 16px', overflow: 'auto' }}>
+                <div
+                    style={{
+                        padding: '12px 16px',
+                        overflowX: 'hidden',
+                        overflowY: 'auto',
+                        flex: 1,
+                        minHeight: 0,
+                    }}
+                >
                     {children}
                 </div>
             </div>

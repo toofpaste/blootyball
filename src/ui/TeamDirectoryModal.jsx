@@ -334,6 +334,9 @@ function RosterSection({ title, players, onPlayerSelect }) {
         borderRadius: 12,
         overflow: 'hidden',
         background: 'rgba(4,28,4,0.92)',
+        display: 'flex',
+        flexDirection: 'column',
+        minHeight: 0,
       }}
     >
       <div
@@ -344,11 +347,20 @@ function RosterSection({ title, players, onPlayerSelect }) {
           letterSpacing: 0.4,
           textTransform: 'uppercase',
           fontSize: 14,
+          flex: '0 0 auto',
         }}
       >
         {title}
       </div>
-      <div style={{ overflowX: 'auto' }}>
+      <div
+        style={{
+          overflowX: 'auto',
+          overflowY: 'auto',
+          maxHeight: '35vh',
+          flex: 1,
+          minHeight: 0,
+        }}
+      >
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
           <thead>
             <tr style={{ background: 'rgba(6,44,6,0.95)', textAlign: 'left' }}>
