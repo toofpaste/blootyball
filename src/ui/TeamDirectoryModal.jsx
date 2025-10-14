@@ -75,7 +75,7 @@ function buildStatLines(stat = {}) {
   return { passing: passLine, rushing: rushLine, receiving: recLine, defense: defLine, kicking: kickLine };
 }
 
-function createPlayerEntry(player, role, sideLabel, statsMap = {}) {
+function createPlayerEntry(player, role, sideLabel, statsMap = {}, league = null) {
   if (!player) return null;
   const stats = statsMap[player.id] || {};
   const attrs = player.attrs ? { ...player.attrs } : null;
@@ -94,6 +94,8 @@ function createPlayerEntry(player, role, sideLabel, statsMap = {}) {
     attrs,
     baseAttrs,
     kicker: role === 'K',
+    age: league?.playerAges?.[player.id] ?? null,
+    awards: Array.isArray(league?.playerAwards?.[player.id]) ? [...league.playerAwards[player.id]] : [],
   };
   if (entry.kicker) {
     entry.attrs = { maxDistance: player.maxDistance ?? null, accuracy: player.accuracy ?? null };
@@ -102,40 +104,41 @@ function createPlayerEntry(player, role, sideLabel, statsMap = {}) {
   return entry;
 }
 
-function buildRosterGroup(collection = {}, order = [], sideLabel, statsMap) {
+function buildRosterGroup(collection = {}, order = [], sideLabel, statsMap, league) {
   const list = [];
   const seen = new Set();
   order.forEach((role) => {
     const player = collection[role];
     if (!player) return;
-    const entry = createPlayerEntry(player, role, sideLabel, statsMap);
+    const entry = createPlayerEntry(player, role, sideLabel, statsMap, league);
     if (entry) list.push(entry);
     seen.add(role);
   });
   Object.entries(collection).forEach(([role, player]) => {
     if (seen.has(role)) return;
-    const entry = createPlayerEntry(player, role, sideLabel, statsMap);
+    const entry = createPlayerEntry(player, role, sideLabel, statsMap, league);
     if (entry) list.push(entry);
   });
   return list;
 }
 
-function buildSpecialGroup(special = {}, statsMap) {
+function buildSpecialGroup(special = {}, statsMap, league) {
   const list = [];
   if (special.K) {
-    const entry = createPlayerEntry(special.K, 'K', 'Special Teams', statsMap);
+    const entry = createPlayerEntry(special.K, 'K', 'Special Teams', statsMap, league);
     if (entry) list.push(entry);
   }
   return list;
 }
 
-function buildTeamDirectoryData(season) {
+function buildTeamDirectoryData(season, league) {
   if (!season) return [];
   const teams = Object.values(season.teams || {});
   if (!teams.length) return [];
   const availableIds = teams.map((team) => team.id).filter(Boolean);
   const statsMap = season.playerStats || {};
   const development = season.playerDevelopment || {};
+  const teamTitles = league?.teamChampionships || {};
 
   return teams.map((team) => {
     const teamId = team.id;
@@ -152,11 +155,12 @@ function buildTeamDirectoryData(season) {
     applyLongTermAdjustments(rosters, coaches, development);
     const identity = getTeamIdentity(teamId) || team.info || { id: teamId, displayName: teamId };
     const record = team.record || { wins: 0, losses: 0, ties: 0 };
+    const titles = teamTitles[teamId]?.seasons || [];
 
     const group = rosters[TEAM_RED] || { off: {}, def: {}, special: {} };
-    const offense = buildRosterGroup(group.off, ROLES_OFF, 'Offense', statsMap);
-    const defense = buildRosterGroup(group.def, ROLES_DEF, 'Defense', statsMap);
-    const special = buildSpecialGroup(group.special, statsMap);
+    const offense = buildRosterGroup(group.off, ROLES_OFF, 'Offense', statsMap, league);
+    const defense = buildRosterGroup(group.def, ROLES_DEF, 'Defense', statsMap, league);
+    const special = buildSpecialGroup(group.special, statsMap, league);
 
     return {
       id: teamId,
@@ -166,6 +170,8 @@ function buildTeamDirectoryData(season) {
       pointsFor: team.pointsFor ?? 0,
       pointsAgainst: team.pointsAgainst ?? 0,
       coach: coaches?.[TEAM_RED] || null,
+      titles: titles.length,
+      titleSeasons: titles.slice(),
       roster: {
         offense,
         defense,
@@ -275,6 +281,7 @@ function PlayerCardModal({ open, onClose, entry, team }) {
   const hasKicking = hasStatCategory(kicking);
   const hasMisc = hasStatCategory(misc);
   const teamName = team?.identity?.displayName || team?.identity?.name || team?.identity?.id || 'Team';
+  const awards = Array.isArray(entry.awards) ? entry.awards : [];
 
   const attrRows = entry.kicker
     ? [
@@ -293,9 +300,22 @@ function PlayerCardModal({ open, onClose, entry, team }) {
         <div>
           <div style={{ fontSize: 18, fontWeight: 700 }}>{entry.name}</div>
           <div style={{ color: '#a5e0a5', fontSize: 14 }}>
-            {teamName} • {entry.role} • {entry.side}{entry.number != null ? ` • #${entry.number}` : ''}
+            {teamName} • {entry.role} • {entry.side}{entry.number != null ? ` • #${entry.number}` : ''}{entry.age != null ? ` • Age ${entry.age}` : ''}
           </div>
         </div>
+
+        {awards.length ? (
+          <div style={{ background: 'rgba(7,45,7,0.65)', borderRadius: 10, padding: '8px 12px', color: '#f2fff2' }}>
+            <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 4 }}>Career Awards</div>
+            <ul style={{ margin: 0, paddingLeft: 18, display: 'flex', flexDirection: 'column', gap: 2 }}>
+              {awards.map((award) => (
+                <li key={`${award.award}-${award.season}`}>
+                  Season {award.season}: {award.award}
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
 
         <div>
           <div style={{ fontWeight: 600, marginBottom: 6 }}>Attributes</div>
@@ -531,8 +551,8 @@ function InfoBadge({ label, value, signed = false }) {
   );
 }
 
-export default function TeamDirectoryModal({ open, onClose, season }) {
-  const teams = useMemo(() => buildTeamDirectoryData(season), [season]);
+export default function TeamDirectoryModal({ open, onClose, season, league = null }) {
+  const teams = useMemo(() => buildTeamDirectoryData(season, league), [season, league]);
   const [selectedTeamId, setSelectedTeamId] = useState(null);
   const [playerFocus, setPlayerFocus] = useState(null);
   const [coachFocus, setCoachFocus] = useState(null);
@@ -615,6 +635,10 @@ export default function TeamDirectoryModal({ open, onClose, season }) {
                 <div style={{ fontSize: 13, color: '#cde8cd' }}>
                   Record {selectedTeam.recordText} • PF {selectedTeam.pointsFor} • PA {selectedTeam.pointsAgainst}
                 </div>
+                <div style={{ fontSize: 12, color: '#9bd79b', marginTop: 4 }}>
+                  BluperBowl Titles: {selectedTeam.titles || 0}
+                  {selectedTeam.titleSeasons?.length ? ` • Seasons ${selectedTeam.titleSeasons.join(', ')}` : ''}
+                </div>
               </div>
 
               <div
@@ -665,6 +689,7 @@ export default function TeamDirectoryModal({ open, onClose, season }) {
         onClose={() => setPlayerFocus(null)}
         entry={playerFocus?.player || null}
         team={playerFocus?.team || null}
+        league={league}
       />
       <CoachCardModal
         open={!!coachFocus}

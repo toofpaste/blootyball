@@ -5,10 +5,26 @@ import GlobalControls from './ui/GlobalControls';
 import Modal from './ui/Modal';
 import { SeasonStatsContent } from './ui/SeasonStatsModal';
 import TeamDirectoryModal from './ui/TeamDirectoryModal';
+import LeaderboardsModal from './ui/LeaderboardsModal';
 import './AppLayout.css';
 
 const GAME_COUNT = 2;
 const RESET_DELAY_MS = 1200;
+const PLAYOFF_STAGE_ORDER = { regular: 0, semifinals: 1, championship: 2, complete: 3 };
+
+function stageRank(stage) {
+  return PLAYOFF_STAGE_ORDER[stage] ?? -1;
+}
+
+function cloneAwardsEntry(entry) {
+  if (!entry) return null;
+  return {
+    seasonNumber: entry.seasonNumber ?? null,
+    mvp: entry.mvp ? { ...entry.mvp } : null,
+    offensive: entry.offensive ? { ...entry.offensive } : null,
+    defensive: entry.defensive ? { ...entry.defensive } : null,
+  };
+}
 
 function cloneTeamEntry(team = {}) {
   const record = team.record || {};
@@ -207,6 +223,13 @@ function cloneSeason(season) {
     completedGames: Number.isFinite(season.completedGames)
       ? season.completedGames
       : results.length,
+    phase: season.phase || 'regular',
+    playoffBracket: season.playoffBracket ? JSON.parse(JSON.stringify(season.playoffBracket)) : null,
+    awards: cloneAwardsEntry(season.awards),
+    championTeamId: season.championTeamId || null,
+    championResult: season.championResult ? cloneResult(season.championResult) : null,
+    playerAges: { ...(season.playerAges || {}) },
+    previousAwards: Array.isArray(season.previousAwards) ? season.previousAwards.map((entry) => cloneAwardsEntry(entry) || null).filter(Boolean) : [],
   };
 }
 
@@ -278,6 +301,139 @@ function mergeSeasonData(target, source) {
   mergePlayerDevelopmentMap(target.playerDevelopment, source.playerDevelopment || {});
 
   target.completedGames = target.results.length;
+
+  if (stageRank(source.phase) > stageRank(target.phase)) {
+    target.phase = source.phase;
+  }
+
+  if (source.playoffBracket) {
+    if (!target.playoffBracket || stageRank(source.playoffBracket.stage) >= stageRank(target.playoffBracket.stage)) {
+      target.playoffBracket = JSON.parse(JSON.stringify(source.playoffBracket));
+    }
+  }
+
+  if (source.awards) {
+    target.awards = cloneAwardsEntry(source.awards);
+  }
+
+  if (source.championTeamId) {
+    target.championTeamId = source.championTeamId;
+  }
+
+  if (source.championResult) {
+    target.championResult = cloneResult(source.championResult);
+  }
+
+  target.playerAges = { ...(target.playerAges || {}), ...(source.playerAges || {}) };
+
+  if (Array.isArray(source.previousAwards) && source.previousAwards.length) {
+    const existing = Array.isArray(target.previousAwards) ? target.previousAwards.slice() : [];
+    const seen = new Set(existing.map((entry) => entry.seasonNumber));
+    source.previousAwards.forEach((entry) => {
+      if (!entry) return;
+      if (entry.seasonNumber != null && seen.has(entry.seasonNumber)) return;
+      existing.push(cloneAwardsEntry(entry));
+      if (entry.seasonNumber != null) seen.add(entry.seasonNumber);
+    });
+    target.previousAwards = existing;
+  }
+}
+
+function cloneLeague(league) {
+  if (!league) return null;
+  const playerAwards = Object.entries(league.playerAwards || {}).reduce((acc, [playerId, awards]) => {
+    acc[playerId] = Array.isArray(awards) ? awards.map((award) => ({ ...award })) : [];
+    return acc;
+  }, {});
+  const teamChampionships = Object.entries(league.teamChampionships || {}).reduce((acc, [teamId, data]) => {
+    acc[teamId] = {
+      count: data.count || (Array.isArray(data.seasons) ? data.seasons.length : 0),
+      seasons: Array.isArray(data.seasons) ? [...data.seasons] : [],
+    };
+    return acc;
+  }, {});
+  const playerDirectory = Object.entries(league.playerDirectory || {}).reduce((acc, [playerId, meta]) => {
+    acc[playerId] = { ...meta };
+    return acc;
+  }, {});
+  return {
+    ...league,
+    playerDevelopment: clonePlayerDevelopmentMap(league.playerDevelopment || {}),
+    playerAges: { ...(league.playerAges || {}) },
+    careerStats: clonePlayerStatsMap(league.careerStats || {}),
+    playerAwards,
+    awardsHistory: Array.isArray(league.awardsHistory)
+      ? league.awardsHistory.map((entry) => cloneAwardsEntry(entry)).filter(Boolean)
+      : [],
+    teamChampionships,
+    lastChampion: league.lastChampion ? { ...league.lastChampion } : null,
+    finalizedSeasonNumber: league.finalizedSeasonNumber ?? null,
+    seasonNumber: league.seasonNumber ?? 1,
+    playerDirectory,
+  };
+}
+
+function mergeLeagueData(target, source) {
+  if (!target || !source) return;
+  target.seasonNumber = Math.max(target.seasonNumber || 1, source.seasonNumber || 1);
+  target.playerDevelopment ||= {};
+  mergePlayerDevelopmentMap(target.playerDevelopment, source.playerDevelopment || {});
+  target.playerAges = { ...(target.playerAges || {}), ...(source.playerAges || {}) };
+  target.careerStats ||= {};
+  mergePlayerStatsMap(target.careerStats, source.careerStats || {});
+
+  target.playerAwards ||= {};
+  Object.entries(source.playerAwards || {}).forEach(([playerId, awards]) => {
+    const existing = target.playerAwards[playerId] ? [...target.playerAwards[playerId]] : [];
+    const seen = new Set(existing.map((award) => `${award.award}-${award.season}`));
+    (awards || []).forEach((award) => {
+      if (!award) return;
+      const key = `${award.award}-${award.season}`;
+      if (seen.has(key)) return;
+      existing.push({ ...award });
+      seen.add(key);
+    });
+    target.playerAwards[playerId] = existing;
+  });
+
+  const historyMap = new Map((target.awardsHistory || []).map((entry) => [entry.seasonNumber, entry]));
+  (source.awardsHistory || []).forEach((entry) => {
+    if (!entry) return;
+    if (!historyMap.has(entry.seasonNumber)) {
+      const cloned = cloneAwardsEntry(entry);
+      if (cloned) historyMap.set(cloned.seasonNumber, cloned);
+    }
+  });
+  target.awardsHistory = Array.from(historyMap.values()).sort((a, b) => (a.seasonNumber ?? 0) - (b.seasonNumber ?? 0));
+
+  target.teamChampionships ||= {};
+  Object.entries(source.teamChampionships || {}).forEach(([teamId, data]) => {
+    if (!target.teamChampionships[teamId]) {
+      target.teamChampionships[teamId] = {
+        count: data.count || (Array.isArray(data.seasons) ? data.seasons.length : 0),
+        seasons: Array.isArray(data.seasons) ? [...data.seasons] : [],
+      };
+      return;
+    }
+    const entry = target.teamChampionships[teamId];
+    const seasons = new Set(entry.seasons || []);
+    (data.seasons || []).forEach((seasonNumber) => seasons.add(seasonNumber));
+    entry.seasons = Array.from(seasons).sort((a, b) => a - b);
+    entry.count = entry.seasons.length;
+  });
+
+  if (!target.lastChampion || (source.lastChampion && (source.lastChampion.seasonNumber || 0) > (target.lastChampion.seasonNumber || 0))) {
+    target.lastChampion = source.lastChampion ? { ...source.lastChampion } : target.lastChampion;
+  }
+
+  target.finalizedSeasonNumber = Math.max(target.finalizedSeasonNumber || 0, source.finalizedSeasonNumber || 0);
+
+  target.playerDirectory ||= {};
+  Object.entries(source.playerDirectory || {}).forEach(([playerId, meta]) => {
+    if (!target.playerDirectory[playerId]) {
+      target.playerDirectory[playerId] = { ...meta };
+    }
+  });
 }
 
 function pickCurrentMatchup(snapshots) {
@@ -373,9 +529,24 @@ function combineSeasonSnapshots(rawSnapshots) {
     combinedSeason.currentGameIndex = Math.min(...nextIndexCandidates);
   }
 
+  const leagueEntries = rawSnapshots
+    .map((snapshot, index) => ({
+      league: snapshot?.league || null,
+      index,
+    }))
+    .filter((entry) => entry.league);
+
+  let combinedLeague = null;
+  if (leagueEntries.length) {
+    const [firstLeague, ...otherLeagues] = leagueEntries;
+    combinedLeague = cloneLeague(firstLeague.league);
+    otherLeagues.forEach(({ league }) => mergeLeagueData(combinedLeague, league));
+  }
+
   return {
     label: 'Season Totals',
     season: combinedSeason,
+    league: combinedLeague,
     currentMatchup: current.matchup,
     currentScores: current.scores,
     lastCompletedGame: lastCompleted,
@@ -390,6 +561,7 @@ export default function App() {
   const [simSpeed, setSimSpeed] = useState(1);
   const [seasonStatsOpen, setSeasonStatsOpen] = useState(false);
   const [teamDirectoryOpen, setTeamDirectoryOpen] = useState(false);
+  const [leaderboardsOpen, setLeaderboardsOpen] = useState(false);
   const [seasonSnapshots, setSeasonSnapshots] = useState(() => []);
   const gameRefs = useRef([]);
 
@@ -465,6 +637,11 @@ export default function App() {
     setTeamDirectoryOpen(true);
   }, [collectSeasonSnapshots]);
 
+  const handleOpenLeaderboards = useCallback(() => {
+    collectSeasonSnapshots();
+    setLeaderboardsOpen(true);
+  }, [collectSeasonSnapshots]);
+
   const aggregatedSeasonStats = useMemo(
     () => combineSeasonSnapshots(seasonSnapshots),
     [seasonSnapshots],
@@ -483,6 +660,7 @@ export default function App() {
         onSimSpeedChange={handleSimSpeedChange}
         onShowTeamDirectory={handleOpenTeamDirectory}
         onShowSeasonStats={handleOpenSeasonStats}
+        onShowLeaderboards={handleOpenLeaderboards}
       />
       <div className="games-stack">
         {Array.from({ length: GAME_COUNT }).map((_, index) => (
@@ -509,6 +687,7 @@ export default function App() {
         {aggregatedSeasonStats ? (
           <SeasonStatsContent
             season={aggregatedSeasonStats.season}
+            league={aggregatedSeasonStats.league || null}
             currentMatchup={aggregatedSeasonStats.currentMatchup}
             currentScores={aggregatedSeasonStats.currentScores}
             lastCompletedGame={aggregatedSeasonStats.lastCompletedGame}
@@ -523,6 +702,13 @@ export default function App() {
         open={teamDirectoryOpen}
         onClose={() => setTeamDirectoryOpen(false)}
         season={aggregatedSeasonStats?.season || null}
+        league={aggregatedSeasonStats?.league || null}
+      />
+      <LeaderboardsModal
+        open={leaderboardsOpen}
+        onClose={() => setLeaderboardsOpen(false)}
+        season={aggregatedSeasonStats?.season || null}
+        league={aggregatedSeasonStats?.league || null}
       />
     </div>
   );

@@ -52,11 +52,15 @@ function buildCompletedResults(season) {
       const homeScore = game.score?.[game.homeTeamId] ?? 0;
       const awayScore = game.score?.[game.awayTeamId] ?? 0;
       const winnerName = game.winner ? getTeamName(season, game.winner) : 'Tie';
+      const scheduleEntry = Array.isArray(season?.schedule) ? season.schedule[game.index] : null;
+      const tag = game.tag || scheduleEntry?.tag || null;
+      const roundLabel = scheduleEntry?.round || (tag === 'playoff-championship' ? 'BluperBowl' : (tag === 'playoff-semifinal' ? 'Playoff Semifinal' : null));
       return {
         id: game.gameId || `Game-${game.index}`,
         label: `Game ${game.index + 1}`,
         summary: `${homeName} ${homeScore} - ${awayScore} ${awayName}`,
         winner: winnerName,
+        round: roundLabel,
       };
     });
 }
@@ -87,6 +91,7 @@ function CurrentGameSummary({ season, matchup, scores }) {
 
 export function SeasonStatsContent({
   season,
+  league = null,
   currentMatchup = null,
   currentScores = {},
   lastCompletedGame = null,
@@ -95,6 +100,9 @@ export function SeasonStatsContent({
   const completed = useMemo(() => buildCompletedResults(season), [season]);
   const totalGames = season?.schedule?.length || 0;
   const completedCount = season?.completedGames || completed.length || 0;
+  const awards = season?.awards || (league?.awardsHistory || []).find((entry) => entry.seasonNumber === season?.seasonNumber) || null;
+  const championTeamId = season?.championTeamId || league?.lastChampion?.teamId || null;
+  const championName = championTeamId ? getTeamName(season, championTeamId) : null;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
@@ -103,6 +111,32 @@ export function SeasonStatsContent({
       </div>
 
       <CurrentGameSummary season={season} matchup={currentMatchup} scores={currentScores} />
+
+      {championName ? (
+        <div style={{ padding: '12px 16px', background: 'rgba(8,59,8,0.7)', borderRadius: 12, color: '#f2fff2' }}>
+          <div style={{ fontWeight: 700, fontSize: 14, letterSpacing: 0.4, textTransform: 'uppercase', marginBottom: 4 }}>
+            BluperBowl Champion
+          </div>
+          <div style={{ fontSize: 16, fontWeight: 600 }}>{championName}</div>
+        </div>
+      ) : null}
+
+      {awards ? (
+        <div style={{ padding: '12px 16px', background: 'rgba(7,45,7,0.65)', borderRadius: 12, color: '#f2fff2', display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <div style={{ fontWeight: 700, fontSize: 14, letterSpacing: 0.4, textTransform: 'uppercase' }}>Regular Season Awards</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 13 }}>
+            {awards.mvp ? (
+              <div><span style={{ color: '#a5e0a5', fontWeight: 600 }}>MVP:</span> {league?.playerDirectory?.[awards.mvp.playerId]?.fullName || awards.mvp.name || awards.mvp.playerId}</div>
+            ) : null}
+            {awards.offensive ? (
+              <div><span style={{ color: '#a5e0a5', fontWeight: 600 }}>Offensive Player:</span> {league?.playerDirectory?.[awards.offensive.playerId]?.fullName || awards.offensive.name || awards.offensive.playerId}</div>
+            ) : null}
+            {awards.defensive ? (
+              <div><span style={{ color: '#a5e0a5', fontWeight: 600 }}>Defensive Player:</span> {league?.playerDirectory?.[awards.defensive.playerId]?.fullName || awards.defensive.name || awards.defensive.playerId}</div>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
 
       <div>
         <h3 style={{ margin: '0 0 10px', fontSize: 16, fontWeight: 700, letterSpacing: 0.4 }}>Team Standings</h3>
@@ -155,18 +189,18 @@ export function SeasonStatsContent({
         <h3 style={{ margin: '0 0 10px', fontSize: 16, fontWeight: 700, letterSpacing: 0.4 }}>Completed Games</h3>
         {completed.length ? (
           <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {completed.map(game => (
-              <li
-                key={game.id}
-                style={{
-                  background: 'rgba(8,59,8,0.65)',
-                  border: '1px solid rgba(26,92,26,0.35)',
-                  borderRadius: 10,
-                  padding: '10px 14px',
-                  color: '#e4ffe4'
-                }}
-              >
-                <div style={{ fontWeight: 600 }}>{game.label}</div>
+              {completed.map(game => (
+                <li
+                  key={game.id}
+                  style={{
+                    background: 'rgba(8,59,8,0.65)',
+                    border: '1px solid rgba(26,92,26,0.35)',
+                    borderRadius: 10,
+                    padding: '10px 14px',
+                    color: '#e4ffe4'
+                  }}
+                >
+                <div style={{ fontWeight: 600 }}>{game.label}{game.round ? ` • ${game.round}` : ''}</div>
                 <div style={{ fontSize: 14 }}>{game.summary}</div>
                 <div style={{ fontSize: 12, color: '#b5e5b5' }}>Winner: {game.winner}</div>
               </li>

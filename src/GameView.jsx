@@ -47,6 +47,7 @@ const GameView = React.forwardRef(function GameView({
         currentMatchup: state.matchup,
         currentScores: state.scores,
         lastCompletedGame: state.lastCompletedGame,
+        league: state.league,
       };
     },
   }), [label, state]);
@@ -113,10 +114,11 @@ const GameView = React.forwardRef(function GameView({
     setState(createInitialGameState({
       assignmentOffset: gameIndex,
       assignmentStride: parallelSlotCount,
+      league: state?.league || null,
     }));
     setLocalRunning(shouldResume);
     onManualReset?.(gameIndex);
-  }, [resetSignal, gameIndex, onManualReset, parallelSlotCount]);
+  }, [resetSignal, gameIndex, onManualReset, parallelSlotCount, state?.league]);
 
   useEffect(() => {
     if (globalRunning && !prevGlobalRunningRef.current && !state.gameComplete) {
@@ -157,6 +159,7 @@ const GameView = React.forwardRef(function GameView({
       id: teamId || slot,
       displayName,
       label: teamLabel,
+      abbr: teamLabel,
       recordText,
       score: activeScores?.[slot] ?? 0,
       color: resolvedColor,
@@ -168,7 +171,11 @@ const GameView = React.forwardRef(function GameView({
   const awayTeam = buildTeam(TEAM_BLK);
 
   let gameLabel = '';
-  if (totalGames) {
+  if (activeMatchup?.tag === 'playoff-championship') {
+    gameLabel = 'BluperBowl';
+  } else if (activeMatchup?.tag === 'playoff-semifinal') {
+    gameLabel = activeMatchup.round ? `Playoffs • ${activeMatchup.round}` : 'Playoffs • Semifinal';
+  } else if (totalGames) {
     if (!activeMatchup && state.gameComplete) {
       gameLabel = 'Season complete';
     } else if (activeMatchup) {

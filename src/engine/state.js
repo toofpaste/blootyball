@@ -16,6 +16,15 @@ import {
     applyGameResultToSeason,
     advanceSeasonPointer,
     seasonCompleted,
+    createLeagueContext,
+    ensurePlayoffsScheduled,
+    ensureChampionshipScheduled,
+    registerChampion,
+    recomputeAssignmentTotals,
+    computeAssignmentTotals,
+    mergePlayerStatsIntoCareer,
+    incrementPlayerAges,
+    applyOffseasonDevelopment,
 } from './league';
 import {
     ensureSeasonProgression,
@@ -163,6 +172,141 @@ function defaultScores() {
     return { [TEAM_RED]: 0, [TEAM_BLK]: 0 };
 }
 
+const TEAM_STAT_KEYS = ['passingYards', 'passingTD', 'rushingYards', 'rushingTD', 'receivingYards', 'receivingTD', 'tackles', 'sacks', 'interceptions'];
+const PLAYOFF_STAGE_ORDER = { regular: 0, semifinals: 1, championship: 2, complete: 3 };
+
+function stageRank(stage) {
+    return PLAYOFF_STAGE_ORDER[stage] ?? -1;
+}
+
+function collectGlobalSeasons(state) {
+    if (typeof window === 'undefined') return [state.season];
+    const games = window.__blootyball?.games || [];
+    const seasons = games
+        .map((entry) => entry?.state?.season)
+        .filter((season) => season && season.schedule);
+    if (!seasons.includes(state.season)) seasons.push(state.season);
+    return seasons;
+}
+
+function aggregateSeasonsData(seasons) {
+    const teams = {};
+    const resultsMap = new Map();
+    seasons.forEach((season) => {
+        Object.entries(season.teams || {}).forEach(([teamId, team]) => {
+            if (!teams[teamId]) {
+                teams[teamId] = {
+                    id: teamId,
+                    info: team.info || null,
+                    record: { wins: 0, losses: 0, ties: 0 },
+                    pointsFor: 0,
+                    pointsAgainst: 0,
+                    stats: TEAM_STAT_KEYS.reduce((acc, key) => ({ ...acc, [key]: 0 }), {}),
+                };
+            }
+            const agg = teams[teamId];
+            agg.info = agg.info || team.info || null;
+            agg.record.wins += team.record?.wins || 0;
+            agg.record.losses += team.record?.losses || 0;
+            agg.record.ties += team.record?.ties || 0;
+            agg.pointsFor += team.pointsFor || 0;
+            agg.pointsAgainst += team.pointsAgainst || 0;
+            TEAM_STAT_KEYS.forEach((key) => {
+                agg.stats[key] += team.stats?.[key] || 0;
+            });
+        });
+
+        (season.results || []).forEach((result) => {
+            if (!result) return;
+            const key = result.gameId || `idx-${result.index}`;
+            if (!key) return;
+            if (!resultsMap.has(key) || (result.index ?? Infinity) < (resultsMap.get(key)?.index ?? Infinity)) {
+                resultsMap.set(key, { ...result });
+            }
+        });
+    });
+
+    const results = Array.from(resultsMap.values()).sort((a, b) => {
+        const ai = a.index ?? 0;
+        const bi = b.index ?? 0;
+        return ai - bi;
+    });
+
+    return { teams, results };
+}
+
+function synchronizeSeasonTotals(state) {
+    const seasons = collectGlobalSeasons(state);
+    if (!seasons.length) return;
+    const aggregated = aggregateSeasonsData(seasons);
+    Object.entries(aggregated.teams).forEach(([teamId, data]) => {
+        const existing = state.season.teams[teamId] || { id: teamId };
+        existing.info = existing.info || data.info;
+        existing.record = { ...data.record };
+        existing.pointsFor = data.pointsFor;
+        existing.pointsAgainst = data.pointsAgainst;
+        existing.stats = { ...(existing.stats || {}), ...data.stats };
+        state.season.teams[teamId] = existing;
+    });
+
+    state.season.results = aggregated.results;
+    aggregated.results.forEach((result) => {
+        const idx = result.index;
+        if (idx != null && state.season.schedule[idx]) {
+            state.season.schedule[idx] = { ...state.season.schedule[idx], played: true, result };
+        }
+    });
+    state.season.completedGames = aggregated.results.length;
+    recomputeAssignmentTotals(state.season);
+
+    let chosenBracket = state.season.playoffBracket || null;
+    let chosenPhase = state.season.phase || 'regular';
+    let championTeamId = state.season.championTeamId || null;
+    let championResult = state.season.championResult || null;
+
+    seasons.forEach((season) => {
+        if (season.phase && stageRank(season.phase) > stageRank(chosenPhase)) {
+            chosenPhase = season.phase;
+        }
+        const bracket = season.playoffBracket;
+        if (bracket && (!chosenBracket || stageRank(bracket.stage) >= stageRank(chosenBracket.stage))) {
+            chosenBracket = JSON.parse(JSON.stringify(bracket));
+        }
+        if (season.championTeamId) championTeamId = season.championTeamId;
+        if (season.championResult) championResult = { ...season.championResult };
+    });
+
+    if (chosenBracket) state.season.playoffBracket = chosenBracket;
+    state.season.phase = chosenPhase;
+    if (championTeamId) state.season.championTeamId = championTeamId;
+    if (championResult) state.season.championResult = championResult;
+}
+
+function pickAssignedIndex(season, indices = []) {
+    const stride = Math.max(1, season.assignmentStride || season.assignment?.stride || 1);
+    const offset = season.assignmentOffset ?? season.assignment?.offset ?? 0;
+    const normalized = indices.find((index) => {
+        if (!Number.isFinite(index)) return false;
+        if (index < 0) return false;
+        const diff = index - offset;
+        if (diff < 0) return false;
+        return diff % stride === 0;
+    });
+    return normalized != null ? normalized : null;
+}
+
+function finalizeLeagueForSeason(state, result) {
+    const { league, season } = state;
+    if (!league || !season) return;
+    if (league.finalizedSeasonNumber === season.seasonNumber) return;
+    registerChampion(season, league, result);
+    mergePlayerStatsIntoCareer(league.careerStats, season.playerStats || {});
+    league.finalizedSeasonNumber = season.seasonNumber;
+    incrementPlayerAges(league);
+    applyOffseasonDevelopment(league);
+    league.seasonNumber = Math.max(league.seasonNumber || season.seasonNumber, season.seasonNumber) + 1;
+}
+
 function prepareGameForMatchup(state, matchup) {
     if (!matchup) {
         state.matchup = null;
@@ -179,6 +323,8 @@ function prepareGameForMatchup(state, matchup) {
         state.gameDynamics = null;
         return state;
     }
+
+    synchronizeSeasonTotals(state);
 
     state.matchup = matchup;
     state.possession = TEAM_RED;
@@ -235,19 +381,61 @@ function finalizeCurrentGame(state) {
     );
 
     state = { ...state, season: updatedSeason };
+    const latestResult = state.season.schedule?.[currentIndex]?.result || null;
+    const currentTag = game?.tag || state.matchup?.tag || null;
 
-    const nextMatchup = advanceSeasonPointer(state.season);
-    if (!nextMatchup && seasonCompleted(state.season)) {
-        state.matchup = null;
-        state.gameComplete = true;
-        state.clock.running = false;
-        state.clock.time = 0;
-        state.clock.stopReason = 'Season complete';
-        state.play = { phase: 'COMPLETE', resultText: 'Season complete' };
-        return { ...state, season: { ...state.season } };
+    let nextMatchup = advanceSeasonPointer(state.season);
+
+    if (!nextMatchup) {
+        synchronizeSeasonTotals(state);
+
+        if (state.season.phase === 'regular') {
+            const added = ensurePlayoffsScheduled(state.season, state.league);
+            const assigned = pickAssignedIndex(state.season, added);
+            if (assigned != null) {
+                state.season.currentGameIndex = assigned;
+                nextMatchup = prepareSeasonMatchup(state.season);
+            } else if (added.length) {
+                state.season.currentGameIndex = state.season.schedule.length;
+            }
+        }
+
+        if (!nextMatchup) {
+            const finals = ensureChampionshipScheduled(state.season);
+            const assignedFinal = pickAssignedIndex(state.season, finals);
+            if (assignedFinal != null) {
+                state.season.currentGameIndex = assignedFinal;
+                nextMatchup = prepareSeasonMatchup(state.season);
+            } else if (finals.length) {
+                state.season.currentGameIndex = state.season.schedule.length;
+            }
+        }
+
+        if (!nextMatchup && seasonCompleted(state.season)) {
+            if (currentTag === 'playoff-championship' && latestResult) {
+                finalizeLeagueForSeason(state, latestResult);
+            } else if (state.season.playoffBracket?.champion && state.league) {
+                const summary = state.season.playoffBracket.championshipGame || latestResult;
+                finalizeLeagueForSeason(state, summary);
+            }
+            state.matchup = null;
+            state.gameComplete = true;
+            state.clock.running = false;
+            state.clock.time = 0;
+            state.clock.stopReason = 'Season complete';
+            state.play = { phase: 'COMPLETE', resultText: 'Season complete' };
+            return { ...state, season: { ...state.season } };
+        }
     }
 
-    prepareGameForMatchup(state, nextMatchup);
+    if (currentTag === 'playoff-championship' && latestResult) {
+        finalizeLeagueForSeason(state, latestResult);
+    }
+
+    if (nextMatchup) {
+        prepareGameForMatchup(state, nextMatchup);
+    }
+
     return { ...state, season: { ...state.season } };
 }
 
@@ -1442,21 +1630,22 @@ function updatePreSnap(state, dt) {
 /* =========================================================
    Game state factories
    ========================================================= */
-function computeAssignmentTotals(scheduleLength, offset, stride) {
-    if (!Number.isFinite(scheduleLength) || scheduleLength <= 0) return 0;
-    const safeStride = Math.max(1, stride || 1);
-    const safeOffset = Math.min(Math.max(0, offset || 0), scheduleLength);
-    return Math.max(0, Math.ceil((scheduleLength - safeOffset) / safeStride));
-}
 
 export function createInitialGameState(options = {}) {
     const {
         startGameIndex = 0,
         assignmentOffset = null,
         assignmentStride = 1,
+        league: inputLeague = null,
     } = options || {};
 
-    const season = createSeasonState();
+    const league = inputLeague || createLeagueContext();
+    const season = createSeasonState({
+        seasonNumber: league.seasonNumber || 1,
+        playerDevelopment: league.playerDevelopment || {},
+        playerAges: league.playerAges || {},
+        previousAwards: league.awardsHistory?.slice(-3) || [],
+    });
     const scheduleLength = season.schedule?.length ?? 0;
 
     const stride = Math.max(1, Number.isFinite(assignmentStride) ? Math.floor(assignmentStride) : 1);
@@ -1500,6 +1689,7 @@ export function createInitialGameState(options = {}) {
         season,
         playLog: [],
         debug: { trace: false },
+        league,
     };
     prepareGameForMatchup(state, matchup);
     if (!matchup) {
