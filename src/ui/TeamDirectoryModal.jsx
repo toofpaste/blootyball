@@ -6,6 +6,7 @@ import { getTeamIdentity, TEAM_IDS } from '../engine/data/teamLibrary';
 import { createTeams } from '../engine/rosters';
 import { applyLongTermAdjustments, prepareCoachesForMatchup } from '../engine/progression';
 import { describeTemperament, describeMood } from '../engine/temperament';
+import HoverTooltip from './HoverTooltip';
 
 const ATTRIBUTE_ORDER = [
   { key: 'speed', label: 'Speed' },
@@ -18,6 +19,66 @@ const ATTRIBUTE_ORDER = [
   { key: 'throwAcc', label: 'Throw Accuracy' },
   { key: 'tackle', label: 'Tackle' },
 ];
+
+const ATTRIBUTE_DESCRIPTIONS = {
+  speed: 'Speed determines how quickly a player moves across the field, improving pursuit angles and breakaway potential.',
+  accel: 'Acceleration controls how fast a player reaches top speed after starting or changing direction.',
+  acceleration: 'Acceleration controls how fast a player reaches top speed after starting or changing direction.',
+  agility: 'Agility improves a player\'s ability to change direction, dodge tacklers, and stay balanced.',
+  strength: 'Strength helps players fight through contact, shed blocks, and finish tackles.',
+  awareness: 'Awareness drives decision making, reaction time, and positioning during plays.',
+  catch: 'Catching raises how reliably a player secures the ball on targets in traffic.',
+  catching: 'Catching raises how reliably a player secures the ball on targets in traffic.',
+  throwpow: 'Throw power increases maximum pass distance and zip on throws.',
+  throwpower: 'Throw power increases maximum pass distance and zip on throws.',
+  throwacc: 'Throw accuracy tightens ball placement and reduces misfires on passes.',
+  throwaccuracy: 'Throw accuracy tightens ball placement and reduces misfires on passes.',
+  tackle: 'Tackle rating influences how consistently a defender can bring ball carriers to the ground.',
+  maxdistance: 'Max distance sets how far a kicker can confidently attempt field goals.',
+  accuracy: 'Accuracy determines how consistently a kicker can convert attempts inside their range.',
+};
+
+const PLAYER_STAT_DESCRIPTIONS = {
+  'Completions / Attempts': 'Shows passing volume and efficiency for quarterbacks.',
+  Yards: 'Total yardage gained in the given category.',
+  Touchdowns: 'Counts scoring plays produced in the category.',
+  Interceptions: 'Turnovers thrown or made against the offense.',
+  Sacks: 'Number of times the quarterback was brought down behind the line of scrimmage.',
+  Tackles: 'Number of ball carriers the defender successfully brought down.',
+  Attempts: 'How many tries the player had in the situation, such as rushes or field goals.',
+  Fumbles: 'Ball security mistakes that put the offense at risk.',
+  'Forced Fumbles': 'Instances where the defender jarred the ball loose from an opponent.',
+  Targets: 'Passes thrown toward the receiver.',
+  Receptions: 'Catches successfully secured by the receiver.',
+  Drops: 'Catchable passes that were not secured.',
+  'Field Goals': 'Attempts and makes on field goals, highlighting kicking reliability.',
+  Long: 'Longest successful field goal of the season.',
+  PAT: 'Point-after-touchdown conversion attempts and successes.',
+};
+
+const COACH_BADGE_DESCRIPTIONS = {
+  'Tactical IQ': 'Measures how well the coach adjusts formations and matchups mid-game.',
+  'Playcalling IQ': 'Influences the quality and timing of offensive and defensive play calls.',
+  'Pass Bias': 'Positive values favor passing plays while negative values lean toward the run.',
+  'Run Bias': 'Positive values lean on the ground game while negative values open the playbook to passes.',
+  Aggression: 'Controls fourth-down risk taking and overall boldness in critical moments.',
+};
+
+const SCOUT_BADGE_DESCRIPTIONS = {
+  Evaluation: 'Shows how accurately the scout grades player talent and potential.',
+  Development: 'Indicates how well the scout projects growth for young players.',
+  Trade: 'Affects the scout\'s ability to spot favorable trade opportunities.',
+  Aggression: 'Determines how assertively the scout pushes for acquisitions or roster moves.',
+  'Temperament Eye': 'Represents how effectively the scout reads locker room fit and personality.',
+};
+
+function resolveAttributeDescription(label) {
+  const normalized = (label || '')
+    .toString()
+    .toLowerCase()
+    .replace(/[^a-z]/g, '');
+  return ATTRIBUTE_DESCRIPTIONS[normalized] || null;
+}
 
 function pickFallbackTeamId(teamId, availableIds = []) {
   if (!availableIds.length) return teamId;
@@ -459,7 +520,11 @@ function PlayerCardModal({ open, onClose, entry, team }) {
               <tbody>
                 {attrRows.map((row) => (
                   <tr key={row.label} style={{ background: 'rgba(4,28,4,0.85)' }}>
-                    <td style={{ padding: '6px 8px' }}>{row.label}</td>
+                    <td style={{ padding: '6px 8px' }}>
+                      <HoverTooltip content={resolveAttributeDescription(row.label)}>
+                        <span>{row.label}</span>
+                      </HoverTooltip>
+                    </td>
                     <td style={{ padding: '6px 8px', textAlign: 'right' }}>{formatAttrValue(row.base)}</td>
                     <td style={{ padding: '6px 8px', textAlign: 'right' }}>{formatAttrValue(row.current)}</td>
                   </tr>
@@ -485,6 +550,7 @@ function PlayerCardModal({ open, onClose, entry, team }) {
                     { label: 'Interceptions', value: passing.interceptions ?? 0 },
                     { label: 'Sacks', value: passing.sacks ?? 0 },
                   ]}
+                  descriptions={PLAYER_STAT_DESCRIPTIONS}
                 />
               ) : null}
               {hasRushing ? (
@@ -496,6 +562,7 @@ function PlayerCardModal({ open, onClose, entry, team }) {
                     { label: 'Touchdowns', value: rushing.touchdowns ?? 0 },
                     { label: 'Fumbles', value: rushing.fumbles ?? 0 },
                   ]}
+                  descriptions={PLAYER_STAT_DESCRIPTIONS}
                 />
               ) : null}
               {hasReceiving ? (
@@ -508,6 +575,7 @@ function PlayerCardModal({ open, onClose, entry, team }) {
                     { label: 'Touchdowns', value: receiving.touchdowns ?? 0 },
                     { label: 'Drops', value: receiving.drops ?? 0 },
                   ]}
+                  descriptions={PLAYER_STAT_DESCRIPTIONS}
                 />
               ) : null}
               {hasDefense ? (
@@ -519,6 +587,7 @@ function PlayerCardModal({ open, onClose, entry, team }) {
                     { label: 'Interceptions', value: defense.interceptions ?? 0 },
                     { label: 'Forced Fumbles', value: defense.forcedFumbles ?? 0 },
                   ]}
+                  descriptions={PLAYER_STAT_DESCRIPTIONS}
                 />
               ) : null}
               {hasKicking ? (
@@ -529,6 +598,7 @@ function PlayerCardModal({ open, onClose, entry, team }) {
                     { label: 'Long', value: roundNumber(kicking.long) },
                     { label: 'PAT', value: `${kicking.patMade ?? 0} / ${kicking.patAttempts ?? 0}` },
                   ]}
+                  descriptions={PLAYER_STAT_DESCRIPTIONS}
                 />
               ) : null}
               {hasMisc ? (
@@ -537,6 +607,7 @@ function PlayerCardModal({ open, onClose, entry, team }) {
                   rows={[
                     { label: 'Fumbles', value: misc.fumbles ?? 0 },
                   ]}
+                  descriptions={PLAYER_STAT_DESCRIPTIONS}
                 />
               ) : null}
             </div>
@@ -549,7 +620,7 @@ function PlayerCardModal({ open, onClose, entry, team }) {
   );
 }
 
-function StatBlock({ title, rows }) {
+function StatBlock({ title, rows, descriptions = {} }) {
   return (
     <div
       style={{
@@ -562,10 +633,16 @@ function StatBlock({ title, rows }) {
       <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 4 }}>{title}</div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 2, fontSize: 12 }}>
         {rows.map(({ label, value }) => (
-          <div key={label} style={{ display: 'flex', justifyContent: 'space-between' }}>
-            <span style={{ color: '#9bd79b' }}>{label}</span>
-            <span>{value}</span>
-          </div>
+          <HoverTooltip
+            key={label}
+            content={descriptions[label]}
+            wrapperStyle={{ display: 'block', width: '100%' }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+              <span style={{ color: '#9bd79b' }}>{label}</span>
+              <span>{value}</span>
+            </div>
+          </HoverTooltip>
         ))}
       </div>
     </div>
@@ -581,7 +658,10 @@ function BoostList({ boosts }) {
     <ul style={{ margin: 0, paddingLeft: 16, display: 'flex', flexDirection: 'column', gap: 2 }}>
       {entries.map(([attr, value]) => (
         <li key={attr} style={{ fontSize: 13 }}>
-          <span style={{ color: '#9bd79b' }}>{attr}</span> {formatBoostValue(value)}
+          <HoverTooltip content={resolveAttributeDescription(attr)}>
+            <span style={{ color: '#9bd79b' }}>{attr}</span>
+          </HoverTooltip>{' '}
+          {formatBoostValue(value)}
         </li>
       ))}
     </ul>
@@ -624,22 +704,53 @@ function CoachCardModal({ open, onClose, coach, team }) {
         </div>
 
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, fontSize: 13 }}>
-          <InfoBadge label="Tactical IQ" value={coach.tacticalIQ} />
-          <InfoBadge label="Playcalling IQ" value={coach.playcallingIQ} />
-          <InfoBadge label="Pass Bias" value={tendencies.passBias} signed />
-          <InfoBadge label="Run Bias" value={tendencies.runBias} signed />
-          <InfoBadge label="Aggression" value={tendencies.aggression} signed />
+          <InfoBadge
+            label="Tactical IQ"
+            value={coach.tacticalIQ}
+            description={COACH_BADGE_DESCRIPTIONS['Tactical IQ']}
+          />
+          <InfoBadge
+            label="Playcalling IQ"
+            value={coach.playcallingIQ}
+            description={COACH_BADGE_DESCRIPTIONS['Playcalling IQ']}
+          />
+          <InfoBadge
+            label="Pass Bias"
+            value={tendencies.passBias}
+            signed
+            description={COACH_BADGE_DESCRIPTIONS['Pass Bias']}
+          />
+          <InfoBadge
+            label="Run Bias"
+            value={tendencies.runBias}
+            signed
+            description={COACH_BADGE_DESCRIPTIONS['Run Bias']}
+          />
+          <InfoBadge
+            label="Aggression"
+            value={tendencies.aggression}
+            signed
+            description={COACH_BADGE_DESCRIPTIONS.Aggression}
+          />
         </div>
 
         <div>
           <div style={{ fontWeight: 600, marginBottom: 6 }}>Development Focus</div>
           {Object.keys(development).length ? (
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, fontSize: 12 }}>
-              {Object.entries(development).map(([key, value]) => (
-                <span key={key} style={{ background: 'rgba(7,45,7,0.75)', padding: '4px 8px', borderRadius: 8 }}>
-                  <span style={{ color: '#9bd79b' }}>{key}</span>: {formatAttrValue(value)}
-                </span>
-              ))}
+              {Object.entries(development).map(([key, value]) => {
+                const content = (
+                  <span style={{ background: 'rgba(7,45,7,0.75)', padding: '4px 8px', borderRadius: 8 }}>
+                    <span style={{ color: '#9bd79b' }}>{key}</span>: {formatAttrValue(value)}
+                  </span>
+                );
+                const description = resolveAttributeDescription(key);
+                return (
+                  <HoverTooltip key={key} content={description}>
+                    {content}
+                  </HoverTooltip>
+                );
+              })}
             </div>
           ) : (
             <div style={{ color: '#cde8cd', fontSize: 13 }}>No development modifiers listed.</div>
@@ -669,14 +780,15 @@ function CoachCardModal({ open, onClose, coach, team }) {
   );
 }
 
-function InfoBadge({ label, value, signed = false }) {
+function InfoBadge({ label, value, signed = false, description }) {
   if (value == null || Number.isNaN(value)) return null;
   const formatted = signed ? formatBoostValue(value) : value.toFixed(2);
-  return (
+  const badge = (
     <span style={{ background: 'rgba(7,45,7,0.75)', padding: '4px 8px', borderRadius: 8 }}>
       <span style={{ color: '#9bd79b' }}>{label}:</span> {formatted}
     </span>
   );
+  return description ? <HoverTooltip content={description}>{badge}</HoverTooltip> : badge;
 }
 
 function ScoutCardModal({ open, onClose, scout, team }) {
@@ -703,11 +815,32 @@ function ScoutCardModal({ open, onClose, scout, team }) {
         </div>
 
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, fontSize: 13 }}>
-          <InfoBadge label="Evaluation" value={scout.evaluation} />
-          <InfoBadge label="Development" value={scout.development} />
-          <InfoBadge label="Trade" value={scout.trade} />
-          <InfoBadge label="Aggression" value={scout.aggression} signed />
-          <InfoBadge label="Temperament Eye" value={temperamentAwareness} />
+          <InfoBadge
+            label="Evaluation"
+            value={scout.evaluation}
+            description={SCOUT_BADGE_DESCRIPTIONS.Evaluation}
+          />
+          <InfoBadge
+            label="Development"
+            value={scout.development}
+            description={SCOUT_BADGE_DESCRIPTIONS.Development}
+          />
+          <InfoBadge
+            label="Trade"
+            value={scout.trade}
+            description={SCOUT_BADGE_DESCRIPTIONS.Trade}
+          />
+          <InfoBadge
+            label="Aggression"
+            value={scout.aggression}
+            signed
+            description={SCOUT_BADGE_DESCRIPTIONS.Aggression}
+          />
+          <InfoBadge
+            label="Temperament Eye"
+            value={temperamentAwareness}
+            description={SCOUT_BADGE_DESCRIPTIONS['Temperament Eye']}
+          />
         </div>
 
         <div style={{ border: '1px solid rgba(26,92,26,0.35)', borderRadius: 10, padding: '10px 12px', background: 'rgba(5,32,5,0.92)' }}>
