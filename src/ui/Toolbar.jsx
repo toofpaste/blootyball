@@ -10,6 +10,7 @@ export default function Toolbar(props) {
         running, setRunning, simSpeed, setSimSpeed,
         yardLine, down, toGo, quarter, timeLeft, result,
         onNextPlay, onReset,
+        onShowSeasonStats,
 
         // new optional props for debugging tools
         onForcePlayName,
@@ -53,6 +54,11 @@ export default function Toolbar(props) {
                 )}
                 <button onClick={onNextPlay} style={btn()}>Next Play</button>
                 <button onClick={onReset} style={btn('danger')}>Reset</button>
+                {typeof onShowSeasonStats === 'function' ? (
+                    <button onClick={onShowSeasonStats} style={btn('outline')}>
+                        Season Stats
+                    </button>
+                ) : null}
 
                 <div style={{ marginLeft: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
                     <label style={{ opacity: 0.85 }}>Speed</label>
@@ -119,6 +125,14 @@ function btn(variant) {
     if (variant === 'ghost') return { ...base, background: 'transparent' };
     if (variant === 'active') return { ...base, background: '#176d17', borderColor: '#1c8a1c' };
     if (variant === 'danger') return { ...base, background: '#641414', borderColor: '#8c1c1c' };
+    if (variant === 'outline') {
+        return {
+            ...base,
+            background: 'transparent',
+            borderColor: '#1c6d1c',
+            color: '#e8ffe8',
+        };
+    }
     return base;
 }
 function sel() {

@@ -107,7 +107,9 @@ export default function App() {
     }
   }
 
-  const statsTeams = [homeTeam, awayTeam].filter(team => team.id && team.id !== TEAM_RED && team.id !== TEAM_BLK);
+  const isValidTeam = (team) => team.id && team.id !== TEAM_RED && team.id !== TEAM_BLK;
+  const homeStatsTeam = isValidTeam(homeTeam) ? homeTeam : null;
+  const awayStatsTeam = isValidTeam(awayTeam) ? awayTeam : null;
 
   const onNextPlay = () => setState(s => betweenPlays(s));
   const onReset = () => { setSeasonModalOpen(false); setState(createInitialGameState()); setRunning(false); };
@@ -135,6 +137,7 @@ export default function App() {
         result={state.play.resultText}
         onNextPlay={onNextPlay}
         onReset={onReset}
+        onShowSeasonStats={() => setSeasonModalOpen(true)}
         // new debug props
         onForcePlayName={handleForcePlayName}
         onForceOutcome={handleForceOutcome}
@@ -149,23 +152,35 @@ export default function App() {
         down={state.drive?.down ?? 1}
         toGo={state.drive?.toGo ?? 10}
         gameLabel={gameLabel}
-        onShowSeasonStats={() => setSeasonModalOpen(true)}
       />
       <div className="main-shell">
         <div className="app-layout">
-          <div className="sidebar sidebar--log">
+          {awayStatsTeam ? (
+            <div className="stats-column stats-column--away">
+              <StatsSummary
+                stats={state.playerStats}
+                directory={state.playerDirectory}
+                teams={[awayStatsTeam]}
+                title={`${awayStatsTeam.displayName || awayStatsTeam.label || 'Away'} Leaders`}
+              />
+            </div>
+          ) : null}
+          <div className="field-column">
+            <div className="field-wrapper">
+              <canvas ref={canvasRef} className="field-canvas" />
+            </div>
             <PlayLog items={state.playLog} />
           </div>
-          <div className="field-wrapper">
-            <canvas ref={canvasRef} className="field-canvas" />
-          </div>
-          <div className="sidebar sidebar--stats">
-            <StatsSummary
-              stats={state.playerStats}
-              directory={state.playerDirectory}
-              teams={statsTeams}
-            />
-          </div>
+          {homeStatsTeam ? (
+            <div className="stats-column stats-column--home">
+              <StatsSummary
+                stats={state.playerStats}
+                directory={state.playerDirectory}
+                teams={[homeStatsTeam]}
+                title={`${homeStatsTeam.displayName || homeStatsTeam.label || 'Home'} Leaders`}
+              />
+            </div>
+          ) : null}
         </div>
       </div>
       <SeasonStatsModal
