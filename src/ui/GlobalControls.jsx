@@ -8,6 +8,7 @@ export default function GlobalControls({
   onShowTeamDirectory,
   onShowSeasonStats,
   onShowLeaderboards,
+  onShowNews,
 }) {
   const handleSpeedChange = (event) => {
     const value = parseFloat(event.target.value);
@@ -27,6 +28,13 @@ export default function GlobalControls({
         onClick={onShowTeamDirectory}
       >
         Team Pages
+      </button>
+      <button
+        type="button"
+        className="global-controls__button global-controls__button--secondary"
+        onClick={onShowNews}
+      >
+        League News
       </button>
       <button
         type="button"

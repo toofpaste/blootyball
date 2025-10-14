@@ -3,6 +3,7 @@ import { clamp, rand, yardsToPixY } from './helpers';
 import { ENDZONE_YARDS, FIELD_PIX_W } from './constants';
 import { resetMotion } from './motion';
 import { getTeamData, getTeamIdentity } from './data/teamLibrary';
+import { initializeLeaguePersonnel } from './personnel';
 
 /* =========================================================
    Player factories (persistent per-team pools)
@@ -94,17 +95,20 @@ function makeKicker(team, data = {}, meta = {}) {
    ========================================================= */
 
 /** Build both full team pools once */
-export function createTeams(matchup = null) {
+export function createTeams(matchup = null, league = null) {
     const slotToTeam = matchup?.slotToTeam || { [TEAM_RED]: TEAM_RED, [TEAM_BLK]: TEAM_BLK };
     const identities = matchup?.identities || {};
+    if (league) initializeLeaguePersonnel(league);
+    const leagueRosters = league?.teamRosters || null;
 
     const buildSide = (team) => {
         const actualId = slotToTeam[team] || team;
-        const teamData = getTeamData(actualId) || {};
+        const rosterSource = leagueRosters?.[actualId] || null;
+        const teamData = rosterSource ? null : (getTeamData(actualId) || {});
         const identity = identities[team] || getTeamIdentity(actualId) || { id: actualId, displayName: actualId };
         const off = {}; const def = {};
         ROLES_OFF.forEach((r) => {
-            const data = teamData.offense?.[r] || {};
+            const data = rosterSource?.offense?.[r] || teamData?.offense?.[r] || {};
             off[r] = makePlayer(team, r, data, {
                 teamId: actualId,
                 colors: identity.colors,
@@ -113,7 +117,7 @@ export function createTeams(matchup = null) {
             });
         });
         ROLES_DEF.forEach((r) => {
-            const data = teamData.defense?.[r] || {};
+            const data = rosterSource?.defense?.[r] || teamData?.defense?.[r] || {};
             def[r] = makePlayer(team, r, data, {
                 teamId: actualId,
                 colors: identity.colors,
@@ -121,7 +125,7 @@ export function createTeams(matchup = null) {
                 abbr: identity.abbr,
             });
         });
-        const kickerData = teamData.specialTeams?.K || {};
+        const kickerData = rosterSource?.special?.K || teamData?.specialTeams?.K || {};
         const special = {
             K: makeKicker(team, kickerData, {
                 teamId: actualId,
@@ -216,8 +220,8 @@ export function rosterForPossession(teams, offenseTeam) {
  * Backward-compat wrapper some code still uses.
  * Creates two teams and returns the RED-offense snapshot.
  */
-export function createRosters(matchup = null) {
-    const teams = createTeams(matchup);
+export function createRosters(matchup = null, league = null) {
+    const teams = createTeams(matchup, league);
     return rosterForPossession(teams, TEAM_RED);
 }
 

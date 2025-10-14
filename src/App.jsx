@@ -6,6 +6,7 @@ import Modal from './ui/Modal';
 import { SeasonStatsContent } from './ui/SeasonStatsModal';
 import TeamDirectoryModal from './ui/TeamDirectoryModal';
 import LeaderboardsModal from './ui/LeaderboardsModal';
+import NewsModal from './ui/NewsModal';
 import './AppLayout.css';
 
 const GAME_COUNT = 2;
@@ -339,6 +340,55 @@ function mergeSeasonData(target, source) {
   }
 }
 
+function clonePlayerRecordForLeague(player = {}) {
+  if (!player) return null;
+  return {
+    ...player,
+    ratings: { ...(player.ratings || {}) },
+    modifiers: { ...(player.modifiers || {}) },
+  };
+}
+
+function cloneRosterSide(side = {}) {
+  return Object.entries(side).reduce((acc, [role, player]) => {
+    if (!player) return acc;
+    acc[role] = clonePlayerRecordForLeague(player);
+    return acc;
+  }, {});
+}
+
+function cloneTeamRoster(roster = {}) {
+  return {
+    offense: cloneRosterSide(roster.offense || roster.off || {}),
+    defense: cloneRosterSide(roster.defense || roster.def || {}),
+    special: roster.special?.K ? { K: clonePlayerRecordForLeague(roster.special.K) } : {},
+  };
+}
+
+function cloneNewsFeed(feed = []) {
+  return Array.isArray(feed) ? feed.map((entry) => ({ ...entry })) : [];
+}
+
+function cloneInjuredReserve(reserve = {}) {
+  return Object.entries(reserve).reduce((acc, [playerId, entry]) => {
+    acc[playerId] = {
+      ...entry,
+      player: entry?.player ? clonePlayerRecordForLeague(entry.player) : null,
+    };
+    return acc;
+  }, {});
+}
+
+function cloneInjuryLog(log = {}) {
+  return Object.entries(log).reduce((acc, [playerId, entry]) => {
+    acc[playerId] = {
+      ...entry,
+      player: entry?.player ? clonePlayerRecordForLeague(entry.player) : null,
+    };
+    return acc;
+  }, {});
+}
+
 function cloneLeague(league) {
   if (!league) return null;
   const playerAwards = Object.entries(league.playerAwards || {}).reduce((acc, [playerId, awards]) => {
@@ -356,6 +406,24 @@ function cloneLeague(league) {
     acc[playerId] = { ...meta };
     return acc;
   }, {});
+  const teamScouts = Object.entries(league.teamScouts || {}).reduce((acc, [teamId, scout]) => {
+    acc[teamId] = { ...scout };
+    return acc;
+  }, {});
+  const teamRosters = Object.entries(league.teamRosters || {}).reduce((acc, [teamId, roster]) => {
+    acc[teamId] = cloneTeamRoster(roster);
+    return acc;
+  }, {});
+  const freeAgents = Array.isArray(league.freeAgents)
+    ? league.freeAgents.map((player) => clonePlayerRecordForLeague(player))
+    : [];
+  const newsFeed = cloneNewsFeed(league.newsFeed || []);
+  const injuredReserve = cloneInjuredReserve(league.injuredReserve || {});
+  const injuryLog = cloneInjuryLog(league.injuryLog || {});
+  const injuryCounts = Object.entries(league.injuryCounts || {}).reduce((acc, [seasonNumber, counts]) => {
+    acc[seasonNumber] = { ...(counts || {}) };
+    return acc;
+  }, {});
   return {
     ...league,
     playerDevelopment: clonePlayerDevelopmentMap(league.playerDevelopment || {}),
@@ -370,6 +438,14 @@ function cloneLeague(league) {
     finalizedSeasonNumber: league.finalizedSeasonNumber ?? null,
     seasonNumber: league.seasonNumber ?? 1,
     playerDirectory,
+    teamScouts,
+    teamRosters,
+    freeAgents,
+    newsFeed,
+    injuredReserve,
+    injuryLog,
+    injuryCounts,
+    seasonSnapshot: league.seasonSnapshot ? cloneSeason(league.seasonSnapshot) : null,
   };
 }
 
@@ -434,6 +510,64 @@ function mergeLeagueData(target, source) {
       target.playerDirectory[playerId] = { ...meta };
     }
   });
+
+  target.teamScouts ||= {};
+  Object.entries(source.teamScouts || {}).forEach(([teamId, scout]) => {
+    if (!target.teamScouts[teamId]) {
+      target.teamScouts[teamId] = { ...scout };
+    }
+  });
+
+  if (!target.teamRosters && source.teamRosters) {
+    target.teamRosters = Object.entries(source.teamRosters).reduce((acc, [teamId, roster]) => {
+      acc[teamId] = cloneTeamRoster(roster);
+      return acc;
+    }, {});
+  }
+
+  if (!target.freeAgents && Array.isArray(source.freeAgents)) {
+    target.freeAgents = source.freeAgents.map((player) => clonePlayerRecordForLeague(player));
+  }
+
+  const newsSeed = new Map((target.newsFeed || []).map((entry) => [entry.id || `${entry.type}-${entry.text}`, entry]));
+  (source.newsFeed || []).forEach((entry) => {
+    const key = entry.id || `${entry.type}-${entry.text}`;
+    if (!newsSeed.has(key)) {
+      newsSeed.set(key, { ...entry });
+    }
+  });
+  target.newsFeed = Array.from(newsSeed.values());
+
+  target.injuredReserve ||= {};
+  Object.entries(source.injuredReserve || {}).forEach(([playerId, entry]) => {
+    if (!target.injuredReserve[playerId]) {
+      target.injuredReserve[playerId] = {
+        ...entry,
+        player: entry?.player ? clonePlayerRecordForLeague(entry.player) : null,
+      };
+    }
+  });
+
+  target.injuryLog ||= {};
+  Object.entries(source.injuryLog || {}).forEach(([playerId, entry]) => {
+    if (!target.injuryLog[playerId]) {
+      target.injuryLog[playerId] = {
+        ...entry,
+        player: entry?.player ? clonePlayerRecordForLeague(entry.player) : null,
+      };
+    }
+  });
+
+  target.injuryCounts ||= {};
+  Object.entries(source.injuryCounts || {}).forEach(([seasonNumber, counts]) => {
+    if (!target.injuryCounts[seasonNumber]) {
+      target.injuryCounts[seasonNumber] = { ...(counts || {}) };
+    }
+  });
+
+  if (!target.seasonSnapshot && source.seasonSnapshot) {
+    target.seasonSnapshot = cloneSeason(source.seasonSnapshot);
+  }
 }
 
 function pickCurrentMatchup(snapshots) {
@@ -562,6 +696,7 @@ export default function App() {
   const [seasonStatsOpen, setSeasonStatsOpen] = useState(false);
   const [teamDirectoryOpen, setTeamDirectoryOpen] = useState(false);
   const [leaderboardsOpen, setLeaderboardsOpen] = useState(false);
+  const [newsOpen, setNewsOpen] = useState(false);
   const [seasonSnapshots, setSeasonSnapshots] = useState(() => []);
   const gameRefs = useRef([]);
 
@@ -642,6 +777,11 @@ export default function App() {
     setLeaderboardsOpen(true);
   }, [collectSeasonSnapshots]);
 
+  const handleOpenNews = useCallback(() => {
+    collectSeasonSnapshots();
+    setNewsOpen(true);
+  }, [collectSeasonSnapshots]);
+
   const aggregatedSeasonStats = useMemo(
     () => combineSeasonSnapshots(seasonSnapshots),
     [seasonSnapshots],
@@ -661,6 +801,7 @@ export default function App() {
         onShowTeamDirectory={handleOpenTeamDirectory}
         onShowSeasonStats={handleOpenSeasonStats}
         onShowLeaderboards={handleOpenLeaderboards}
+        onShowNews={handleOpenNews}
       />
       <div className="games-stack">
         {Array.from({ length: GAME_COUNT }).map((_, index) => (
@@ -709,6 +850,12 @@ export default function App() {
         onClose={() => setLeaderboardsOpen(false)}
         season={aggregatedSeasonStats?.season || null}
         league={aggregatedSeasonStats?.league || null}
+      />
+      <NewsModal
+        open={newsOpen}
+        onClose={() => setNewsOpen(false)}
+        league={aggregatedSeasonStats?.league || null}
+        season={aggregatedSeasonStats?.season || null}
       />
     </div>
   );

@@ -2,7 +2,7 @@ import {
     FIELD_PIX_W, FIELD_PIX_H, ENDZONE_YARDS, PLAYING_YARDS_H,
     TEAM_RED, TEAM_BLK, PLAYBOOK, PX_PER_YARD,
 } from './constants';
-import { clamp, yardsToPixY, pixYToYards, rand } from './helpers';
+import { clamp, yardsToPixY, pixYToYards, rand, choice } from './helpers';
 import { createTeams, rosterForPossession, lineUpFormation, buildPlayerDirectory } from './rosters';
 import { initRoutesAfterSnap, moveOL, moveReceivers, moveTE, qbLogic, rbLogic, defenseLogic } from './ai';
 import { moveBall, getBallPix } from './ball';
@@ -34,6 +34,13 @@ import {
     prepareCoachesForMatchup,
     coachClockPlan,
 } from './progression';
+import {
+    ensureSeasonPersonnel,
+    signBestFreeAgentForRole,
+    registerPlayerInjury,
+    decrementInjuryTimers,
+    advanceLeagueOffseason,
+} from './personnel';
 
 /* =========================================================
    Utilities / guards
@@ -166,6 +173,147 @@ function pushPlayLog(state, entry) {
         ...(details ? { details } : {}),
     });
     if (state.playLog.length > 50) state.playLog.shift();
+}
+
+const MAX_TEAM_INJURIES_PER_SEASON = 4;
+const INJURY_BASE_CHANCE = 0.004;
+
+const INJURY_DESCRIPTORS = {
+    minor: ['ankle sprain', 'tight hamstring', 'bruised ribs', 'hip pointer'],
+    moderate: ['shoulder sprain', 'knee sprain', 'high ankle sprain', 'quad strain'],
+    major: ['torn meniscus', 'fractured forearm', 'back strain', 'AC joint sprain'],
+    severe: ['torn ACL', 'Achilles tear', 'compound fracture', 'spinal contusion'],
+};
+
+function randomDescriptor(severity) {
+    const list = INJURY_DESCRIPTORS[severity] || INJURY_DESCRIPTORS.minor;
+    return choice(list);
+}
+
+function gatherInjuryCandidates(state) {
+    const ctx = state.play?.statContext || {};
+    const map = new Map();
+    const add = (playerId, weight, tag) => {
+        if (!playerId || weight <= 0) return;
+        if (!map.has(playerId)) {
+            map.set(playerId, { playerId, weight, tags: new Set([tag]) });
+        } else {
+            const existing = map.get(playerId);
+            existing.weight += weight;
+            existing.tags.add(tag);
+        }
+    };
+    const ballCarrier = ctx.rushCarrierId || state.play?.ball?.lastCarrierId || null;
+    if (ballCarrier) add(ballCarrier, 1.0, 'carrier');
+    if (ctx.pass?.passerId) add(ctx.pass.passerId, 0.35, 'passer');
+    if (ctx.pass?.targetId) add(ctx.pass.targetId, ctx.pass.complete ? 0.55 : 0.25, 'receiver');
+    (ctx.tackles || []).forEach((id, index) => {
+        const weight = index === 0 ? 0.4 : 0.22;
+        add(id, weight, 'tackler');
+    });
+    return Array.from(map.values()).map((entry) => ({
+        playerId: entry.playerId,
+        weight: entry.weight,
+        tags: Array.from(entry.tags),
+    }));
+}
+
+function severityProfile(playerAge) {
+    const roll = Math.random();
+    if (roll < 0.55) {
+        return { label: 'minor', games: 1, degrade: { agility: -0.02, awareness: -0.015 } };
+    }
+    if (roll < 0.85) {
+        return { label: 'moderate', games: Math.round(rand(2, 4)), degrade: { speed: -0.03, agility: -0.05, awareness: -0.03 } };
+    }
+    if (roll < 0.97) {
+        return { label: 'major', games: Math.round(rand(5, 8)), degrade: { speed: -0.06, agility: -0.07, awareness: -0.05, strength: -0.04 } };
+    }
+    const extraGames = playerAge && playerAge > 30 ? rand(8, 12) : rand(6, 10);
+    return { label: 'severe', games: Math.round(extraGames), degrade: { speed: -0.09, agility: -0.1, awareness: -0.07, strength: -0.05 } };
+}
+
+function maybeTriggerInjury(state, {
+    offense,
+    startDown,
+    startToGo,
+    startLos,
+    gained,
+}) {
+    const league = state.league;
+    if (!league || !state.playerDirectory) return null;
+    const seasonNumber = state.season?.seasonNumber || league.seasonNumber || 1;
+    ensureSeasonPersonnel(league, seasonNumber);
+    league.injuryCounts ||= {};
+    league.injuryCounts[seasonNumber] ||= {};
+    const candidates = gatherInjuryCandidates(state);
+    if (!candidates.length) return null;
+    const chance = INJURY_BASE_CHANCE;
+    if (Math.random() > chance) return null;
+    const ordered = candidates.sort((a, b) => b.weight - a.weight);
+    let chosen = null;
+    for (const entry of ordered) {
+        const meta = state.playerDirectory[entry.playerId];
+        if (!meta) continue;
+        const teamId = meta.team;
+        if (!teamId) continue;
+        const counts = league.injuryCounts[seasonNumber][teamId] || 0;
+        if (counts >= MAX_TEAM_INJURIES_PER_SEASON) continue;
+        if (league.injuredReserve && league.injuredReserve[entry.playerId]) continue;
+        const side = meta.side === 'defense' ? 'defense' : meta.side === 'special' ? 'special' : 'offense';
+        const roster = league.teamRosters?.[teamId];
+        if (!roster) continue;
+        const role = meta.role;
+        const playerData = side === 'offense'
+            ? roster.offense?.[role]
+            : side === 'defense'
+                ? roster.defense?.[role]
+                : roster.special?.K;
+        if (!playerData || playerData.id !== entry.playerId) continue;
+        chosen = { entry, meta, teamId, role, side, playerData };
+        break;
+    }
+    if (!chosen) return null;
+
+    const { meta, teamId, role, playerData } = chosen;
+    const profile = severityProfile(playerData.age ?? league.playerAges?.[playerData.id]);
+    const descriptor = randomDescriptor(profile.label);
+    const irEntry = registerPlayerInjury(league, {
+        player: playerData,
+        teamId,
+        role,
+        severity: profile.label,
+        gamesMissed: Math.max(1, profile.games),
+        description: descriptor,
+        seasonNumber,
+        degrade: profile.degrade,
+    });
+    const replacement = signBestFreeAgentForRole(league, teamId, role, {
+        reason: 'injury replacement',
+    });
+    state.teams = createTeams(state.matchup, league);
+    state.roster = rosterForPossession(state.teams, state.possession);
+    state.playerDirectory = buildPlayerDirectory(state.teams, state.matchup?.slotToTeam, state.matchup?.identities);
+    const replacementText = replacement
+        ? `${replacement.firstName} ${replacement.lastName}`
+        : 'a reserve player';
+    const gamesText = irEntry?.gamesRemaining
+        ? `out ${irEntry.gamesRemaining} ${irEntry.gamesRemaining === 1 ? 'game' : 'games'}`
+        : 'day-to-day';
+    const message = `${meta.fullName || meta.name || meta.role} ${descriptor} (${gamesText}); ${replacementText} steps in`;
+
+    const logEntry = {
+        name: 'Injury Update',
+        startDown,
+        startToGo,
+        startLos,
+        endLos: startLos,
+        gained: 0,
+        result: message,
+        offense,
+    };
+
+    return { message, logEntry };
 }
 
 function defaultScores() {
@@ -304,7 +452,9 @@ function finalizeLeagueForSeason(state, result) {
     league.finalizedSeasonNumber = season.seasonNumber;
     incrementPlayerAges(league);
     applyOffseasonDevelopment(league);
+    advanceLeagueOffseason(league, season);
     league.seasonNumber = Math.max(league.seasonNumber || season.seasonNumber, season.seasonNumber) + 1;
+    ensureSeasonPersonnel(league, league.seasonNumber);
 }
 
 function prepareGameForMatchup(state, matchup) {
@@ -328,9 +478,13 @@ function prepareGameForMatchup(state, matchup) {
 
     state.matchup = matchup;
     state.possession = TEAM_RED;
+    if (state.league && state.season) {
+        state.league.seasonSnapshot = state.season;
+        ensureSeasonPersonnel(state.league, state.season.seasonNumber || state.league.seasonNumber || 1);
+    }
     ensureSeasonProgression(state.season);
     state.coaches = prepareCoachesForMatchup(matchup);
-    state.teams = createTeams(matchup);
+    state.teams = createTeams(matchup, state.league);
     applyLongTermAdjustments(state.teams, state.coaches, state.season?.playerDevelopment || {});
     state.drive = { losYards: 25, down: 1, toGo: 10 };
     state.clock = createClock(state.coaches);
@@ -381,6 +535,11 @@ function finalizeCurrentGame(state) {
     );
 
     state = { ...state, season: updatedSeason };
+    if (state.league && game) {
+        decrementInjuryTimers(state.league, game.homeTeam);
+        decrementInjuryTimers(state.league, game.awayTeam);
+        state.league.seasonSnapshot = updatedSeason;
+    }
     const latestResult = state.season.schedule?.[currentIndex]?.result || null;
     const currentTag = game?.tag || state.matchup?.tag || null;
 
@@ -441,7 +600,7 @@ function finalizeCurrentGame(state) {
 
 function getTeamKicker(state, team) {
     if (!team) return null;
-    if (!state.teams) state.teams = createTeams(state.matchup);
+    if (!state.teams) state.teams = createTeams(state.matchup, state.league);
     return state.teams?.[team]?.special?.K || null;
 }
 
@@ -690,7 +849,7 @@ function advanceFieldGoalState(state, ctx, outcome) {
     const { team, success, summary, isPat } = outcome;
     stopClock(state, summary);
     const defense = otherTeam(team);
-    if (!state.teams) state.teams = createTeams(state.matchup);
+    if (!state.teams) state.teams = createTeams(state.matchup, state.league);
     state.possession = defense;
     state.roster = rosterForPossession(state.teams, state.possession);
     if (isPat) {
@@ -1283,7 +1442,7 @@ function maybeAssessPenalty(s, ctx) {
 
     s.drive = { losYards: newLos, down, toGo };
     s.possession = offense;
-    s.teams = s.teams || createTeams(s.matchup);
+    s.teams = s.teams || createTeams(s.matchup, s.league);
     s.roster = rosterForPossession(s.teams, s.possession);
     s.roster.__ownerState = s;
 
@@ -1646,6 +1805,8 @@ export function createInitialGameState(options = {}) {
         playerAges: league.playerAges || {},
         previousAwards: league.awardsHistory?.slice(-3) || [],
     });
+    ensureSeasonPersonnel(league, season.seasonNumber);
+    league.seasonSnapshot = season;
     const scheduleLength = season.schedule?.length ?? 0;
 
     const stride = Math.max(1, Number.isFinite(assignmentStride) ? Math.floor(assignmentStride) : 1);
@@ -2022,7 +2183,7 @@ export function betweenPlays(prevState) {
         });
 
         s.possession = defense;
-        s.teams = s.teams || createTeams(s.matchup);
+        s.teams = s.teams || createTeams(s.matchup, s.league);
         s.roster = rosterForPossession(s.teams, s.possession);
         s.pendingExtraPoint = null;
 
@@ -2058,7 +2219,7 @@ export function betweenPlays(prevState) {
             toGo = 10;
         } else {
             s.possession = (scoringTeam === TEAM_RED ? TEAM_BLK : TEAM_RED);
-            s.teams = s.teams || createTeams(s.matchup);
+            s.teams = s.teams || createTeams(s.matchup, s.league);
             s.roster = rosterForPossession(s.teams, s.possession);
             los = 25; down = 1; toGo = 10;
         }
@@ -2076,7 +2237,7 @@ export function betweenPlays(prevState) {
     // Turnover on downs → new offense starts at the 25
     else if (turnoverOnDownsByString || turnoverOnDownsCalc) {
         s.possession = (s.possession === TEAM_RED ? TEAM_BLK : TEAM_RED);
-        s.teams = s.teams || createTeams(s.matchup);
+        s.teams = s.teams || createTeams(s.matchup, s.league);
         s.roster = rosterForPossession(s.teams, s.possession);
 
         los = 25;           // force new drive start at 25
@@ -2101,7 +2262,7 @@ export function betweenPlays(prevState) {
             const newOffense = otherTeam(offenseAtSnap);
             const takeoverLos = clamp(100 - clamp(endYd, 0, 100), 0, 100);
             s.possession = newOffense;
-            s.teams = s.teams || createTeams(s.matchup);
+            s.teams = s.teams || createTeams(s.matchup, s.league);
             s.roster = rosterForPossession(s.teams, s.possession);
 
             los = clamp(takeoverLos, 1, 99);
@@ -2135,7 +2296,7 @@ export function betweenPlays(prevState) {
                 if (down > 4) {
                     // Safety net: if we somehow get here, treat as turnover on downs
                     s.possession = (s.possession === TEAM_RED ? TEAM_BLK : TEAM_RED);
-                    s.teams = s.teams || createTeams(s.matchup);
+                    s.teams = s.teams || createTeams(s.matchup, s.league);
                     s.roster = rosterForPossession(s.teams, s.possession);
 
                     los = 25;      // force new drive start at 25
@@ -2238,6 +2399,18 @@ export function betweenPlays(prevState) {
         turnover,
     });
 
+    const injuryReport = maybeTriggerInjury(s, {
+        offense: offenseAtSnap,
+        startDown,
+        startToGo,
+        startLos,
+        gained,
+    });
+
+    if (injuryReport?.logEntry) {
+        pushPlayLog(s, injuryReport.logEntry);
+    }
+
     // Ensure the active roster knows which state owns it for debug hooks
     if (s.roster) s.roster.__ownerState = s;
 
@@ -2251,6 +2424,9 @@ export function betweenPlays(prevState) {
         s.play.resultText = `${call.name}: ${resultWhy}`;
     } else {
         s.play.resultText = summaryText;
+    }
+    if (injuryReport?.message) {
+        s.play.resultText = `${s.play.resultText} – ${injuryReport.message}`;
     }
     beginPlayDiagnostics(s);
     return s;
@@ -2282,9 +2458,6 @@ function checkDeadBall(s) {
         return;
     }
 }
-// Put this near your other exported helpers in state.js
-// ⬇️ Add these near your other exported helpers
-
 /**
  * withForceNextOutcome(state, outcome)
  * Arm a one-shot forced outcome for the NEXT play.
