@@ -1,7 +1,7 @@
 import React, { useEffect, useImperativeHandle, useRef, useState } from 'react';
 import Scoreboard from './ui/Scoreboard';
 import { FIELD_PIX_W, FIELD_PIX_H, COLORS, TEAM_RED, TEAM_BLK } from './engine/constants';
-import { createInitialGameState, stepGame } from './engine/state';
+import { createInitialGameState, resumeAssignedMatchup, stepGame } from './engine/state';
 import { getDiagnostics } from './engine/diagnostics';
 import PlayLog from './ui/PlayLog';
 import StatsSummary from './ui/StatsSummary';
@@ -34,6 +34,7 @@ const GameView = React.forwardRef(function GameView({
   const [state, setState] = useState(() => createInitialGameState({
     assignmentOffset: gameIndex,
     assignmentStride: parallelSlotCount,
+    lockstepAssignments: true,
   }));
   const lastResetTokenRef = useRef(resetSignal?.token ?? 0);
   const notifiedCompleteRef = useRef(false);
@@ -111,11 +112,20 @@ const GameView = React.forwardRef(function GameView({
     lastResetTokenRef.current = token;
     const shouldResume = !!resetSignal?.autoResume?.[gameIndex];
     notifiedCompleteRef.current = false;
-    setState(createInitialGameState({
-      assignmentOffset: gameIndex,
-      assignmentStride: parallelSlotCount,
-      league: state?.league || null,
-    }));
+    setState((prev) => {
+      if (prev) {
+        const resumed = resumeAssignedMatchup(prev);
+        if (resumed !== prev) {
+          return resumed;
+        }
+      }
+      return createInitialGameState({
+        assignmentOffset: gameIndex,
+        assignmentStride: parallelSlotCount,
+        league: prev?.league || null,
+        lockstepAssignments: true,
+      });
+    });
     setLocalRunning(shouldResume);
     onManualReset?.(gameIndex);
   }, [resetSignal, gameIndex, onManualReset, parallelSlotCount, state?.league]);
