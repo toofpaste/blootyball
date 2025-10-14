@@ -48,11 +48,94 @@ function isNoAdvance(why) {
     return w === 'incomplete' || w === 'throwaway' || w === 'throw away' || w === 'spike' || w === 'drop';
 }
 
+function uniqueNonEmpty(values) {
+    if (!Array.isArray(values)) return [];
+    const seen = new Set();
+    const result = [];
+    for (const value of values) {
+        if (!value || seen.has(value)) continue;
+        seen.add(value);
+        result.push(value);
+    }
+    return result;
+}
+
+function lookupPlayerMeta(state, playerId) {
+    if (!playerId) return null;
+    return state?.playerDirectory?.[playerId] || null;
+}
+
+function lastNameFromMeta(meta) {
+    if (!meta) return null;
+    const full = meta.fullName || meta.name || '';
+    if (!full) return null;
+    const parts = String(full).trim().split(/\s+/).filter(Boolean);
+    if (parts.length === 0) return null;
+    return parts[parts.length - 1];
+}
+
+function buildPlayDetails(state, entry = {}) {
+    if (!state?.play) return null;
+    const playCallName = state.play.playCall?.name || null;
+    if (entry?.name && playCallName && entry.name !== playCallName) return null;
+    const ctx = state.play.statContext;
+    const details = {};
+
+    if (state.play.playCall?.type) details.playType = state.play.playCall.type;
+
+    if (ctx?.pass) {
+        const passCtx = ctx.pass;
+        if (passCtx.passerId) {
+            const meta = lookupPlayerMeta(state, passCtx.passerId);
+            const name = lastNameFromMeta(meta);
+            if (name) details.passer = name;
+        }
+        if (passCtx.targetId) {
+            const meta = lookupPlayerMeta(state, passCtx.targetId);
+            const name = lastNameFromMeta(meta);
+            if (name) details.receiver = name;
+        }
+        if (typeof passCtx.complete === 'boolean') details.passCompleted = passCtx.complete;
+        if (passCtx.dropped) details.passDropped = true;
+        if (passCtx.throwaway) details.passThrowaway = true;
+        if (passCtx.interceptedBy) {
+            const meta = lookupPlayerMeta(state, passCtx.interceptedBy);
+            const name = lastNameFromMeta(meta);
+            if (name) details.interceptedBy = name;
+        }
+    }
+
+    const carrierId = ctx?.rushCarrierId || state.play.ball?.lastCarrierId || null;
+    if (carrierId) {
+        const meta = lookupPlayerMeta(state, carrierId);
+        const name = lastNameFromMeta(meta);
+        if (name) details.carrier = name;
+    }
+
+    const tacklerIds = uniqueNonEmpty(ctx?.tackles);
+    if (tacklerIds.length) {
+        const tacklers = tacklerIds
+            .map((id) => lastNameFromMeta(lookupPlayerMeta(state, id)))
+            .filter(Boolean);
+        if (tacklers.length) details.tacklers = tacklers;
+    }
+
+    if (ctx?.fumbleBy) {
+        const meta = lookupPlayerMeta(state, ctx.fumbleBy);
+        const name = lastNameFromMeta(meta);
+        if (name) details.fumbledBy = name;
+    }
+
+    if (Object.keys(details).length === 0) return null;
+    return details;
+}
+
 function pushPlayLog(state, entry) {
     state.playLog ||= [];
     const nextNum = (state.playLog[state.playLog.length - 1]?.num || 0) + 1;
     const startLos = entry.startLos ?? state.play?.startLos ?? state.drive?.losYards ?? 25;
     const endLos = entry.endLos ?? (startLos + (entry.gained ?? 0));
+    const details = buildPlayDetails(state, entry);
     state.playLog.push({
         num: nextNum,
         name: entry.name ?? state.play?.playCall?.name ?? 'Play',
@@ -63,6 +146,7 @@ function pushPlayLog(state, entry) {
         result: entry.result ?? entry.why ?? state.play?.resultWhy ?? '—',
         turnover: !!entry.turnover,
         offense: entry.offense ?? state.possession,
+        ...(details ? { details } : {}),
     });
     if (state.playLog.length > 50) state.playLog.shift();
 }
