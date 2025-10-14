@@ -40,7 +40,9 @@ import {
     registerPlayerInjury,
     decrementInjuryTimers,
     advanceLeagueOffseason,
+    applyPostGameMoodAdjustments,
 } from './personnel';
+import { applyTeamMoodToMatchup } from './temperament';
 
 /* =========================================================
    Utilities / guards
@@ -291,6 +293,9 @@ function maybeTriggerInjury(state, {
     const replacement = signBestFreeAgentForRole(league, teamId, role, {
         reason: 'injury replacement',
     });
+    if (replacement && irEntry?.player?.id && league.injuredReserve?.[irEntry.player.id]) {
+        league.injuredReserve[irEntry.player.id].replacementId = replacement.id;
+    }
     state.teams = createTeams(state.matchup, league);
     state.roster = rosterForPossession(state.teams, state.possession);
     state.playerDirectory = buildPlayerDirectory(state.teams, state.matchup?.slotToTeam, state.matchup?.identities);
@@ -491,6 +496,7 @@ function prepareGameForMatchup(state, matchup) {
     state.coaches = prepareCoachesForMatchup(matchup);
     state.teams = createTeams(matchup, state.league);
     applyLongTermAdjustments(state.teams, state.coaches, state.season?.playerDevelopment || {});
+    applyTeamMoodToMatchup(state.teams, matchup, state.league);
     state.drive = { losYards: 25, down: 1, toGo: 10 };
     state.clock = createClock(state.coaches);
     state.scores = defaultScores();
@@ -540,6 +546,9 @@ function finalizeCurrentGame(state) {
     );
 
     state = { ...state, season: updatedSeason };
+    if (state.league && game) {
+        applyPostGameMoodAdjustments(state.league, game, state.scores, state.playerStats, state.matchup?.slotToTeam || {});
+    }
     if (state.league && game) {
         decrementInjuryTimers(state.league, game.homeTeam);
         decrementInjuryTimers(state.league, game.awayTeam);

@@ -5,6 +5,7 @@ import { TEAM_RED, TEAM_BLK, ROLES_OFF, ROLES_DEF } from '../engine/constants';
 import { getTeamIdentity, TEAM_IDS } from '../engine/data/teamLibrary';
 import { createTeams } from '../engine/rosters';
 import { applyLongTermAdjustments, prepareCoachesForMatchup } from '../engine/progression';
+import { describeTemperament, describeMood } from '../engine/temperament';
 
 const ATTRIBUTE_ORDER = [
   { key: 'speed', label: 'Speed' },
@@ -97,6 +98,12 @@ function createPlayerEntry(player, role, sideLabel, statsMap = {}, league = null
     age: league?.playerAges?.[player.id] ?? null,
     awards: Array.isArray(league?.playerAwards?.[player.id]) ? [...league.playerAwards[player.id]] : [],
   };
+  if (player.temperament) {
+    entry.temperament = { ...player.temperament };
+    entry.temperamentLabel = describeTemperament(player.temperament);
+    entry.moodLabel = describeMood(player.temperament.mood || 0);
+    entry.moodScore = player.temperament.mood ?? 0;
+  }
   if (entry.kicker) {
     entry.attrs = { maxDistance: player.maxDistance ?? null, accuracy: player.accuracy ?? null };
     entry.baseAttrs = { maxDistance: player.maxDistance ?? null, accuracy: player.accuracy ?? null };
@@ -169,6 +176,8 @@ function buildTeamDirectoryData(season, league) {
       recordText: formatRecord(record),
       pointsFor: team.pointsFor ?? 0,
       pointsAgainst: team.pointsAgainst ?? 0,
+      mood: league?.teamMoods?.[teamId] || { score: 0, label: 'Neutral' },
+      scout: league?.teamScouts?.[teamId] || null,
       coach: coaches?.[TEAM_RED] || null,
       titles: titles.length,
       titleSeasons: titles.slice(),
@@ -282,6 +291,9 @@ function PlayerCardModal({ open, onClose, entry, team }) {
   const hasMisc = hasStatCategory(misc);
   const teamName = team?.identity?.displayName || team?.identity?.name || team?.identity?.id || 'Team';
   const awards = Array.isArray(entry.awards) ? entry.awards : [];
+  const temperament = entry.temperament || null;
+  const temperamentLabel = entry.temperamentLabel || (temperament ? describeTemperament(temperament) : null);
+  const moodLabel = entry.moodLabel || (temperament ? describeMood(temperament.mood || 0) : null);
 
   const attrRows = entry.kicker
     ? [
@@ -303,6 +315,19 @@ function PlayerCardModal({ open, onClose, entry, team }) {
             {teamName} • {entry.role} • {entry.side}{entry.number != null ? ` • #${entry.number}` : ''}{entry.age != null ? ` • Age ${entry.age}` : ''}
           </div>
         </div>
+
+        {temperament ? (
+          <div style={{ background: 'rgba(7,45,7,0.65)', borderRadius: 10, padding: '8px 12px', color: '#f2fff2' }}>
+            <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 4 }}>Temperament</div>
+            <div style={{ fontSize: 13 }}>
+              {temperamentLabel || 'Unknown'} • {moodLabel || 'Neutral'} ({formatBoostValue(temperament.mood ?? 0)})
+            </div>
+            <div style={{ fontSize: 12, color: '#9bd79b', marginTop: 4 }}>
+              Influence: {temperament.influence != null ? temperament.influence.toFixed(2) : '—'} • Volatility:{' '}
+              {temperament.volatility != null ? temperament.volatility.toFixed(2) : '—'}
+            </div>
+          </div>
+        ) : null}
 
         {awards.length ? (
           <div style={{ background: 'rgba(7,45,7,0.65)', borderRadius: 10, padding: '8px 12px', color: '#f2fff2' }}>
@@ -551,16 +576,62 @@ function InfoBadge({ label, value, signed = false }) {
   );
 }
 
+function ScoutCardModal({ open, onClose, scout, team }) {
+  if (!open || !scout) return null;
+  const teamName = team?.displayName || team?.name || team?.id || 'Team';
+  const temperamentAwareness = Math.max(
+    0,
+    Math.min(
+      1,
+      ((scout.evaluation ?? 0.5) * 0.5)
+        + ((scout.trade ?? 0.5) * 0.3)
+        + ((1 - Math.abs((scout.aggression ?? 0.5) - 0.5)) * 0.2),
+    ),
+  );
+
+  return (
+    <Modal open={open} onClose={onClose} title={`Scout Card • ${scout.name}`} width="min(90vw, 520px)">
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+        <div>
+          <div style={{ fontSize: 18, fontWeight: 700 }}>{scout.name}</div>
+          <div style={{ color: '#a5e0a5', fontSize: 14 }}>
+            {teamName} • Lead Scout
+          </div>
+        </div>
+
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, fontSize: 13 }}>
+          <InfoBadge label="Evaluation" value={scout.evaluation} />
+          <InfoBadge label="Development" value={scout.development} />
+          <InfoBadge label="Trade" value={scout.trade} />
+          <InfoBadge label="Aggression" value={scout.aggression} signed />
+          <InfoBadge label="Temperament Eye" value={temperamentAwareness} />
+        </div>
+
+        <div style={{ border: '1px solid rgba(26,92,26,0.35)', borderRadius: 10, padding: '10px 12px', background: 'rgba(5,32,5,0.92)' }}>
+          <div style={{ fontWeight: 600, marginBottom: 6 }}>Scouting Notes</div>
+          <p style={{ margin: 0, fontSize: 13, lineHeight: 1.5, color: '#cde8cd' }}>
+            This scout grades talent and temperament together. High temperament awareness helps identify players that fit the locker
+            room and coaching style, while balanced aggression determines how assertively free agents and trade opportunities are
+            pursued.
+          </p>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
 export default function TeamDirectoryModal({ open, onClose, season, league = null }) {
   const teams = useMemo(() => buildTeamDirectoryData(season, league), [season, league]);
   const [selectedTeamId, setSelectedTeamId] = useState(null);
   const [playerFocus, setPlayerFocus] = useState(null);
   const [coachFocus, setCoachFocus] = useState(null);
+  const [scoutFocus, setScoutFocus] = useState(null);
 
   useEffect(() => {
     if (!open) {
       setPlayerFocus(null);
       setCoachFocus(null);
+      setScoutFocus(null);
       return;
     }
     if (!teams.length) {
@@ -583,6 +654,11 @@ export default function TeamDirectoryModal({ open, onClose, season, league = nul
   const handleCoachOpen = () => {
     if (!selectedTeam?.coach) return;
     setCoachFocus({ coach: selectedTeam.coach, team: selectedTeam.identity });
+  };
+
+  const handleScoutOpen = () => {
+    if (!selectedTeam?.scout) return;
+    setScoutFocus({ scout: selectedTeam.scout, team: selectedTeam.identity });
   };
 
   return (
@@ -647,6 +723,9 @@ export default function TeamDirectoryModal({ open, onClose, season, league = nul
                 <div style={{ fontSize: 13, color: '#cde8cd' }}>
                   Record {selectedTeam.recordText} • PF {selectedTeam.pointsFor} • PA {selectedTeam.pointsAgainst}
                 </div>
+                <div style={{ fontSize: 12, color: '#b6f0b6', marginTop: 4 }}>
+                  Team Mood: {selectedTeam.mood?.label || 'Neutral'} • {formatBoostValue(selectedTeam.mood?.score ?? 0)}
+                </div>
                 <div style={{ fontSize: 12, color: '#9bd79b', marginTop: 4 }}>
                   BluperBowl Titles: {selectedTeam.titles || 0}
                   {selectedTeam.titleSeasons?.length ? ` • Seasons ${selectedTeam.titleSeasons.join(', ')}` : ''}
@@ -687,6 +766,42 @@ export default function TeamDirectoryModal({ open, onClose, season, league = nul
                 </button>
               </div>
 
+              {selectedTeam.scout ? (
+                <div
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    background: 'rgba(8,59,8,0.8)',
+                    border: '1px solid rgba(26,92,26,0.35)',
+                    borderRadius: 12,
+                    padding: '10px 14px',
+                  }}
+                >
+                  <div>
+                    <div style={{ fontSize: 13, color: '#a5e0a5', textTransform: 'uppercase', letterSpacing: 0.4 }}>Lead Scout</div>
+                    <div style={{ fontSize: 16, fontWeight: 600 }}>
+                      {selectedTeam.scout?.name || 'Unknown Scout'}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleScoutOpen}
+                    style={{
+                      padding: '6px 12px',
+                      borderRadius: 8,
+                      border: '1px solid rgba(198,255,198,0.4)',
+                      background: 'transparent',
+                      color: '#f2fff2',
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    View Scout Card
+                  </button>
+                </div>
+              ) : null}
+
               <RosterSection title="Offense" players={selectedTeam.roster.offense} onPlayerSelect={handlePlayerSelect} />
               <RosterSection title="Defense" players={selectedTeam.roster.defense} onPlayerSelect={handlePlayerSelect} />
               <RosterSection title="Special Teams" players={selectedTeam.roster.special} onPlayerSelect={handlePlayerSelect} />
@@ -708,6 +823,12 @@ export default function TeamDirectoryModal({ open, onClose, season, league = nul
         onClose={() => setCoachFocus(null)}
         coach={coachFocus?.coach || null}
         team={coachFocus?.team || null}
+      />
+      <ScoutCardModal
+        open={!!scoutFocus}
+        onClose={() => setScoutFocus(null)}
+        scout={scoutFocus?.scout || null}
+        team={scoutFocus?.team || null}
       />
     </>
   );

@@ -56,6 +56,7 @@ function makePlayer(team, role, data = {}, meta = {}) {
         displayName: meta.displayName || null,
         abbr: meta.abbr || null,
     };
+    player.temperament = data.temperament ? { ...data.temperament } : null;
 
     resetMotion(player);
     return player;
@@ -87,6 +88,7 @@ function makeKicker(team, data = {}, meta = {}) {
             displayName: meta.displayName || null,
             abbr: meta.abbr || null,
         },
+        temperament: data.temperament ? { ...data.temperament } : null,
     };
 }
 

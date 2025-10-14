@@ -49,6 +49,15 @@ export function buildCoachForTeam(teamId, { slot = TEAM_RED, identity = null } =
   if (!coach.playerBoosts.defense.team) coach.playerBoosts.defense.team = {};
   if (!coach.playerBoosts.defense.positions) coach.playerBoosts.defense.positions = {};
   coach.clock = { ...DEFAULT_CLOCK, ...(coach.clock || {}) };
+  const aggression = clamp(coach.tendencies?.aggression ?? 0, -0.5, 0.5);
+  const supportBase = ((coach.development?.offense ?? 0.2) + (coach.development?.defense ?? 0.2)) / 2;
+  const support = clamp(supportBase - 0.25, -0.35, 0.4);
+  const composure = clamp((coach.tacticalIQ ?? 1) - 1, -0.25, 0.35);
+  coach.temperamentProfile = coach.temperamentProfile || {
+    aggression,
+    support,
+    composure,
+  };
   return coach;
 }
 
