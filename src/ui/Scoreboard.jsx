@@ -57,7 +57,7 @@ export default function Scoreboard({
             gap: 8,
             position: 'relative'
         }}>
-            <TeamPanel team={home} align="left" />
+            <TeamPanel team={away} align="left" />
 
             <div style={{ textAlign: 'center', fontWeight: 700, display: 'flex', flexDirection: 'column', gap: 6, justifyContent: 'center' }}>
                 <div style={{ fontSize: 13, opacity: 0.8 }}>{gameLabel}</div>
@@ -67,7 +67,7 @@ export default function Scoreboard({
                 <div style={{ fontSize: 18 }}>{timeLeftText}</div>
             </div>
 
-            <TeamPanel team={away} align="right" />
+            <TeamPanel team={home} align="right" />
         </div>
     );
 }

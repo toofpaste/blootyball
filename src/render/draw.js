@@ -134,7 +134,6 @@ function drawFieldGoalScene(ctx, state) {
 /* ------------ Field rendering with hashes & numbers ------------ */
 function drawField(ctx, state) {
     const homeIdentity = getTeamVisualIdentity(state, TEAM_RED);
-    const awayIdentity = getTeamVisualIdentity(state, TEAM_BLK);
 
     ctx.fillStyle = COLORS.fieldGreen;
     ctx.fillRect(0, 0, FIELD_PIX_W, FIELD_PIX_H);
@@ -178,7 +177,6 @@ function drawField(ctx, state) {
     }
 
     // Yard numbers (10,20,...,50,...,10) near both sidelines
-    ctx.fillStyle = COLORS.lineWhite;
     ctx.font = '24px ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto';
     ctx.textBaseline = 'middle';
 
@@ -186,29 +184,36 @@ function drawField(ctx, state) {
     const rightNumX = FIELD_PIX_W - 24;
 
     const seq = [10, 20, 30, 40, 50, 40, 30, 20, 10];
+    const numbersColor = homeIdentity?.color || COLORS.lineWhite;
+    const numberOutline = 'rgba(0,0,0,0.55)';
     for (let i = 0; i < seq.length; i++) {
         const ydsFromTopGL = ENDZONE_YARDS + (i + 1) * 10;
         const y = yardsToPixY(ydsFromTopGL);
-        drawNumber(ctx, leftNumX, y - 10, seq[i], 'left');
-        drawNumber(ctx, rightNumX, y + 10, seq[i], 'right');
+        drawNumber(ctx, leftNumX, y - 10, seq[i], 'left', numbersColor, numberOutline);
+        drawNumber(ctx, rightNumX, y + 10, seq[i], 'right', numbersColor, numberOutline);
     }
 
-    drawHomeAccents(ctx, homeIdentity, ezPix);
-
-    if (awayIdentity?.shortName) {
-        drawEndzoneLabel(ctx, ezPix / 2, awayIdentity.shortName, awayIdentity?.color, true);
-    }
     if (homeIdentity?.shortName) {
-        drawEndzoneLabel(ctx, FIELD_PIX_H - ezPix / 2, homeIdentity.shortName, homeIdentity?.color, false);
+        const labelColor = homeIdentity?.color;
+        drawEndzoneLabel(ctx, ezPix / 2, homeIdentity.shortName, labelColor, true);
+        drawEndzoneLabel(ctx, FIELD_PIX_H - ezPix / 2, homeIdentity.shortName, labelColor, false);
     }
 
     drawGoalPost(ctx, yardsToPixY(ENDZONE_YARDS), -1);
     drawGoalPost(ctx, yardsToPixY(ENDZONE_YARDS + PLAYING_YARDS_H), 1);
 }
 
-function drawNumber(ctx, x, y, num, align) {
+function drawNumber(ctx, x, y, num, align, fillColor, strokeColor) {
     const text = String(num);
     ctx.textAlign = align === 'right' ? 'right' : 'left';
+    if (strokeColor) {
+        ctx.save();
+        ctx.lineWidth = 4;
+        ctx.strokeStyle = strokeColor;
+        ctx.strokeText(text, x, y);
+        ctx.restore();
+    }
+    ctx.fillStyle = fillColor || COLORS.lineWhite;
     ctx.fillText(text, x, y);
 }
 
@@ -327,35 +332,6 @@ function drawBall(ctx, pos, ballState) {
     ctx.restore();
 }
 
-function drawHomeAccents(ctx, identity, ezPix) {
-    if (!identity?.color) return;
-    ctx.save();
-    ctx.strokeStyle = withAlpha(identity.color, 0.55);
-    ctx.lineWidth = 6;
-    ctx.strokeRect(10, 10, FIELD_PIX_W - 20, FIELD_PIX_H - 20);
-    ctx.restore();
-
-    ctx.save();
-    ctx.fillStyle = withAlpha(identity.color, 0.35);
-    const inset = 12;
-    const size = 36;
-    const bottomY = FIELD_PIX_H - ezPix;
-    ctx.beginPath();
-    ctx.moveTo(inset, bottomY + inset);
-    ctx.lineTo(inset + size, bottomY + inset);
-    ctx.lineTo(inset, bottomY + inset + size);
-    ctx.closePath();
-    ctx.fill();
-
-    ctx.beginPath();
-    ctx.moveTo(FIELD_PIX_W - inset, bottomY + inset);
-    ctx.lineTo(FIELD_PIX_W - inset - size, bottomY + inset);
-    ctx.lineTo(FIELD_PIX_W - inset, bottomY + inset + size);
-    ctx.closePath();
-    ctx.fill();
-    ctx.restore();
-}
-
 function drawEndzoneLabel(ctx, centerY, text, color, rotate180 = false) {
     if (!text) return;
     const upper = String(text).toUpperCase();
@@ -395,23 +371,3 @@ function getTeamVisualIdentity(state, slot) {
     };
 }
 
-function withAlpha(hex, alpha = 1) {
-    const rgb = hexToRgb(hex);
-    if (!rgb) return `rgba(255,255,255,${alpha})`;
-    const { r, g, b } = rgb;
-    return `rgba(${r}, ${g}, ${b}, ${Math.max(0, Math.min(1, alpha))})`;
-}
-
-function hexToRgb(hex) {
-    if (typeof hex !== 'string') return null;
-    const normalized = hex.trim().replace(/^#/, '');
-    if (![3, 6].includes(normalized.length)) return null;
-    const full = normalized.length === 3
-        ? normalized.split('').map(ch => ch + ch).join('')
-        : normalized;
-    const r = parseInt(full.slice(0, 2), 16);
-    const g = parseInt(full.slice(2, 4), 16);
-    const b = parseInt(full.slice(4, 6), 16);
-    if ([r, g, b].some(v => Number.isNaN(v))) return null;
-    return { r, g, b };
-}
