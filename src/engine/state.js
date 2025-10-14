@@ -1442,12 +1442,39 @@ function updatePreSnap(state, dt) {
 /* =========================================================
    Game state factories
    ========================================================= */
+function computeAssignmentTotals(scheduleLength, offset, stride) {
+    if (!Number.isFinite(scheduleLength) || scheduleLength <= 0) return 0;
+    const safeStride = Math.max(1, stride || 1);
+    const safeOffset = Math.min(Math.max(0, offset || 0), scheduleLength);
+    return Math.max(0, Math.ceil((scheduleLength - safeOffset) / safeStride));
+}
+
 export function createInitialGameState(options = {}) {
-    const { startGameIndex = 0 } = options || {};
+    const {
+        startGameIndex = 0,
+        assignmentOffset = null,
+        assignmentStride = 1,
+    } = options || {};
+
     const season = createSeasonState();
-    if (Number.isFinite(startGameIndex) && startGameIndex > 0) {
+    const scheduleLength = season.schedule?.length ?? 0;
+
+    const stride = Math.max(1, Number.isFinite(assignmentStride) ? Math.floor(assignmentStride) : 1);
+    const hasExplicitAssignment = Number.isFinite(assignmentOffset) && assignmentOffset >= 0;
+    const effectiveOffset = hasExplicitAssignment
+        ? Math.min(Math.floor(assignmentOffset), scheduleLength)
+        : null;
+
+    if (effectiveOffset != null) {
+        season.currentGameIndex = effectiveOffset;
+        season.completedGames = 0;
+        const totalGames = computeAssignmentTotals(scheduleLength, effectiveOffset, stride);
+        season.assignment = { stride, offset: effectiveOffset, totalGames };
+        season.assignmentStride = stride;
+        season.assignmentOffset = effectiveOffset;
+        season.assignmentTotalGames = totalGames;
+    } else if (Number.isFinite(startGameIndex) && startGameIndex > 0) {
         const desiredIndex = Math.max(0, Math.floor(startGameIndex));
-        const scheduleLength = season.schedule?.length ?? 0;
         if (scheduleLength > 0) {
             if (desiredIndex >= scheduleLength) {
                 season.currentGameIndex = scheduleLength;
@@ -1458,6 +1485,16 @@ export function createInitialGameState(options = {}) {
             }
         }
     }
+
+    if (!season.assignment) {
+        const baseOffset = season.currentGameIndex || 0;
+        const totalGames = computeAssignmentTotals(scheduleLength, baseOffset, 1);
+        season.assignment = { stride: 1, offset: baseOffset, totalGames };
+        season.assignmentStride = 1;
+        season.assignmentOffset = baseOffset;
+        season.assignmentTotalGames = totalGames;
+    }
+
     const matchup = prepareSeasonMatchup(season);
     const state = {
         season,
@@ -1465,6 +1502,9 @@ export function createInitialGameState(options = {}) {
         debug: { trace: false },
     };
     prepareGameForMatchup(state, matchup);
+    if (!matchup) {
+        state.gameComplete = true;
+    }
     return state;
 }
 
