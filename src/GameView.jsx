@@ -1,12 +1,10 @@
-import React, { useEffect, useRef, useState } from 'react';
-import Toolbar from './ui/Toolbar';
+import React, { useEffect, useImperativeHandle, useRef, useState } from 'react';
 import Scoreboard from './ui/Scoreboard';
 import { FIELD_PIX_W, FIELD_PIX_H, COLORS, TEAM_RED, TEAM_BLK } from './engine/constants';
-import { createInitialGameState, stepGame, betweenPlays, withForceNextOutcome, withForceNextPlay } from './engine/state';
+import { createInitialGameState, stepGame } from './engine/state';
 import { getDiagnostics } from './engine/diagnostics';
 import PlayLog from './ui/PlayLog';
 import StatsSummary from './ui/StatsSummary';
-import SeasonStatsModal from './ui/SeasonStatsModal';
 import { formatRecord } from './engine/league';
 import { resolveTeamColor } from './engine/colors';
 import { draw } from './render/draw';
@@ -21,20 +19,33 @@ function fmtClock(seconds) {
 const LOGICAL_W = FIELD_PIX_H;
 const LOGICAL_H = FIELD_PIX_W;
 
-export default function GameView({
+const GameView = React.forwardRef(function GameView({
   gameIndex,
   label,
   resetSignal,
   onGameComplete,
   onManualReset,
-}) {
+  globalRunning = false,
+  simSpeed = 1,
+}, ref) {
   const canvasRef = useRef(null);
-  const [running, setRunning] = useState(false);
-  const [simSpeed, setSimSpeed] = useState(1);
+  const [localRunning, setLocalRunning] = useState(false);
   const [state, setState] = useState(() => createInitialGameState({ startGameIndex: gameIndex }));
-  const [seasonModalOpen, setSeasonModalOpen] = useState(false);
   const lastResetTokenRef = useRef(resetSignal?.token ?? 0);
   const notifiedCompleteRef = useRef(false);
+  const prevGlobalRunningRef = useRef(globalRunning);
+
+  useImperativeHandle(ref, () => ({
+    getSeasonSnapshot() {
+      return {
+        label,
+        season: state.season,
+        currentMatchup: state.matchup,
+        currentScores: state.scores,
+        lastCompletedGame: state.lastCompletedGame,
+      };
+    },
+  }), [label, state]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -53,7 +64,7 @@ export default function GameView({
     const loop = (now) => {
       const dt = Math.min(0.033, (now - last) / 1000) * simSpeed;
       last = now;
-      if (running) {
+      if (globalRunning && localRunning) {
         setState(prev => stepGame(prev, dt));
       }
       if (canvasRef.current) {
@@ -63,7 +74,7 @@ export default function GameView({
     };
     rafId = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(rafId);
-  }, [running, simSpeed, state]);
+  }, [globalRunning, localRunning, simSpeed, state]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -80,14 +91,14 @@ export default function GameView({
   useEffect(() => {
     if (state.gameComplete) {
       if (!notifiedCompleteRef.current) {
-        onGameComplete?.(gameIndex, { shouldAutoResume: running });
+        onGameComplete?.(gameIndex, { shouldAutoResume: globalRunning && localRunning });
         notifiedCompleteRef.current = true;
       }
-      if (running) setRunning(false);
+      if (localRunning) setLocalRunning(false);
     } else {
       notifiedCompleteRef.current = false;
     }
-  }, [state.gameComplete, running, gameIndex, onGameComplete]);
+  }, [state.gameComplete, globalRunning, localRunning, gameIndex, onGameComplete]);
 
   useEffect(() => {
     const token = resetSignal?.token ?? 0;
@@ -95,11 +106,17 @@ export default function GameView({
     lastResetTokenRef.current = token;
     const shouldResume = !!resetSignal?.autoResume?.[gameIndex];
     notifiedCompleteRef.current = false;
-    setSeasonModalOpen(false);
     setState(createInitialGameState({ startGameIndex: gameIndex }));
-    setRunning(shouldResume);
+    setLocalRunning(shouldResume);
     onManualReset?.(gameIndex);
   }, [resetSignal, gameIndex, onManualReset]);
+
+  useEffect(() => {
+    if (globalRunning && !prevGlobalRunningRef.current && !state.gameComplete) {
+      setLocalRunning(true);
+    }
+    prevGlobalRunningRef.current = globalRunning;
+  }, [globalRunning, state.gameComplete]);
 
   const season = state.season || {};
   const totalGames = season.schedule?.length || 0;
@@ -151,46 +168,9 @@ export default function GameView({
   const homeStatsTeam = isValidTeam(homeTeam) ? homeTeam : null;
   const awayStatsTeam = isValidTeam(awayTeam) ? awayTeam : null;
 
-  const onNextPlay = () => setState(s => betweenPlays(s));
-
-  const handleForcePlayName = (nameOrNull) => {
-    setState(s => withForceNextPlay(s, nameOrNull));
-  };
-
-  const handleForceOutcome = (outcomeOrNull) => {
-    setState(s => withForceNextOutcome(s, outcomeOrNull));
-  };
-
-  const handleManualResetInternal = () => {
-    setSeasonModalOpen(false);
-    setState(createInitialGameState({ startGameIndex: gameIndex }));
-    setRunning(false);
-    notifiedCompleteRef.current = false;
-    onManualReset?.(gameIndex);
-  };
-
   return (
     <section className="game-instance">
       <h2 className="game-instance__title">{label}</h2>
-      <Toolbar
-        running={running}
-        setRunning={setRunning}
-        simSpeed={simSpeed}
-        setSimSpeed={setSimSpeed}
-        yardLine={Math.round(state.drive.losYards)}
-        down={state.drive.down}
-        toGo={Math.max(1, Math.round(state.drive.toGo))}
-        quarter={state.clock.quarter}
-        timeLeft={fmtClock(state.clock.time)}
-        result={state.play.resultText}
-        onNextPlay={onNextPlay}
-        onReset={handleManualResetInternal}
-        onShowSeasonStats={() => setSeasonModalOpen(true)}
-        onForcePlayName={handleForcePlayName}
-        onForceOutcome={handleForceOutcome}
-        forcedPlayName={state.debug?.forceNextPlayName || null}
-        forceOutcome={state.debug?.forceNextOutcome || null}
-      />
       <Scoreboard
         home={homeTeam}
         away={awayTeam}
@@ -230,17 +210,9 @@ export default function GameView({
           ) : null}
         </div>
       </div>
-      <SeasonStatsModal
-        open={seasonModalOpen}
-        onClose={() => setSeasonModalOpen(false)}
-        season={season}
-        currentMatchup={activeMatchup}
-        currentScores={state.scores}
-        lastCompletedGame={state.lastCompletedGame}
-      />
     </section>
   );
-}
+});
 
 function drawSafe(canvas, state) {
   try {
@@ -250,3 +222,5 @@ function drawSafe(canvas, state) {
     console.error('Failed to draw game', err);
   }
 }
+
+export default GameView;
