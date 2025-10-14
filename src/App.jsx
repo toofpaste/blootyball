@@ -1,202 +1,68 @@
 // src/App.jsx
-import React, { useEffect, useRef, useState } from 'react';
-import Toolbar from './ui/Toolbar';
-import Scoreboard from './ui/Scoreboard';
-import { FIELD_PIX_W, FIELD_PIX_H, COLORS } from './engine/constants';
-import { createInitialGameState, stepGame, betweenPlays, withForceNextOutcome, withForceNextPlay } from './engine/state';
-import { getDiagnostics } from './engine/diagnostics';
-import { TEAM_RED, TEAM_BLK } from './engine/constants';
-import { draw } from './render/draw';
-import PlayLog from './ui/PlayLog';
-import StatsSummary from './ui/StatsSummary';
-import SeasonStatsModal from './ui/SeasonStatsModal';
-import { formatRecord } from './engine/league';
-import { resolveTeamColor } from './engine/colors';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import GameView from './GameView';
 import './AppLayout.css';
 
+const GAME_COUNT = 2;
+const RESET_DELAY_MS = 1200;
+
 export default function App() {
-  const canvasRef = useRef(null);
-  const [running, setRunning] = useState(false);
-  const [simSpeed, setSimSpeed] = useState(1);
-  const [state, setState] = useState(() => createInitialGameState());
-  const [seasonModalOpen, setSeasonModalOpen] = useState(false);
+  const [completionFlags, setCompletionFlags] = useState(() => Array(GAME_COUNT).fill(false));
+  const autoResumeRef = useRef(Array(GAME_COUNT).fill(false));
+  const [resetSignal, setResetSignal] = useState({ token: 0, autoResume: Array(GAME_COUNT).fill(false) });
 
-  const LOGICAL_W = FIELD_PIX_H;
-  const LOGICAL_H = FIELD_PIX_W;
+  const handleGameComplete = useCallback((index, { shouldAutoResume } = {}) => {
+    setCompletionFlags(prev => {
+      if (prev[index]) return prev;
+      const next = prev.slice();
+      next[index] = true;
+      autoResumeRef.current[index] = !!shouldAutoResume;
+      return next;
+    });
+  }, []);
 
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    const dpr = Math.max(1, Math.floor(window.devicePixelRatio || 1));
-    canvas.width = Math.round(LOGICAL_W * dpr);
-    canvas.height = Math.round(LOGICAL_H * dpr);
-    canvas.style.width = '100%';
-    canvas.style.maxWidth = `${LOGICAL_W}px`;
-    canvas.style.height = 'auto';
+  const handleGameReset = useCallback((index) => {
+    autoResumeRef.current[index] = false;
+    setCompletionFlags(prev => {
+      if (!prev[index]) return prev;
+      const next = prev.slice();
+      next[index] = false;
+      return next;
+    });
   }, []);
 
   useEffect(() => {
-    let rafId; let last = performance.now();
-    const loop = (now) => {
-      const dt = Math.min(0.033, (now - last) / 1000) * simSpeed; last = now;
-      if (running) setState(prev => stepGame(prev, dt));
-      draw(canvasRef.current, state);
-      rafId = requestAnimationFrame(loop);
-    };
-    rafId = requestAnimationFrame(loop);
-    return () => cancelAnimationFrame(rafId);
-  }, [running, simSpeed, state]);
+    if (!completionFlags.some(Boolean)) return;
+    if (!completionFlags.every(Boolean)) return;
 
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      window.__blootyball = {
-        state,
-        diagnostics: getDiagnostics(state),
-      };
-    }
-  }, [state]);
+    const autoResume = autoResumeRef.current.slice();
+    autoResumeRef.current = Array(GAME_COUNT).fill(false);
 
-  useEffect(() => {
-    if (state.gameComplete && running) {
-      setRunning(false);
-    }
-  }, [state.gameComplete, running]);
+    const timeout = setTimeout(() => {
+      setResetSignal(prev => ({
+        token: prev.token + 1,
+        autoResume,
+      }));
+      setCompletionFlags(Array(GAME_COUNT).fill(false));
+    }, RESET_DELAY_MS);
 
-  const season = state.season || {};
-  const totalGames = season.schedule?.length || 0;
-  const activeMatchup = state.matchup || null;
-  const fallbackMatchup = !activeMatchup ? state.lastCompletedGame?.matchup : null;
-  const activeScores = activeMatchup ? state.scores : (state.lastCompletedGame?.scores || {});
-
-  const buildTeam = (slot) => {
-    const matchupInfo = activeMatchup || fallbackMatchup;
-    const teamId = matchupInfo?.slotToTeam?.[slot] || null;
-    const entry = teamId ? season.teams?.[teamId] : null;
-    const identity = matchupInfo?.identities?.[slot] || entry?.info || null;
-    const record = entry?.record || { wins: 0, losses: 0, ties: 0 };
-    const recordText = formatRecord(record);
-    const colors = (identity?.colors || entry?.info?.colors) || {};
-    const defaultColor = slot === TEAM_RED ? COLORS.red : COLORS.black;
-    const resolvedColor = resolveTeamColor(colors, defaultColor);
-    const displayName = identity?.displayName || entry?.info?.displayName || identity?.name || teamId || slot;
-    const label = identity?.abbr || entry?.info?.abbr || displayName;
-    return {
-      id: teamId || slot,
-      displayName,
-      label,
-      recordText,
-      score: activeScores?.[slot] ?? 0,
-      color: resolvedColor,
-      info: entry?.info || identity || {},
-    };
-  };
-
-  const homeTeam = buildTeam(TEAM_RED);
-  const awayTeam = buildTeam(TEAM_BLK);
-
-  let gameLabel = '';
-  if (totalGames) {
-    if (!activeMatchup && state.gameComplete) {
-      gameLabel = 'Season complete';
-    } else if (activeMatchup) {
-      const index = activeMatchup.index != null ? activeMatchup.index : season.currentGameIndex;
-      gameLabel = `Game ${Math.min((index ?? 0) + 1, totalGames)} of ${totalGames}`;
-    } else if (fallbackMatchup) {
-      const index = fallbackMatchup.index != null ? fallbackMatchup.index : (season.completedGames ?? 1) - 1;
-      const safeIndex = index != null ? index : 0;
-      gameLabel = `Final • Game ${Math.min(safeIndex + 1, totalGames)} of ${totalGames}`;
-    }
-  }
-
-  const isValidTeam = (team) => team.id && team.id !== TEAM_RED && team.id !== TEAM_BLK;
-  const homeStatsTeam = isValidTeam(homeTeam) ? homeTeam : null;
-  const awayStatsTeam = isValidTeam(awayTeam) ? awayTeam : null;
-
-  const onNextPlay = () => setState(s => betweenPlays(s));
-  const onReset = () => { setSeasonModalOpen(false); setState(createInitialGameState()); setRunning(false); };
-
-  // new handlers for debug tools
-  const handleForcePlayName = (nameOrNull) => {
-    setState(s => withForceNextPlay(s, nameOrNull));
-  };
-  const handleForceOutcome = (outcomeOrNull) => {
-    setState(s => withForceNextOutcome(s, outcomeOrNull));
-  };
+    return () => clearTimeout(timeout);
+  }, [completionFlags]);
 
   return (
     <div className="app-root">
-      <Toolbar
-        running={running}
-        setRunning={setRunning}
-        simSpeed={simSpeed}
-        setSimSpeed={setSimSpeed}
-        yardLine={Math.round(state.drive.losYards)}
-        down={state.drive.down}
-        toGo={Math.max(1, Math.round(state.drive.toGo))}
-        quarter={state.clock.quarter}
-        timeLeft={fmtClock(state.clock.time)}
-        result={state.play.resultText}
-        onNextPlay={onNextPlay}
-        onReset={onReset}
-        onShowSeasonStats={() => setSeasonModalOpen(true)}
-        // new debug props
-        onForcePlayName={handleForcePlayName}
-        onForceOutcome={handleForceOutcome}
-        forcedPlayName={state.debug?.forceNextPlayName || null}
-        forceOutcome={state.debug?.forceNextOutcome || null}
-      />
-      <Scoreboard
-        home={homeTeam}
-        away={awayTeam}
-        quarter={state.clock?.quarter ?? 1}
-        timeLeftText={fmtClock(state.clock?.time ?? 0)}
-        down={state.drive?.down ?? 1}
-        toGo={state.drive?.toGo ?? 10}
-        gameLabel={gameLabel}
-      />
-      <div className="main-shell">
-        <div className="app-layout">
-          {awayStatsTeam ? (
-            <div className="stats-column stats-column--away">
-              <StatsSummary
-                stats={state.playerStats}
-                directory={state.playerDirectory}
-                teams={[awayStatsTeam]}
-                title={`${awayStatsTeam.displayName || awayStatsTeam.label || 'Away'} Leaders`}
-              />
-            </div>
-          ) : null}
-          <div className="field-column">
-            <div className="field-wrapper">
-              <canvas ref={canvasRef} className="field-canvas" />
-            </div>
-            <PlayLog items={state.playLog} />
-          </div>
-          {homeStatsTeam ? (
-            <div className="stats-column stats-column--home">
-              <StatsSummary
-                stats={state.playerStats}
-                directory={state.playerDirectory}
-                teams={[homeStatsTeam]}
-                title={`${homeStatsTeam.displayName || homeStatsTeam.label || 'Home'} Leaders`}
-              />
-            </div>
-          ) : null}
-        </div>
+      <div className="games-stack">
+        {Array.from({ length: GAME_COUNT }).map((_, index) => (
+          <GameView
+            key={index}
+            gameIndex={index}
+            label={`Game ${index + 1}`}
+            resetSignal={resetSignal}
+            onGameComplete={handleGameComplete}
+            onManualReset={handleGameReset}
+          />
+        ))}
       </div>
-      <SeasonStatsModal
-        open={seasonModalOpen}
-        onClose={() => setSeasonModalOpen(false)}
-        season={season}
-        currentMatchup={activeMatchup}
-        currentScores={state.scores}
-        lastCompletedGame={state.lastCompletedGame}
-      />
     </div>
   );
-}
-
-function fmtClock(s) {
-  const m = Math.floor(s / 60);
-  const ss = String(Math.floor(s % 60)).padStart(2, '0');
-  return `${m}:${ss}`;
 }
