@@ -17,6 +17,7 @@ const STAT_COLUMNS = [
 
 function buildRows(stats = {}, league = null, teams = {}) {
   const directory = league?.playerDirectory || {};
+  const injuredReserve = league?.injuredReserve || {};
   return Object.entries(stats).map(([playerId, entry]) => {
     const playerMeta = directory[playerId] || {};
     const passing = entry.passing || {};
@@ -24,9 +25,14 @@ function buildRows(stats = {}, league = null, teams = {}) {
     const receiving = entry.receiving || {};
     const defense = entry.defense || {};
     const teamInfo = teams[playerMeta.team] || teams[playerMeta.teamId] || null;
+    const irEntry = injuredReserve[playerId] || null;
+    const irPlayer = irEntry?.player || null;
+    const fallbackName = irPlayer
+      ? `${irPlayer.firstName || ''}${irPlayer.lastName ? ` ${irPlayer.lastName}` : ''}`.trim() || irPlayer.fullName || playerId
+      : playerId;
     return {
       playerId,
-      playerName: playerMeta.fullName || playerMeta.name || playerId,
+      playerName: playerMeta.fullName || playerMeta.name || fallbackName,
       teamName: teamInfo?.identity?.displayName || teamInfo?.info?.displayName || playerMeta.teamName || playerMeta.team || '—',
       passingYards: Math.round(passing.yards || 0),
       passingTD: passing.touchdowns || 0,
@@ -37,6 +43,13 @@ function buildRows(stats = {}, league = null, teams = {}) {
       tackles: defense.tackles || 0,
       sacks: defense.sacks || 0,
       interceptions: defense.interceptions || 0,
+      onInjuredReserve: Boolean(irEntry),
+      injury: irEntry
+        ? {
+            description: irEntry.description || '',
+            gamesRemaining: irEntry.gamesRemaining ?? null,
+          }
+        : null,
     };
   });
 }
@@ -81,7 +94,39 @@ function LeaderboardTable({ title, rows, sort, onSort }) {
               const striped = index % 2 === 0;
               return (
                 <tr key={row.playerId} style={{ background: striped ? 'rgba(7,45,7,0.75)' : 'rgba(5,32,5,0.9)', color: '#f2fff2' }}>
-                  <td style={{ padding: '8px 10px', fontWeight: 600 }}>{row.playerName}</td>
+                  <td style={{ padding: '8px 10px', fontWeight: 600 }}>
+                    <span style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                      <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <span>{row.playerName}</span>
+                        {row.onInjuredReserve ? (
+                          <span
+                            style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              padding: '1px 6px',
+                              borderRadius: 999,
+                              background: 'rgba(124,22,22,0.25)',
+                              color: '#ff8282',
+                              fontSize: 9,
+                              fontWeight: 700,
+                              letterSpacing: 0.8,
+                              textTransform: 'uppercase',
+                            }}
+                          >
+                            IR
+                          </span>
+                        ) : null}
+                      </span>
+                      {row.onInjuredReserve && (row.injury?.description || row.injury?.gamesRemaining != null) ? (
+                        <span style={{ fontSize: 11, fontWeight: 400, color: '#ff9f9f' }}>
+                          {row.injury?.description || 'Injured'}
+                          {row.injury?.gamesRemaining != null
+                            ? ` • ${row.injury.gamesRemaining} game${row.injury.gamesRemaining === 1 ? '' : 's'} remaining`
+                            : ''}
+                        </span>
+                      ) : null}
+                    </span>
+                  </td>
                   <td style={{ padding: '8px 10px' }}>{row.teamName}</td>
                   <td style={{ padding: '8px 10px' }}>{row.passingYards}</td>
                   <td style={{ padding: '8px 10px' }}>{row.passingTD}</td>
