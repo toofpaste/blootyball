@@ -17,6 +17,14 @@ import {
     advanceSeasonPointer,
     seasonCompleted,
 } from './league';
+import {
+    ensureSeasonProgression,
+    applyLongTermAdjustments,
+    initializeGameDynamics,
+    finalizeGameDynamics,
+    prepareCoachesForMatchup,
+    coachClockPlan,
+} from './progression';
 
 /* =========================================================
    Utilities / guards
@@ -162,25 +170,31 @@ function prepareGameForMatchup(state, matchup) {
         state.roster = null;
         state.drive = { losYards: 25, down: 1, toGo: 10 };
         state.scores = defaultScores();
+        state.coaches = null;
         state.clock = createClock();
         state.play = { phase: 'COMPLETE', resultText: 'Season complete' };
         state.playerDirectory = {};
         state.playerStats = {};
         state.playLog = [];
+        state.gameDynamics = null;
         return state;
     }
 
     state.matchup = matchup;
     state.possession = TEAM_RED;
+    ensureSeasonProgression(state.season);
+    state.coaches = prepareCoachesForMatchup(matchup);
     state.teams = createTeams(matchup);
+    applyLongTermAdjustments(state.teams, state.coaches, state.season?.playerDevelopment || {});
     state.drive = { losYards: 25, down: 1, toGo: 10 };
-    state.clock = createClock();
+    state.clock = createClock(state.coaches);
     state.scores = defaultScores();
     state.pendingExtraPoint = null;
     state.playLog = [];
     state.playerDirectory = buildPlayerDirectory(state.teams, matchup.slotToTeam, matchup.identities);
     state.playerStats = createInitialPlayerStats(state.playerDirectory);
     state.roster = rosterForPossession(state.teams, state.possession);
+    initializeGameDynamics(state, matchup);
     state.roster.__ownerState = state;
     state.play = createPlayState(state.roster, state.drive);
     beginPlayDiagnostics(state);
@@ -210,6 +224,7 @@ function finalizeCurrentGame(state) {
         matchup: lastMatchup,
         scores: { ...state.scores },
     };
+    finalizeGameDynamics(state);
     const updatedSeason = applyGameResultToSeason(
         currentSeason,
         game,
@@ -860,10 +875,11 @@ function otherTeam(team) {
     return team === TEAM_RED ? TEAM_BLK : TEAM_RED;
 }
 
-function createClock() {
+function createClock(coaches = null) {
+    const plan = coachClockPlan(coaches || {});
     const settings = {
-        [TEAM_RED]: { ...DEFAULT_CLOCK_MANAGEMENT },
-        [TEAM_BLK]: { ...DEFAULT_CLOCK_MANAGEMENT },
+        [TEAM_RED]: { ...DEFAULT_CLOCK_MANAGEMENT, ...(plan[TEAM_RED] || {}) },
+        [TEAM_BLK]: { ...DEFAULT_CLOCK_MANAGEMENT, ...(plan[TEAM_BLK] || {}) },
     };
     return {
         quarter: 1,
@@ -1458,17 +1474,23 @@ export function createPlayState(roster, drive) {
         : { losYards: 25, down: 1, toGo: 10 };
 
     const losPixY = yardsToPixY(ENDZONE_YARDS + safeDrive.losYards);
+    const ownerState = roster?.__ownerState || null;
+    const offenseTeamSlot = roster?.off?.QB?.team || roster?.off?.RB?.team || TEAM_RED;
+    const defenseTeamSlot = offenseTeamSlot === TEAM_RED ? TEAM_BLK : TEAM_RED;
+    const offenseCoach = ownerState?.coaches?.[offenseTeamSlot] || null;
+    const defenseCoach = ownerState?.coaches?.[defenseTeamSlot] || null;
     const formationNames = pickFormations({
         down: safeDrive.down,
         toGo: safeDrive.toGo,
         yardline: safeDrive.losYards,
+        offenseIQ: offenseCoach?.tacticalIQ ?? 1.0,
+        defenseIQ: defenseCoach?.tacticalIQ ?? 1.0,
     }) || {};
 
     const formation = lineUpFormation(roster, losPixY, formationNames) || { off: {}, def: {} };
 
-    const ownerState = roster?.__ownerState || null;
     const pendingPat = ownerState?.pendingExtraPoint || null;
-    const offenseTeam = roster?.off?.QB?.team || roster?.off?.RB?.team || roster?.special?.K?.team || TEAM_RED;
+    const offenseTeam = offenseTeamSlot || roster?.special?.K?.team || TEAM_RED;
     const defenseTeam = otherTeam(offenseTeam);
     const kicker = roster?.special?.K || null;
     const debugForced = !!(ownerState && ownerState.debug?.forceNextArmed);
@@ -1521,10 +1543,25 @@ export function createPlayState(roster, drive) {
         const allPlays = [];
         if (Array.isArray(PLAYBOOK)) allPlays.push(...PLAYBOOK);
         if (Array.isArray(PLAYBOOK_PLUS)) allPlays.push(...PLAYBOOK_PLUS);
+        const offenseDynamics = ownerState?.gameDynamics?.teams?.[offenseTeam] || null;
+        const personnel = {
+            qbId: formation.off?.QB?.id || null,
+            runnerId: formation.off?.RB?.id || null,
+            receivers: {
+                WR1: formation.off?.WR1 || null,
+                WR2: formation.off?.WR2 || null,
+                WR3: formation.off?.WR3 || null,
+                TE: formation.off?.TE || null,
+            },
+        };
         const context = {
             down: safeDrive.down,
             toGo: safeDrive.toGo,
             yardline: safeDrive.losYards,
+            offenseIQ: offenseCoach?.playcallingIQ ?? offenseCoach?.tacticalIQ ?? 1.0,
+            relationships: offenseDynamics?.relationshipValues || null,
+            personnel,
+            coachTendencies: offenseCoach?.tendencies || null,
         };
         let pool = allPlays.length ? allPlays : [{ name: 'Run Middle', type: 'RUN' }];
         if (safeDrive.down === 4) {
@@ -1960,6 +1997,8 @@ export function betweenPlays(prevState) {
         result: resultWhy,
         callType: call.type,
         carrierId: s.play?.ball?.lastCarrierId || null,
+        startDown,
+        startToGo,
     });
 
     finalizePlayDiagnostics(s, {

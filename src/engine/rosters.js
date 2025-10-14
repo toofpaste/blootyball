@@ -46,6 +46,8 @@ function makePlayer(team, role, data = {}, meta = {}) {
         alive: true,
     };
 
+    player.baseAttrs = { ...player.attrs };
+
     player.meta = {
         teamId: meta.teamId || null,
         teamSlot: team,
@@ -193,11 +195,13 @@ export function rosterForPossession(teams, offenseTeam) {
     ROLES_OFF.forEach(r => {
         const base = teams[offenseTeam].off[r];
         off[r] = { ...base, pos: { ...base.pos }, home: base.home ? { ...base.home } : null };
+        if (base.baseAttrs) off[r].baseAttrs = { ...base.baseAttrs };
         resetMotion(off[r]);
     });
     ROLES_DEF.forEach(r => {
         const base = teams[defenseTeam].def[r];
         def[r] = { ...base, pos: { ...base.pos }, home: base.home ? { ...base.home } : null };
+        if (base.baseAttrs) def[r].baseAttrs = { ...base.baseAttrs };
         resetMotion(def[r]);
     });
     const special = {};

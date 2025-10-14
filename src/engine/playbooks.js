@@ -132,12 +132,38 @@ export function pickFormations(ctx) {
 
 /** pickPlayCall returns one play from [...PLAYBOOK, ...PLAYBOOK_PLUS] */
 export function pickPlayCall(allPlays, ctx) {
-    const { down, toGo, yardline, offenseIQ = 1.0 } = ctx;
+    const {
+        down,
+        toGo,
+        yardline,
+        offenseIQ = 1.0,
+        relationships = null,
+        personnel = null,
+        coachTendencies = null,
+    } = ctx;
     const long = toGo >= 7;
     const short = toGo <= 2;
     const redzone = yardline >= 80;
     const firstDown = down === 1;
     const medium = !long && !short;
+
+    const qbId = personnel?.qbId || null;
+    const runnerId = personnel?.runnerId || null;
+    const receivers = personnel?.receivers || {};
+    const passMap = relationships?.passing || {};
+    const runMap = relationships?.rushing || {};
+    const passBias = coachTendencies?.passBias ?? 0;
+    const runBias = coachTendencies?.runBias ?? 0;
+    const aggression = coachTendencies?.aggression ?? 0;
+
+    function chemistryForPlay(play) {
+        if (!qbId || !play?.primary) return 0;
+        const target = receivers[play.primary];
+        if (!target?.id) return 0;
+        return passMap[qbId]?.[target.id] || 0;
+    }
+
+    const runMomentum = runnerId ? (runMap[runnerId] || 0) : 0;
 
     // Score each play for the situation
     function score(p) {
@@ -150,6 +176,8 @@ export function pickPlayCall(allPlays, ctx) {
             if (long) s -= 5;
             if (p.name.includes('Stretch') || p.name.includes('Outside')) s += 2;
             if (redzone) s += 3;
+            s += runMomentum * 12;
+            s += runBias * 8;
         } else { // PASS
             s += long ? 10 : short ? -4 : 0;
             if (firstDown && !long) s -= 3;
@@ -169,6 +197,13 @@ export function pickPlayCall(allPlays, ctx) {
             if (isShotPlay && !long) s -= 4;
             if (p.playAction) s += (!long && !short) ? 2 : (short ? 1 : -2);
             if (redzone) s += p.name.includes('Smash') || p.name.includes('Spacing') ? 3 : 0;
+            const chemistry = chemistryForPlay(p);
+            s += chemistry * 14;
+            s += passBias * 8;
+            if (aggression) {
+                s += aggression * (Math.max(0, drop - 4)) * 2;
+                if (isShotPlay) s += aggression * 4;
+            }
         }
         // small randomness
         s += (Math.random() - 0.5) * 2;

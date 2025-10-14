@@ -1202,6 +1202,9 @@ function tryThrow(s, press) {
     const qb = off.QB;
     const call = s.play?.playCall || {};
     if (!qb || !qb.pos) return;
+    const dynamics = s.gameDynamics?.teams?.[qb.team] || null;
+    const chemistryMap = dynamics?.relationshipValues?.passing?.[qb.id] || {};
+    const rushingMomentum = dynamics?.relationshipValues?.rushing || {};
     const tNow = s.play.elapsed, ttt = s.play.qbTTT || 2.5, maxHold = s.play.qbMaxHold || 4.8;
     const minThrowGate = Math.min(ttt - 0.15, 1.35);
     const readyAt = s.play.qbReadyAt != null ? Math.max(minThrowGate * 0.85, s.play.qbReadyAt) : minThrowGate;
@@ -1224,7 +1227,10 @@ function tryThrow(s, press) {
     for (const key of wrteKeys) {
         const r = off[key];
         if (!r || !r.alive || r.pos.y < losY) continue;
-        candidates.push(_evaluateReceivingTarget(s, key, r, qb, def, losY, call));
+        const evalResult = _evaluateReceivingTarget(s, key, r, qb, def, losY, call);
+        const chemistry = chemistryMap?.[r.id] || 0;
+        evalResult.score += chemistry * 12;
+        candidates.push(evalResult);
     }
     candidates.sort((a, b) => b.score - a.score);
     const bestWRTE = candidates[0] || null;
@@ -1241,13 +1247,15 @@ function tryThrow(s, press) {
     const progressedPastRB = s.play.qbReadIdx > rbIndex;
     const forceCheckdown = press.underHeat && tNow >= ttt;
     if (checkdownGate && (!targetChoice || forceCheckdown || progressedPastRB)) {
-        const r = off.RB;
-        if (r && r.alive) {
-            const open = nearestDefDist(def, r.pos), throwLine = dist(qb.pos, r.pos);
-            let score = open * 1.05 - throwLine * 0.35;
-            if (tNow < (ttt + CFG.CHECKDOWN_LAG)) score -= CFG.RB_EARLY_PENALTY;
-            const depth = Math.max(0, r.pos.y - losY);
-            rbCand = { key: 'RB', r, score, open, throwLine, depthPastLOS: depth };
+            const r = off.RB;
+            if (r && r.alive) {
+                const open = nearestDefDist(def, r.pos), throwLine = dist(qb.pos, r.pos);
+                let score = open * 1.05 - throwLine * 0.35;
+                const momentum = rushingMomentum?.[r.id] || 0;
+                score += momentum * 8;
+                if (tNow < (ttt + CFG.CHECKDOWN_LAG)) score -= CFG.RB_EARLY_PENALTY;
+                const depth = Math.max(0, r.pos.y - losY);
+                rbCand = { key: 'RB', r, score, open, throwLine, depthPastLOS: depth };
         }
     }
 
