@@ -847,6 +847,7 @@ function shouldStopClockForResult(why, turnover = false) {
         w.includes('incomplete') ||
         w.includes('drop') ||
         w.includes('touchdown') ||
+        w.includes('safety') ||
         w.includes('interception') ||
         w.includes('turnover') ||
         w.includes('throw away') ||
@@ -1018,12 +1019,21 @@ function maybeAssessPenalty(s, ctx) {
 }
 
 /** End-of-play spot in yards; freeze at LOS for no-advance results. */
-function resolveEndSpotYards(s) {
+function resolveEndSpot(s) {
     const bp = getBallPix(s);
-    // convert portrait-space pixel Y to yards going in, then clamp to 0..100
+    // convert portrait-space pixel Y to yards going in, relative to the offense's own goal line
     let y = pixYToYards(bp?.y ?? yardsToPixY(ENDZONE_YARDS + s.drive.losYards)) - ENDZONE_YARDS;
     if (!Number.isFinite(y)) y = s.drive?.losYards ?? 25;
-    return clamp(Math.round(y), 0, 100);
+    const yards = clamp(Math.round(y), 0, 100);
+    return {
+        yards,
+        rawYards: y,
+        inOwnEndzone: y < 0,
+    };
+}
+
+function resolveEndSpotYards(s) {
+    return resolveEndSpot(s).yards;
 }
 
 
@@ -1607,7 +1617,8 @@ export function betweenPlays(prevState) {
     const startToGo = s.play.startToGo ?? s.drive.toGo;
 
     // Where did the ball end up in yards going-in (0..100)?
-    const endYd = resolveEndSpotYards(s);  // see helper below
+    const endSpot = resolveEndSpot(s);  // see helper below
+    const endYd = endSpot.yards;
     const netGain = clamp(endYd - startLos, -100, 100);
 
     // Helpers
@@ -1629,8 +1640,47 @@ export function betweenPlays(prevState) {
     let toGo = s.drive.toGo;
     let turnover = !!s.play.turnover;
 
+    const safetyEligibleResult = (() => {
+        const w = String(resultWhy).toLowerCase();
+        return w.includes('tackle') || w.includes('sack') || w.includes('progress');
+    })();
+
+    if (!turnover && safetyEligibleResult && endSpot.inOwnEndzone) {
+        const defense = otherTeam(offenseAtSnap);
+        if (!s.scores) s.scores = defaultScores();
+        s.scores[defense] = (s.scores[defense] ?? 0) + 2;
+
+        recordPlayEvent(s, {
+            type: 'score:safety',
+            offense: offenseAtSnap,
+            defense,
+        });
+
+        s.possession = defense;
+        s.teams = s.teams || createTeams(s.matchup);
+        s.roster = rosterForPossession(s.teams, s.possession);
+        s.pendingExtraPoint = null;
+
+        los = 25;
+        down = 1;
+        toGo = 10;
+        turnover = true;
+        resultWhy = 'Safety';
+        s.play.resultWhy = 'Safety';
+
+        pushPlayLog(s, {
+            name: call.name,
+            startDown, startToGo, startLos,
+            endLos: los,
+            gained: netGain,
+            why: 'Safety',
+            turnover: true,
+            offense: offenseAtSnap,
+        });
+    }
+
     // Touchdown: add score, then hand the ball to the other team at the 25
-    if (resultWhy === 'Touchdown') {
+    else if (resultWhy === 'Touchdown') {
         if (!s.scores) s.scores = { [TEAM_RED]: 0, [TEAM_BLK]: 0 };
         const scoringTeam = offenseAtSnap;
         s.scores[scoringTeam] = (s.scores[scoringTeam] ?? 0) + 6;
@@ -1773,7 +1823,7 @@ export function betweenPlays(prevState) {
         startToGo,
         startLos,
         turnover: turnover || turnoverOnDownsByString || turnoverOnDownsCalc,
-        scoring: resultWhy === 'Touchdown',
+        scoring: resultWhy === 'Touchdown' || resultWhy === 'Safety',
     });
 
     const timeoutContext = {
