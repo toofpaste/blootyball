@@ -264,15 +264,22 @@ function mergeTeamEntry(target, source = {}) {
   if (!target) return;
   const record = source.record || {};
   const stats = source.stats || {};
-  target.pointsFor += Number.isFinite(source.pointsFor) ? source.pointsFor : 0;
-  target.pointsAgainst += Number.isFinite(source.pointsAgainst) ? source.pointsAgainst : 0;
-  target.record.wins += Number.isFinite(record.wins) ? record.wins : 0;
-  target.record.losses += Number.isFinite(record.losses) ? record.losses : 0;
-  target.record.ties += Number.isFinite(record.ties) ? record.ties : 0;
+  const mergeNumeric = (currentValue, incomingValue) => {
+    const incoming = Number.isFinite(incomingValue) ? incomingValue : 0;
+    const current = Number.isFinite(currentValue) ? currentValue : 0;
+    return Math.max(current, incoming);
+  };
+
+  target.pointsFor = mergeNumeric(target.pointsFor, source.pointsFor);
+  target.pointsAgainst = mergeNumeric(target.pointsAgainst, source.pointsAgainst);
+  target.record.wins = mergeNumeric(target.record.wins, record.wins);
+  target.record.losses = mergeNumeric(target.record.losses, record.losses);
+  target.record.ties = mergeNumeric(target.record.ties, record.ties);
 
   const mergeStat = (key) => {
     const value = Number.isFinite(stats[key]) ? stats[key] : 0;
-    target.stats[key] = (target.stats[key] || 0) + value;
+    const current = Number.isFinite(target.stats[key]) ? target.stats[key] : 0;
+    target.stats[key] = Math.max(current, value);
   };
 
   mergeStat('passingYards');
