@@ -4,6 +4,7 @@ import GameView from './GameView';
 import GlobalControls from './ui/GlobalControls';
 import Modal from './ui/Modal';
 import { SeasonStatsContent } from './ui/SeasonStatsModal';
+import TeamDirectoryModal from './ui/TeamDirectoryModal';
 import './AppLayout.css';
 
 const GAME_COUNT = 2;
@@ -55,6 +56,134 @@ function cloneScheduleGame(game) {
   };
 }
 
+function clonePlayerStatEntry(entry = {}) {
+  const passing = entry.passing || {};
+  const rushing = entry.rushing || {};
+  const receiving = entry.receiving || {};
+  const defense = entry.defense || {};
+  const misc = entry.misc || {};
+  const kicking = entry.kicking || {};
+  return {
+    passing: {
+      attempts: passing.attempts ?? 0,
+      completions: passing.completions ?? 0,
+      yards: passing.yards ?? 0,
+      touchdowns: passing.touchdowns ?? 0,
+      interceptions: passing.interceptions ?? 0,
+      sacks: passing.sacks ?? 0,
+      sackYards: passing.sackYards ?? 0,
+    },
+    rushing: {
+      attempts: rushing.attempts ?? 0,
+      yards: rushing.yards ?? 0,
+      touchdowns: rushing.touchdowns ?? 0,
+      fumbles: rushing.fumbles ?? 0,
+    },
+    receiving: {
+      targets: receiving.targets ?? 0,
+      receptions: receiving.receptions ?? 0,
+      yards: receiving.yards ?? 0,
+      touchdowns: receiving.touchdowns ?? 0,
+      drops: receiving.drops ?? 0,
+    },
+    defense: {
+      tackles: defense.tackles ?? 0,
+      sacks: defense.sacks ?? 0,
+      interceptions: defense.interceptions ?? 0,
+      forcedFumbles: defense.forcedFumbles ?? 0,
+    },
+    misc: {
+      fumbles: misc.fumbles ?? 0,
+    },
+    kicking: {
+      attempts: kicking.attempts ?? 0,
+      made: kicking.made ?? 0,
+      long: kicking.long ?? 0,
+      patAttempts: kicking.patAttempts ?? 0,
+      patMade: kicking.patMade ?? 0,
+    },
+  };
+}
+
+function clonePlayerStatsMap(stats = {}) {
+  const map = {};
+  Object.entries(stats).forEach(([playerId, entry]) => {
+    map[playerId] = clonePlayerStatEntry(entry);
+  });
+  return map;
+}
+
+function mergePlayerStatEntry(target, source = {}) {
+  if (!target) return;
+  const src = clonePlayerStatEntry(source);
+  const dst = target;
+  dst.passing.attempts += src.passing.attempts;
+  dst.passing.completions += src.passing.completions;
+  dst.passing.yards += src.passing.yards;
+  dst.passing.touchdowns += src.passing.touchdowns;
+  dst.passing.interceptions += src.passing.interceptions;
+  dst.passing.sacks += src.passing.sacks;
+  dst.passing.sackYards += src.passing.sackYards;
+
+  dst.rushing.attempts += src.rushing.attempts;
+  dst.rushing.yards += src.rushing.yards;
+  dst.rushing.touchdowns += src.rushing.touchdowns;
+  dst.rushing.fumbles += src.rushing.fumbles;
+
+  dst.receiving.targets += src.receiving.targets;
+  dst.receiving.receptions += src.receiving.receptions;
+  dst.receiving.yards += src.receiving.yards;
+  dst.receiving.touchdowns += src.receiving.touchdowns;
+  dst.receiving.drops += src.receiving.drops;
+
+  dst.defense.tackles += src.defense.tackles;
+  dst.defense.sacks += src.defense.sacks;
+  dst.defense.interceptions += src.defense.interceptions;
+  dst.defense.forcedFumbles += src.defense.forcedFumbles;
+
+  dst.misc.fumbles += src.misc.fumbles;
+
+  dst.kicking.attempts += src.kicking.attempts;
+  dst.kicking.made += src.kicking.made;
+  dst.kicking.long = Math.max(dst.kicking.long, src.kicking.long);
+  dst.kicking.patAttempts += src.kicking.patAttempts;
+  dst.kicking.patMade += src.kicking.patMade;
+}
+
+function mergePlayerStatsMap(target, source = {}) {
+  if (!target) return;
+  Object.entries(source).forEach(([playerId, entry]) => {
+    if (!target[playerId]) {
+      target[playerId] = clonePlayerStatEntry(entry);
+      return;
+    }
+    mergePlayerStatEntry(target[playerId], entry);
+  });
+}
+
+function clonePlayerDevelopmentMap(map = {}) {
+  const out = {};
+  Object.entries(map).forEach(([playerId, attrs]) => {
+    out[playerId] = { ...attrs };
+  });
+  return out;
+}
+
+function mergePlayerDevelopmentMap(target, source = {}) {
+  if (!target) return;
+  Object.entries(source).forEach(([playerId, attrs]) => {
+    if (!target[playerId]) {
+      target[playerId] = { ...attrs };
+      return;
+    }
+    Object.entries(attrs || {}).forEach(([attr, value]) => {
+      if (target[playerId][attr] == null) {
+        target[playerId][attr] = value;
+      }
+    });
+  });
+}
+
 function cloneSeason(season) {
   if (!season) return null;
   const teams = Object.entries(season.teams || {}).reduce((acc, [id, team]) => {
@@ -73,6 +202,8 @@ function cloneSeason(season) {
     teams,
     schedule,
     results,
+    playerStats: clonePlayerStatsMap(season.playerStats || {}),
+    playerDevelopment: clonePlayerDevelopmentMap(season.playerDevelopment || {}),
     completedGames: Number.isFinite(season.completedGames)
       ? season.completedGames
       : results.length,
@@ -139,6 +270,12 @@ function mergeSeasonData(target, source) {
       played: true,
     };
   });
+
+  target.playerStats ||= {};
+  mergePlayerStatsMap(target.playerStats, source.playerStats || {});
+
+  target.playerDevelopment ||= {};
+  mergePlayerDevelopmentMap(target.playerDevelopment, source.playerDevelopment || {});
 
   target.completedGames = target.results.length;
 }
@@ -252,7 +389,8 @@ export default function App() {
   const [globalRunning, setGlobalRunning] = useState(false);
   const [simSpeed, setSimSpeed] = useState(1);
   const [seasonStatsOpen, setSeasonStatsOpen] = useState(false);
-  const [seasonStatsSnapshots, setSeasonStatsSnapshots] = useState(() => []);
+  const [teamDirectoryOpen, setTeamDirectoryOpen] = useState(false);
+  const [seasonSnapshots, setSeasonSnapshots] = useState(() => []);
   const gameRefs = useRef([]);
 
   const handleGameComplete = useCallback((index, { shouldAutoResume } = {}) => {
@@ -302,7 +440,7 @@ export default function App() {
     setSimSpeed(value);
   }, []);
 
-  const handleOpenSeasonStats = useCallback(() => {
+  const collectSeasonSnapshots = useCallback(() => {
     const snapshots = gameRefs.current.map((ref, index) => {
       if (ref && typeof ref.getSeasonSnapshot === 'function') {
         const snapshot = ref.getSeasonSnapshot();
@@ -313,14 +451,23 @@ export default function App() {
       }
       return null;
     });
-
-    setSeasonStatsSnapshots(snapshots);
-    setSeasonStatsOpen(true);
+    setSeasonSnapshots(snapshots);
+    return snapshots;
   }, []);
 
+  const handleOpenSeasonStats = useCallback(() => {
+    collectSeasonSnapshots();
+    setSeasonStatsOpen(true);
+  }, [collectSeasonSnapshots]);
+
+  const handleOpenTeamDirectory = useCallback(() => {
+    collectSeasonSnapshots();
+    setTeamDirectoryOpen(true);
+  }, [collectSeasonSnapshots]);
+
   const aggregatedSeasonStats = useMemo(
-    () => combineSeasonSnapshots(seasonStatsSnapshots),
-    [seasonStatsSnapshots],
+    () => combineSeasonSnapshots(seasonSnapshots),
+    [seasonSnapshots],
   );
 
   const modalTitle = aggregatedSeasonStats?.label
@@ -334,6 +481,7 @@ export default function App() {
         onToggleRunning={handleToggleRunning}
         simSpeed={simSpeed}
         onSimSpeedChange={handleSimSpeedChange}
+        onShowTeamDirectory={handleOpenTeamDirectory}
         onShowSeasonStats={handleOpenSeasonStats}
       />
       <div className="games-stack">
@@ -371,6 +519,11 @@ export default function App() {
           </div>
         )}
       </Modal>
+      <TeamDirectoryModal
+        open={teamDirectoryOpen}
+        onClose={() => setTeamDirectoryOpen(false)}
+        season={aggregatedSeasonStats?.season || null}
+      />
     </div>
   );
 }
