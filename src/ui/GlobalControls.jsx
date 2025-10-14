@@ -5,6 +5,7 @@ export default function GlobalControls({
   onToggleRunning,
   simSpeed,
   onSimSpeedChange,
+  onShowTeamDirectory,
   onShowSeasonStats,
 }) {
   const handleSpeedChange = (event) => {
@@ -18,6 +19,13 @@ export default function GlobalControls({
     <div className="global-controls">
       <button type="button" className="global-controls__button" onClick={onToggleRunning}>
         {running ? 'Pause' : 'Start'}
+      </button>
+      <button
+        type="button"
+        className="global-controls__button global-controls__button--secondary"
+        onClick={onShowTeamDirectory}
+      >
+        Team Pages
       </button>
       <button
         type="button"
