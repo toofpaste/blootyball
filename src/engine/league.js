@@ -116,6 +116,9 @@ export function createSeasonState() {
     completedGames: 0,
     results: [],
     playerStats: {},
+    playerDevelopment: {},
+    relationships: {},
+    coachStates: {},
   };
 }
 

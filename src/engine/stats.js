@@ -1,3 +1,5 @@
+import { recordPlayDynamics } from './progression';
+
 const PASSING_TEMPLATE = () => ({
     attempts: 0,
     completions: 0,
@@ -298,6 +300,8 @@ export function finalizePlayStats(state, summary) {
             if (defenderStats) defenderStats.defense.tackles += 1;
         }
     }
+
+    recordPlayDynamics(state, summary, ctx);
 
     // Preserve context for UI debugging if needed but reset for safety
     state.play.statContext = createPlayStatContext();
