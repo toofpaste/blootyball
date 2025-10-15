@@ -70,6 +70,19 @@ export function formatBoostValue(value) {
   return value > 0 ? `+${fixed}` : fixed;
 }
 
+export function formatHeight(value) {
+  if (value == null || Number.isNaN(value)) return '—';
+  const inches = Math.max(0, Math.round(value));
+  const feet = Math.floor(inches / 12);
+  const remainder = inches % 12;
+  return `${feet}'${remainder}"`;
+}
+
+export function formatWeight(value) {
+  if (value == null || Number.isNaN(value)) return '—';
+  return `${Math.round(value)} lbs`;
+}
+
 function hasStatCategory(category = {}) {
   return Object.values(category).some((value) => Number.isFinite(value) && Math.abs(value) > 1e-6);
 }
@@ -128,6 +141,18 @@ export default function PlayerCardModal({ open, onClose, entry, team }) {
   const temperament = entry.temperament || null;
   const temperamentLabel = entry.temperamentLabel || (temperament ? describeTemperament(temperament) : null);
   const moodLabel = entry.moodLabel || (temperament ? describeMood(temperament.mood || 0) : null);
+  const metaParts = [
+    teamName,
+    entry.role,
+    entry.side,
+    entry.number != null ? `#${entry.number}` : null,
+    entry.age != null ? `Age ${entry.age}` : null,
+  ].filter(Boolean);
+  const secondaryMeta = [
+    entry.overall != null ? `${Math.round(entry.overall)} OVR` : null,
+    entry.height != null ? formatHeight(entry.height) : null,
+    entry.weight != null ? formatWeight(entry.weight) : null,
+  ].filter(Boolean);
 
   const attrRows = entry.kicker
     ? [
@@ -146,8 +171,13 @@ export default function PlayerCardModal({ open, onClose, entry, team }) {
         <div>
           <div style={{ fontSize: 18, fontWeight: 700 }}>{entry.name}</div>
           <div style={{ color: '#a5e0a5', fontSize: 14 }}>
-            {teamName} • {entry.role} • {entry.side}{entry.number != null ? ` • #${entry.number}` : ''}{entry.age != null ? ` • Age ${entry.age}` : ''}
+            {metaParts.join(' • ')}
           </div>
+          {secondaryMeta.length ? (
+            <div style={{ color: '#cde8cd', fontSize: 12, marginTop: 2 }}>
+              {secondaryMeta.join(' • ')}
+            </div>
+          ) : null}
         </div>
 
         {temperament ? (

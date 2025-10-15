@@ -4,6 +4,7 @@ import { usePlayerCard } from './PlayerCardProvider';
 
 const STAT_COLUMNS = [
   { key: 'player', label: 'Player' },
+  { key: 'overall', label: 'OVR' },
   { key: 'team', label: 'Team' },
   { key: 'passingYards', label: 'Pass Yds' },
   { key: 'passingTD', label: 'Pass TD' },
@@ -31,11 +32,13 @@ function buildRows(stats = {}, league = null, teams = {}) {
     const fallbackName = irPlayer
       ? `${irPlayer.firstName || ''}${irPlayer.lastName ? ` ${irPlayer.lastName}` : ''}`.trim() || irPlayer.fullName || playerId
       : playerId;
+    const overall = playerMeta.overall ?? irPlayer?.overall ?? null;
     return {
       playerId,
       playerName: playerMeta.fullName || playerMeta.name || fallbackName,
       teamId: playerMeta.team || playerMeta.teamId || null,
       teamName: teamInfo?.identity?.displayName || teamInfo?.info?.displayName || playerMeta.teamName || playerMeta.team || '—',
+      overall: overall != null ? Math.round(overall) : null,
       passingYards: Math.round(passing.yards || 0),
       passingTD: passing.touchdowns || 0,
       rushingYards: Math.round(rushing.yards || 0),
@@ -145,6 +148,7 @@ function LeaderboardTable({ title, rows, sort, onSort }) {
                       ) : null}
                     </span>
                   </td>
+                  <td style={{ padding: '8px 10px' }}>{row.overall != null ? row.overall : '—'}</td>
                   <td style={{ padding: '8px 10px' }}>{row.teamName}</td>
                   <td style={{ padding: '8px 10px' }}>{row.passingYards}</td>
                   <td style={{ padding: '8px 10px' }}>{row.passingTD}</td>

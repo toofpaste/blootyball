@@ -52,6 +52,9 @@ export function createPlayerEntry(player, role, sideLabel, statsMap = {}, league
   const lastName = profile.lastName || player.lastName || '';
   const nameFromParts = `${firstName}${lastName ? ` ${lastName}` : ''}`.trim();
   const fullName = profile.fullName || player.fullName || nameFromParts || role;
+  const height = player.height ?? player.body?.height ?? player.phys?.height ?? null;
+  const weight = player.weight ?? player.body?.weight ?? player.phys?.weight ?? null;
+  const overall = player.overall != null ? Math.round(player.overall) : null;
   const entry = {
     id: player.id,
     role,
@@ -67,6 +70,9 @@ export function createPlayerEntry(player, role, sideLabel, statsMap = {}, league
     kicker: role === 'K',
     age: league?.playerAges?.[player.id] ?? null,
     awards: Array.isArray(league?.playerAwards?.[player.id]) ? [...league.playerAwards[player.id]] : [],
+    overall,
+    height: height != null ? Math.round(height) : null,
+    weight: weight != null ? Math.round(weight) : null,
   };
   const irEntry = league?.injuredReserve?.[player.id] || null;
   entry.onInjuredReserve = Boolean(irEntry);
