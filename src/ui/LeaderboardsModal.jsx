@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import Modal from './Modal';
+import { usePlayerCard } from './PlayerCardProvider';
 
 const STAT_COLUMNS = [
   { key: 'player', label: 'Player' },
@@ -33,6 +34,7 @@ function buildRows(stats = {}, league = null, teams = {}) {
     return {
       playerId,
       playerName: playerMeta.fullName || playerMeta.name || fallbackName,
+      teamId: playerMeta.team || playerMeta.teamId || null,
       teamName: teamInfo?.identity?.displayName || teamInfo?.info?.displayName || playerMeta.teamName || playerMeta.team || '—',
       passingYards: Math.round(passing.yards || 0),
       passingTD: passing.touchdowns || 0,
@@ -66,6 +68,7 @@ function sortRows(rows, sort) {
 }
 
 function LeaderboardTable({ title, rows, sort, onSort }) {
+  const { openPlayerCard } = usePlayerCard();
   return (
     <div style={{ border: '1px solid rgba(26,92,26,0.35)', borderRadius: 12, overflow: 'hidden', background: 'rgba(4,28,4,0.92)' }}>
       <div style={{ padding: '10px 14px', background: 'rgba(10,70,10,0.85)', fontWeight: 700, fontSize: 14, letterSpacing: 0.4 }}>
@@ -97,7 +100,22 @@ function LeaderboardTable({ title, rows, sort, onSort }) {
                   <td style={{ padding: '8px 10px', fontWeight: 600 }}>
                     <span style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                       <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                        <span>{row.playerName}</span>
+                        <button
+                          type="button"
+                          onClick={() => openPlayerCard({ playerId: row.playerId, teamId: row.teamId })}
+                          style={{
+                            background: 'none',
+                            border: 'none',
+                            padding: 0,
+                            margin: 0,
+                            color: '#f2fff2',
+                            fontWeight: 600,
+                            cursor: 'pointer',
+                            textAlign: 'left',
+                          }}
+                        >
+                          {row.playerName}
+                        </button>
                         {row.onInjuredReserve ? (
                           <span
                             style={{

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import PlayerStatsTable from './PlayerStatsTable';
 import Modal from './Modal';
+import { usePlayerCard } from './PlayerCardProvider';
 
 function buildScore(stat = {}) {
     const passing = stat.passing || {};
@@ -122,6 +123,7 @@ function gatherTopPlayers(stats = {}, directory = {}, teamId, injuredReserve = {
         .filter(([, meta]) => meta.team === teamId)
         .map(([id, meta]) => ({
             ...buildRow(id, meta, stats[id] || {}, injuredReserve),
+            teamId,
         }))
         .filter(row => row.pass !== '—' || row.rush !== '—' || row.receive !== '—' || row.defense !== '—');
 
@@ -132,6 +134,7 @@ function gatherTopPlayers(stats = {}, directory = {}, teamId, injuredReserve = {
 
 export default function StatsSummary({ stats = {}, directory = {}, teams = [], title = 'Team Leaders', injuredReserve = {} }) {
     const [openTeam, setOpenTeam] = useState(null);
+    const { openPlayerCard } = usePlayerCard();
 
     const teamSections = teams.map(team => ({
         team,
@@ -228,7 +231,22 @@ export default function StatsSummary({ stats = {}, directory = {}, teams = [], t
                                                     >
                                                         <Td style={{ fontWeight: 600 }}>
                                                             <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                                                                <span style={{ display: 'block' }}>{row.name}</span>
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => openPlayerCard({ playerId: row.id, teamId: row.teamId })}
+                                                                    style={{
+                                                                        background: 'none',
+                                                                        border: 'none',
+                                                                        padding: 0,
+                                                                        margin: 0,
+                                                                        color: '#f2fff2',
+                                                                        fontWeight: 600,
+                                                                        cursor: 'pointer',
+                                                                        textAlign: 'left',
+                                                                    }}
+                                                                >
+                                                                    {row.name}
+                                                                </button>
                                                                 {row.onInjuredReserve ? (
                                                                     <span
                                                                         style={{

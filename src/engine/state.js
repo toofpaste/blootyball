@@ -347,43 +347,39 @@ function collectGlobalSeasons(state) {
 }
 
 function aggregateSeasonsData(seasons) {
-    const teams = {};
+    const infoLookup = {};
+    seasons.forEach((season) => {
+        Object.entries(season?.teams || {}).forEach(([teamId, team]) => {
+            if (!infoLookup[teamId]) infoLookup[teamId] = team?.info || null;
+        });
+        Object.entries(season?.assignmentTotals || {}).forEach(([teamId, team]) => {
+            if (!infoLookup[teamId]) infoLookup[teamId] = team?.info || null;
+        });
+    });
+
+    const clonePlayerStats = (stats = {}) => {
+        const map = {};
+        Object.entries(stats).forEach(([playerId, entry]) => {
+            map[playerId] = JSON.parse(JSON.stringify(entry));
+        });
+        return map;
+    };
+
     const resultsMap = new Map();
     seasons.forEach((season) => {
-        const sourceTeams = (season.assignmentTotals && Object.keys(season.assignmentTotals).length)
-            ? season.assignmentTotals
-            : season.teams || {};
-        Object.entries(sourceTeams).forEach(([teamId, team]) => {
-            if (!teams[teamId]) {
-                teams[teamId] = {
-                    id: teamId,
-                    info: team.info || null,
-                    record: { wins: 0, losses: 0, ties: 0 },
-                    pointsFor: 0,
-                    pointsAgainst: 0,
-                    stats: TEAM_STAT_KEYS.reduce((acc, key) => ({ ...acc, [key]: 0 }), {}),
-                };
-            }
-            const agg = teams[teamId];
-            const info = season.teams?.[teamId]?.info || team.info || null;
-            agg.info = agg.info || info;
-            agg.record.wins += team.record?.wins || 0;
-            agg.record.losses += team.record?.losses || 0;
-            agg.record.ties += team.record?.ties || 0;
-            agg.pointsFor += team.pointsFor || 0;
-            agg.pointsAgainst += team.pointsAgainst || 0;
-            TEAM_STAT_KEYS.forEach((key) => {
-                const statSource = team.stats?.[key] ?? season.teams?.[teamId]?.stats?.[key] ?? 0;
-                agg.stats[key] += statSource;
-            });
-        });
-
         (season.results || []).forEach((result) => {
             if (!result) return;
             const key = result.gameId || `idx-${result.index}`;
             if (!key) return;
-            if (!resultsMap.has(key) || (result.index ?? Infinity) < (resultsMap.get(key)?.index ?? Infinity)) {
-                resultsMap.set(key, { ...result });
+            const existing = resultsMap.get(key);
+            if (!existing || (result.index ?? Infinity) < (existing.index ?? Infinity)) {
+                resultsMap.set(key, {
+                    ...result,
+                    score: { ...(result.score || {}) },
+                    playLog: Array.isArray(result.playLog) ? [...result.playLog] : [],
+                    playerStats: clonePlayerStats(result.playerStats || {}),
+                    playerTeams: { ...(result.playerTeams || {}) },
+                });
             }
         });
     });
@@ -394,22 +390,151 @@ function aggregateSeasonsData(seasons) {
         return ai - bi;
     });
 
-    return { teams, results };
+    const teams = {};
+    const aggregatedPlayers = {};
+
+    const ensureTeam = (teamId) => {
+        if (!teamId) return null;
+        if (!teams[teamId]) {
+            const info = infoLookup[teamId] || null;
+            teams[teamId] = {
+                id: teamId,
+                info,
+                record: { wins: 0, losses: 0, ties: 0 },
+                pointsFor: 0,
+                pointsAgainst: 0,
+                stats: TEAM_STAT_KEYS.reduce((acc, key) => ({ ...acc, [key]: 0 }), {}),
+            };
+        }
+        return teams[teamId];
+    };
+
+    const applyStatsToTeam = (teamEntry, stat) => {
+        if (!teamEntry || !stat) return;
+        const passing = stat.passing || {};
+        const rushing = stat.rushing || {};
+        const receiving = stat.receiving || {};
+        const defense = stat.defense || {};
+        teamEntry.stats.passingYards += passing.yards || 0;
+        teamEntry.stats.passingTD += passing.touchdowns || 0;
+        teamEntry.stats.rushingYards += rushing.yards || 0;
+        teamEntry.stats.rushingTD += rushing.touchdowns || 0;
+        teamEntry.stats.receivingYards += receiving.yards || 0;
+        teamEntry.stats.receivingTD += receiving.touchdowns || 0;
+        teamEntry.stats.tackles += defense.tackles || 0;
+        teamEntry.stats.sacks += defense.sacks || 0;
+        teamEntry.stats.interceptions += defense.interceptions || 0;
+    };
+
+    const mergePlayerStat = (playerId, stat) => {
+        if (!playerId) return;
+        if (!aggregatedPlayers[playerId]) {
+            aggregatedPlayers[playerId] = JSON.parse(JSON.stringify(stat || {}));
+            return;
+        }
+        const target = aggregatedPlayers[playerId];
+        ['passing', 'rushing', 'receiving', 'defense', 'misc', 'kicking'].forEach((category) => {
+            const src = stat?.[category] || {};
+            const dst = target[category] || (target[category] = {});
+            Object.entries(src).forEach(([key, value]) => {
+                const current = Number.isFinite(dst[key]) ? dst[key] : 0;
+                const incoming = Number.isFinite(value) ? value : 0;
+                if (key === 'long') {
+                    dst[key] = Math.max(current || 0, incoming || 0);
+                } else {
+                    dst[key] = current + incoming;
+                }
+            });
+        });
+    };
+
+    results.forEach((result) => {
+        const homeId = result.homeTeamId;
+        const awayId = result.awayTeamId;
+        const score = result.score || {};
+        const homeScore = score[homeId] ?? 0;
+        const awayScore = score[awayId] ?? 0;
+
+        const homeTeam = ensureTeam(homeId);
+        const awayTeam = ensureTeam(awayId);
+
+        if (homeTeam) {
+            homeTeam.pointsFor += homeScore;
+            homeTeam.pointsAgainst += awayScore;
+        }
+        if (awayTeam) {
+            awayTeam.pointsFor += awayScore;
+            awayTeam.pointsAgainst += homeScore;
+        }
+
+        if (homeScore > awayScore) {
+            if (homeTeam) homeTeam.record.wins += 1;
+            if (awayTeam) awayTeam.record.losses += 1;
+        } else if (awayScore > homeScore) {
+            if (awayTeam) awayTeam.record.wins += 1;
+            if (homeTeam) homeTeam.record.losses += 1;
+        } else {
+            if (homeTeam) homeTeam.record.ties += 1;
+            if (awayTeam) awayTeam.record.ties += 1;
+        }
+
+        const playerTeams = result.playerTeams || {};
+        Object.entries(result.playerStats || {}).forEach(([playerId, stat]) => {
+            const teamId = playerTeams[playerId];
+            if (teamId) {
+                const teamEntry = ensureTeam(teamId);
+                applyStatsToTeam(teamEntry, stat);
+            }
+            mergePlayerStat(playerId, stat);
+        });
+    });
+
+    Object.entries(infoLookup).forEach(([teamId, info]) => {
+        if (!teams[teamId]) {
+            teams[teamId] = {
+                id: teamId,
+                info: info || null,
+                record: { wins: 0, losses: 0, ties: 0 },
+                pointsFor: 0,
+                pointsAgainst: 0,
+                stats: TEAM_STAT_KEYS.reduce((acc, key) => ({ ...acc, [key]: 0 }), {}),
+            };
+        } else if (!teams[teamId].info && info) {
+            teams[teamId].info = info;
+        }
+    });
+
+    return { teams, results, playerStats: aggregatedPlayers };
 }
 
 function synchronizeSeasonTotals(state) {
     const seasons = collectGlobalSeasons(state);
     if (!seasons.length) return;
     const aggregated = aggregateSeasonsData(seasons);
+    const updatedTeams = {};
     Object.entries(aggregated.teams).forEach(([teamId, data]) => {
-        const existing = state.season.teams[teamId] || { id: teamId };
-        existing.info = existing.info || data.info;
-        existing.record = { ...data.record };
-        existing.pointsFor = data.pointsFor;
-        existing.pointsAgainst = data.pointsAgainst;
-        existing.stats = { ...(existing.stats || {}), ...data.stats };
-        state.season.teams[teamId] = existing;
+        const baseInfo = data.info || state.season.teams?.[teamId]?.info || null;
+        updatedTeams[teamId] = {
+            id: teamId,
+            info: baseInfo,
+            record: { ...data.record },
+            pointsFor: data.pointsFor || 0,
+            pointsAgainst: data.pointsAgainst || 0,
+            stats: { ...data.stats },
+        };
     });
+    state.season.teams = updatedTeams;
+    state.season.assignmentTotals = Object.entries(updatedTeams).reduce((acc, [teamId, data]) => {
+        acc[teamId] = {
+            id: data.id,
+            info: data.info,
+            record: { ...data.record },
+            pointsFor: data.pointsFor,
+            pointsAgainst: data.pointsAgainst,
+            stats: { ...data.stats },
+        };
+        return acc;
+    }, {});
 
     state.season.results = aggregated.results;
     aggregated.results.forEach((result) => {
@@ -419,6 +544,7 @@ function synchronizeSeasonTotals(state) {
         }
     });
     state.season.completedGames = aggregated.results.length;
+    state.season.playerStats = aggregated.playerStats || {};
     recomputeAssignmentTotals(state.season);
 
     let chosenBracket = state.season.playoffBracket || null;
