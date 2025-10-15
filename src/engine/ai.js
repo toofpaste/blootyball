@@ -1079,6 +1079,7 @@ export function qbLogic(s, dt) {
             : qb.pos.y;
 
     const shouldScramble = () => {
+        if (call.type === 'RUN' && !s.play.handed) return false;
         if (s.play.qbMoveMode === 'SCRAMBLE') return false;
         if (underImmediatePressure && time > (s.play.qbReadyAt ?? (ttt - 0.1))) return true;
         if (underHeat && time > (ttt + 0.65)) return true;
