@@ -22,6 +22,47 @@ function normaliseAttrs(ratings = {}, role) {
     };
 }
 
+const ROLE_BODY_TEMPLATES = {
+    QB: { height: [73, 77], weight: [205, 235] },
+    RB: { height: [69, 73], weight: [198, 222] },
+    WR: { height: [70, 75], weight: [185, 210] },
+    TE: { height: [75, 79], weight: [238, 265] },
+    OL: { height: [75, 80], weight: [295, 330] },
+    DL: { height: [74, 79], weight: [275, 310] },
+    LB: { height: [72, 77], weight: [230, 255] },
+    DB: { height: [70, 74], weight: [188, 208] },
+    DEFAULT: { height: [71, 75], weight: [200, 225] },
+};
+
+function roleToBodyTemplate(role = '') {
+    if (/^WR/.test(role)) return ROLE_BODY_TEMPLATES.WR;
+    if (/^CB/.test(role) || /^S/.test(role) || role === 'NB') return ROLE_BODY_TEMPLATES.DB;
+    if (/^LB/.test(role)) return ROLE_BODY_TEMPLATES.LB;
+    if (/^RTk$/.test(role) || /^DT$/.test(role)) return ROLE_BODY_TEMPLATES.DL;
+    if (/^LE$/.test(role) || /^RE$/.test(role)) return ROLE_BODY_TEMPLATES.DL;
+    if (/^LT$/.test(role) || /^LG$/.test(role) || /^RG$/.test(role) || /^RT$/.test(role) || role === 'C') return ROLE_BODY_TEMPLATES.OL;
+    if (role === 'RB') return ROLE_BODY_TEMPLATES.RB;
+    if (role === 'TE') return ROLE_BODY_TEMPLATES.TE;
+    if (role === 'QB') return ROLE_BODY_TEMPLATES.QB;
+    return ROLE_BODY_TEMPLATES.DEFAULT;
+}
+
+function resolvePhysicalProfile(role, body = {}) {
+    const template = roleToBodyTemplate(role) || ROLE_BODY_TEMPLATES.DEFAULT;
+    const [minH, maxH] = template.height;
+    const [minW, maxW] = template.weight;
+    const height = clamp(body.height ?? rand(minH, maxH), minH, maxH);
+    const weight = clamp(body.weight ?? rand(minW, maxW), minW, maxW);
+    const mass = clamp(weight / 220, 0.55, 1.95);
+    const radius = clamp(7 + (height - 70) * 0.32, 6.5, 11.5);
+    return {
+        height,
+        weight,
+        mass,
+        radius,
+    };
+}
+
 function makePlayer(team, role, data = {}, meta = {}) {
     const firstName = data.firstName || role;
     const lastName = data.lastName || '';
@@ -48,6 +89,8 @@ function makePlayer(team, role, data = {}, meta = {}) {
     };
 
     player.baseAttrs = { ...player.attrs };
+
+    player.phys = resolvePhysicalProfile(role, data.body || {});
 
     player.meta = {
         teamId: meta.teamId || null,

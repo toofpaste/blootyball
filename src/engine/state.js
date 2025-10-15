@@ -7,6 +7,7 @@ import { createTeams, rosterForPossession, lineUpFormation, buildPlayerDirectory
 import { initRoutesAfterSnap, moveOL, moveReceivers, moveTE, qbLogic, rbLogic, defenseLogic } from './ai';
 import { moveBall, getBallPix } from './ball';
 import { beginFrame, endFrame } from './motion';
+import { applyPlayerPhysics } from './physics';
 import { beginPlayDiagnostics, finalizePlayDiagnostics, recordPlayEvent } from './diagnostics';
 import { pickFormations, PLAYBOOK_PLUS, pickPlayCall } from './playbooks';
 import { createInitialPlayerStats, createPlayStatContext, finalizePlayStats, recordKickingAttempt } from './stats';
@@ -669,7 +670,7 @@ function createFieldGoalVisual({ losYards, distance }) {
 
     const lineBaseY = losPixY - yard * 0.35;
     const wingY = lineBaseY - yard * 0.18;
-    const guardSpacing = yard * 1.05;
+    const guardSpacing = yard * 1.25;
     const protectorDepth = holderY + yard * 0.85;
     const rushStartY = lineBaseY - yard * 0.65;
     const rushTargetY = holderY + yard * 0.18;
@@ -715,13 +716,13 @@ function createFieldGoalVisual({ losYards, distance }) {
             renderPos: { x: holderX - yard * 0.25, y: snapperY },
         },
         line: [
-            { role: 'LW', pos: { x: holderX - guardSpacing * 3.35, y: wingY }, renderPos: { x: holderX - guardSpacing * 3.35, y: wingY } },
-            { role: 'LT', pos: { x: holderX - guardSpacing * 2.2, y: lineBaseY }, renderPos: { x: holderX - guardSpacing * 2.2, y: lineBaseY } },
-            { role: 'LG', pos: { x: holderX - guardSpacing * 1.05, y: lineBaseY + yard * 0.08 }, renderPos: { x: holderX - guardSpacing * 1.05, y: lineBaseY + yard * 0.08 } },
+            { role: 'LW', pos: { x: holderX - guardSpacing * 3.6, y: wingY }, renderPos: { x: holderX - guardSpacing * 3.6, y: wingY } },
+            { role: 'LT', pos: { x: holderX - guardSpacing * 2.35, y: lineBaseY }, renderPos: { x: holderX - guardSpacing * 2.35, y: lineBaseY } },
+            { role: 'LG', pos: { x: holderX - guardSpacing * 1.15, y: lineBaseY + yard * 0.08 }, renderPos: { x: holderX - guardSpacing * 1.15, y: lineBaseY + yard * 0.08 } },
             { role: 'C', pos: { x: holderX - guardSpacing * 0.1, y: lineBaseY + yard * 0.12 }, renderPos: { x: holderX - guardSpacing * 0.1, y: lineBaseY + yard * 0.12 } },
-            { role: 'RG', pos: { x: holderX + guardSpacing * 0.85, y: lineBaseY + yard * 0.08 }, renderPos: { x: holderX + guardSpacing * 0.85, y: lineBaseY + yard * 0.08 } },
-            { role: 'RT', pos: { x: holderX + guardSpacing * 2.0, y: lineBaseY }, renderPos: { x: holderX + guardSpacing * 2.0, y: lineBaseY } },
-            { role: 'RW', pos: { x: holderX + guardSpacing * 3.25, y: wingY }, renderPos: { x: holderX + guardSpacing * 3.25, y: wingY } },
+            { role: 'RG', pos: { x: holderX + guardSpacing * 0.95, y: lineBaseY + yard * 0.08 }, renderPos: { x: holderX + guardSpacing * 0.95, y: lineBaseY + yard * 0.08 } },
+            { role: 'RT', pos: { x: holderX + guardSpacing * 2.25, y: lineBaseY }, renderPos: { x: holderX + guardSpacing * 2.25, y: lineBaseY } },
+            { role: 'RW', pos: { x: holderX + guardSpacing * 3.55, y: wingY }, renderPos: { x: holderX + guardSpacing * 3.55, y: wingY } },
         ],
         protectors: [
             { role: 'PP', pos: { x: holderX - guardSpacing * 1.45, y: protectorDepth }, renderPos: { x: holderX - guardSpacing * 1.45, y: protectorDepth } },
@@ -730,8 +731,8 @@ function createFieldGoalVisual({ losYards, distance }) {
         rushers: [
             makeRusher({
                 role: 'LE',
-                pos: { x: holderX - guardSpacing * 3.5, y: rushStartY },
-                target: { x: holderX - guardSpacing * 0.8, y: rushTargetY },
+                pos: { x: holderX - guardSpacing * 3.8, y: rushStartY },
+                target: { x: holderX - guardSpacing * 0.9, y: rushTargetY },
                 delay: 0,
                 hold: 0.68,
                 engage: 0.42,
@@ -739,7 +740,7 @@ function createFieldGoalVisual({ losYards, distance }) {
             }),
             makeRusher({
                 role: 'NG',
-                pos: { x: holderX - guardSpacing * 0.3, y: rushStartY + yard * 0.05 },
+                pos: { x: holderX - guardSpacing * 0.35, y: rushStartY + yard * 0.05 },
                 target: { x: holderX - guardSpacing * 0.05, y: rushTargetY + yard * 0.05 },
                 delay: 0.08,
                 hold: 0.74,
@@ -748,8 +749,8 @@ function createFieldGoalVisual({ losYards, distance }) {
             }),
             makeRusher({
                 role: 'RE',
-                pos: { x: holderX + guardSpacing * 3.4, y: rushStartY },
-                target: { x: holderX + guardSpacing * 0.7, y: rushTargetY },
+                pos: { x: holderX + guardSpacing * 3.75, y: rushStartY },
+                target: { x: holderX + guardSpacing * 0.85, y: rushTargetY },
                 delay: 0.04,
                 hold: 0.64,
                 engage: 0.4,
@@ -2167,6 +2168,7 @@ export function stepGame(state, dt) {
             qbLogic(s, dt);
             rbLogic(s, dt);
             defenseLogic(s, dt);
+            applyPlayerPhysics(s.play, dt);
             moveBall(s, dt);
 
             checkDeadBall(s);
