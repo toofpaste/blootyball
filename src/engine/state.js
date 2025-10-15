@@ -1522,17 +1522,47 @@ function resolveEndSpotYards(s) {
 /* =========================================================
    Trace (kept minimal & safe)
    ========================================================= */
+function encodePlayerSnapshot(player) {
+    if (!player?.pos) return null;
+    const motion = player.motion || {};
+    const vx = Number.isFinite(motion.vx) ? motion.vx : 0;
+    const vy = Number.isFinite(motion.vy) ? motion.vy : 0;
+    const speed = Number.isFinite(motion.speed) ? motion.speed : Math.hypot(vx, vy);
+    return {
+        x: player.pos.x,
+        y: player.pos.y,
+        vx,
+        vy,
+        speed,
+    };
+}
+
 function recordTraceSample(s) {
-    if (!s?.debug?.trace) return;
+    const trace = s?.debug?.trace;
+    if (!trace?.enabled) return;
+    const now = s.play?.elapsed ?? 0;
+    const interval = Math.max(1 / 120, trace.sampleInterval || 1 / 30);
+    if (trace.lastSampleAt != null && now - trace.lastSampleAt < interval - 1e-6) return;
+    trace.lastSampleAt = now;
     const off = s?.play?.formation?.off || {};
     const def = s?.play?.formation?.def || {};
-    (s.trace ||= []).push({
-        t: s.play?.elapsed ?? 0,
-        ball: { ...(s.play?.ball || {}) },
-        off: Object.fromEntries(Object.entries(off).map(([k, p]) => [k, p?.pos ? { x: p.pos.x, y: p.pos.y } : null])),
-        def: Object.fromEntries(Object.entries(def).map(([k, p]) => [k, p?.pos ? { x: p.pos.x, y: p.pos.y } : null])),
-    });
-    if (s.trace.length > 2000) s.trace.shift();
+    const encodeGroup = (group) => Object.fromEntries(
+        Object.entries(group)
+            .filter(([role, player]) => !role.startsWith('__') && player?.pos)
+            .map(([role, player]) => [role, encodePlayerSnapshot(player)]),
+    );
+    const sample = {
+        t: now,
+        phase: s.play?.phase || null,
+        ball: { ...(s.play?.ball || {}), pix: getBallPix(s) },
+        off: encodeGroup(off),
+        def: encodeGroup(def),
+    };
+    trace.current ||= [];
+    trace.current.push(sample);
+    if (trace.current.length > (trace.maxSamples || 720)) {
+        trace.current.splice(0, trace.current.length - (trace.maxSamples || 720));
+    }
 }
 
 function gatherActivePlayers(play) {

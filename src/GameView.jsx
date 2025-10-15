@@ -112,6 +112,52 @@ const GameView = React.forwardRef(function GameView({
   }, [state, gameIndex]);
 
   useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+    window.__blootyball ||= {};
+    window.__blootyball.tools ||= {};
+
+    const enableTrace = (options = {}) => {
+      setState((prev) => {
+        const next = { ...prev, debug: { ...(prev.debug || {}) } };
+        const prevTrace = prev.debug?.trace || {};
+        next.debug.trace = {
+          ...prevTrace,
+          enabled: true,
+          sampleInterval: Number.isFinite(options.sampleInterval)
+            ? Math.max(1 / 120, options.sampleInterval)
+            : (prevTrace.sampleInterval || 1 / 30),
+          maxSamples: Math.max(30, options.maxSamples ?? prevTrace.maxSamples ?? 720),
+          maxHistory: Math.max(1, options.maxHistory ?? prevTrace.maxHistory ?? 5),
+          history: prevTrace.history || [],
+        };
+        return next;
+      });
+    };
+
+    const disableTrace = () => {
+      setState((prev) => {
+        if (!prev?.debug?.trace?.enabled) return prev;
+        const next = { ...prev, debug: { ...(prev.debug || {}) } };
+        next.debug.trace = { ...prev.debug.trace, enabled: false };
+        return next;
+      });
+    };
+
+    const getTrace = () => stateRef.current?.debug?.trace || null;
+    const tools = window.__blootyball.tools;
+    tools.enableTrace = enableTrace;
+    tools.disableTrace = disableTrace;
+    tools.getTrace = getTrace;
+
+    return () => {
+      if (!window.__blootyball?.tools) return;
+      if (window.__blootyball.tools.enableTrace === enableTrace) delete window.__blootyball.tools.enableTrace;
+      if (window.__blootyball.tools.disableTrace === disableTrace) delete window.__blootyball.tools.disableTrace;
+      if (window.__blootyball.tools.getTrace === getTrace) delete window.__blootyball.tools.getTrace;
+    };
+  }, []);
+
+  useEffect(() => {
     if (state.gameComplete) {
       if (!notifiedCompleteRef.current) {
         onGameComplete?.(gameIndex, { shouldAutoResume: globalRunning && localRunning });

@@ -1,6 +1,8 @@
 // src/engine/diagnostics.js
 import { applyStatEvent } from './stats';
 
+const MIN_SAMPLE_INTERVAL = 1 / 120;
+
 const MAX_STORED_PLAYS = 40;
 
 function ensureDiagnostics(state) {
@@ -13,6 +15,44 @@ function ensureDiagnostics(state) {
         };
     }
     return state.debug.diagnostics;
+}
+
+function ensureTraceConfig(state) {
+    state.debug ||= {};
+    if (!state.debug.trace) return null;
+    const trace = state.debug.trace;
+    trace.sampleInterval = Math.max(MIN_SAMPLE_INTERVAL, trace.sampleInterval || 1 / 30);
+    trace.maxSamples = Math.max(30, trace.maxSamples || 720);
+    trace.maxHistory = Math.max(1, trace.maxHistory || 5);
+    trace.history ||= [];
+    return trace;
+}
+
+export function enablePlayTrace(state, config = {}) {
+    if (!state) return null;
+    state.debug ||= {};
+    const prev = state.debug.trace || {};
+    state.debug.trace = {
+        ...prev,
+        enabled: true,
+        sampleInterval: Math.max(MIN_SAMPLE_INTERVAL, Number.isFinite(config.sampleInterval) ? config.sampleInterval : prev.sampleInterval || 1 / 30),
+        maxSamples: Math.max(30, config.maxSamples ?? prev.maxSamples ?? 720),
+        maxHistory: Math.max(1, config.maxHistory ?? prev.maxHistory ?? 5),
+        history: prev.history || [],
+    };
+    delete state.debug.trace.current;
+    delete state.debug.trace.lastSampleAt;
+    delete state.debug.trace.playMeta;
+    return state.debug.trace;
+}
+
+export function disablePlayTrace(state) {
+    if (!state?.debug?.trace) return;
+    state.debug.trace.enabled = false;
+}
+
+export function getPlayTraceHistory(state) {
+    return state?.debug?.trace?.history || [];
 }
 
 export function beginPlayDiagnostics(state) {
@@ -31,6 +71,19 @@ export function beginPlayDiagnostics(state) {
     diag.current = playRecord;
     state.play.__diagId = playRecord.id;
     recordPlayEvent(state, { type: 'play:start', call: playRecord.call, down: playRecord.startDown, toGo: playRecord.startToGo });
+    const trace = ensureTraceConfig(state);
+    if (trace?.enabled) {
+        trace.current = [];
+        trace.playMeta = {
+            id: playRecord.id,
+            call: playRecord.call,
+            type: playRecord.type,
+            startDown: playRecord.startDown,
+            startToGo: playRecord.startToGo,
+            startLos: playRecord.startLos,
+        };
+        trace.lastSampleAt = null;
+    }
     return playRecord;
 }
 
@@ -61,6 +114,19 @@ export function finalizePlayDiagnostics(state, summary = {}) {
     diag.plays.push(play);
     if (diag.plays.length > MAX_STORED_PLAYS) diag.plays.shift();
     diag.current = null;
+    const trace = ensureTraceConfig(state);
+    if (trace?.enabled && Array.isArray(trace.current) && trace.current.length) {
+        trace.history.push({
+            meta: { ...trace.playMeta, ...(play.summary || {}) },
+            samples: trace.current.slice(),
+        });
+        if (trace.history.length > trace.maxHistory) trace.history.splice(0, trace.history.length - trace.maxHistory);
+    }
+    if (trace) {
+        delete trace.current;
+        delete trace.playMeta;
+        trace.lastSampleAt = null;
+    }
 }
 
 export function summarizeDiagnostics(state, limit = 10) {
