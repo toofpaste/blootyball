@@ -915,7 +915,7 @@ export function moveReceivers(off, dt, s = null) {
 
         if (s && isBallLoose(s.play?.ball)) {
             pursueLooseBallGroup([p], s.play.ball, dt, 1.18, 10);
-            continue;
+            return;
         }
 
         // If this WR currently has the ball, switch to RAC logic
