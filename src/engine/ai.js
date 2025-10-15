@@ -1013,9 +1013,17 @@ export function qbLogic(s, dt) {
 
     // One-time setup for read cadence / progression
     if (!Array.isArray(s.play.qbProgressionOrder)) {
+        const qbAwareness = clamp(qb?.attrs?.awareness ?? 0.9, 0.4, 1.3);
+        const quickConcept = !!call.quickGame;
+        const baseCadence = quickConcept ? 0.24 : 0.32;
+        const iqCadenceAdj = clamp((1 - qbAwareness) * 0.14 - (qbAwareness - 1) * 0.08, -0.1, 0.14);
+        const cadenceJitter = rand(-0.045, 0.06);
+        const qbReadCadence = clamp(baseCadence + iqCadenceAdj + cadenceJitter, 0.2, 0.45);
+
         s.play.qbProgressionOrder = [..._progressionOrder(call), 'RB'];
         s.play.qbReadIdx = 0;
-        s.play.qbNextReadAt = 0;
+        s.play.qbReadCadence = qbReadCadence;
+        s.play.qbNextReadAt = qbReadCadence;
         s.play.qbReadyAt = null;
         s.play.qbDropArrivedAt = null;
         s.play.qbSettlePoint = null;
@@ -1307,6 +1315,26 @@ function tryThrow(s, press) {
     if (typeof s.play.qbReadIdx !== 'number') {
         s.play.qbReadIdx = 0;
     }
+    const qbCadence = clamp(s.play.qbReadCadence ?? (call.quickGame ? 0.26 : 0.32), 0.18, 0.42);
+    if (typeof s.play.qbNextReadAt !== 'number' || s.play.qbNextReadAt <= 0) {
+        s.play.qbNextReadAt = qbCadence;
+    }
+
+    const progressionIndex = new Map();
+    progression.forEach((key, idx) => progressionIndex.set(key, idx));
+
+    let readLimit = Math.max(0, Math.min(s.play.qbReadIdx, progression.length - 1));
+    const cadenceMul = press.underImmediatePressure ? 0.55 : press.underHeat ? 0.75 : 1;
+    const cadenceStep = clamp(qbCadence * cadenceMul, 0.16, 0.48);
+    while (readLimit < progression.length - 1 && tNow >= s.play.qbNextReadAt) {
+        readLimit += 1;
+        s.play.qbReadIdx = readLimit;
+        s.play.qbNextReadAt = tNow + cadenceStep;
+    }
+    readLimit = Math.max(0, Math.min(s.play.qbReadIdx, progression.length - 1));
+    const maxIdxAllowed = readLimit;
+    const currentReadKey = progression.length ? progression[Math.min(readLimit, progression.length - 1)] : null;
+    const rbIndex = progressionIndex.has('RB') ? progressionIndex.get('RB') : progression.length - 1;
 
     const wrteKeys = ['WR1', 'WR2', 'WR3', 'TE'];
     const candidates = [];
@@ -1319,7 +1347,11 @@ function tryThrow(s, press) {
         candidates.push(evalResult);
     }
     candidates.sort((a, b) => b.score - a.score);
-    const bestWRTE = candidates[0] || null;
+    const bestOverallWRTE = candidates[0] || null;
+    const bestWRTE = candidates.find((cand) => {
+        const idx = progressionIndex.has(cand.key) ? progressionIndex.get(cand.key) : progression.length;
+        return idx <= maxIdxAllowed;
+    }) || null;
     const wrDepthNeed = CFG.WR_MIN_DEPTH_YARDS * PX_PER_YARD;
 
     const wrAccept = bestWRTE && (
@@ -1329,36 +1361,40 @@ function tryThrow(s, press) {
     );
     const targetChoice = wrAccept ? bestWRTE : null;
     let rbCand = null;
-    const rbIndex = Math.max(progression.indexOf('RB'), progression.length - 1);
-    const progressedPastRB = s.play.qbReadIdx > rbIndex;
+    const progressedPastRB = maxIdxAllowed >= rbIndex;
     const forceCheckdown = press.underHeat && tNow >= ttt;
-    if (checkdownGate && (!targetChoice || forceCheckdown || progressedPastRB)) {
-            const r = off.RB;
-            if (r && r.alive) {
-                const open = nearestDefDist(def, r.pos), throwLine = dist(qb.pos, r.pos);
-                let score = open * 1.05 - throwLine * 0.35;
-                const momentum = rushingMomentum?.[r.id] || 0;
-                score += momentum * 8;
-                if (tNow < (ttt + CFG.CHECKDOWN_LAG)) score -= CFG.RB_EARLY_PENALTY;
-                const depth = Math.max(0, r.pos.y - losY);
-                rbCand = { key: 'RB', r, score, open, throwLine, depthPastLOS: depth };
+    if (checkdownGate && (forceCheckdown || progressedPastRB)) {
+        const r = off.RB;
+        if (r && r.alive) {
+            const open = nearestDefDist(def, r.pos), throwLine = dist(qb.pos, r.pos);
+            let score = open * 1.05 - throwLine * 0.35;
+            const momentum = rushingMomentum?.[r.id] || 0;
+            score += momentum * 8;
+            if (tNow < (ttt + CFG.CHECKDOWN_LAG)) score -= CFG.RB_EARLY_PENALTY;
+            const depth = Math.max(0, r.pos.y - losY);
+            rbCand = { key: 'RB', r, score, open, throwLine, depthPastLOS: depth };
         }
     }
 
     let focusInfo = null;
     if (targetChoice) {
         focusInfo = { key: targetChoice.key, r: targetChoice.r, intent: 'PRIMARY' };
-    } else if (checkdownGate && rbCand) {
+    } else if (checkdownGate && rbCand && (forceCheckdown || progressedPastRB)) {
         focusInfo = { key: rbCand.key, r: rbCand.r, intent: 'CHECKDOWN' };
     } else if (bestWRTE) {
         focusInfo = { key: bestWRTE.key, r: bestWRTE.r, intent: 'PROGRESS' };
+    } else if (currentReadKey && off[currentReadKey]?.pos) {
+        focusInfo = { key: currentReadKey, r: off[currentReadKey], intent: 'PROGRESS' };
+    } else if (bestOverallWRTE) {
+        focusInfo = { key: bestOverallWRTE.key, r: bestOverallWRTE.r, intent: 'SCAN' };
     } else if (rbCand) {
         focusInfo = { key: rbCand.key, r: rbCand.r, intent: 'CHECKDOWN' };
     }
 
     if (!focusInfo) {
-        const fallbackKey = progression.find((key) => {
+        const fallbackKey = progression.find((key, idx) => {
             if (key === 'RB') return false;
+            if (idx > maxIdxAllowed) return false;
             const player = off[key];
             return player && player.alive && player.pos && player.pos.y >= losY;
         });
