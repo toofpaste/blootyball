@@ -91,9 +91,9 @@ export default function PlayerStatsTable({ stats = {}, directory = {}, teams = [
         () => teams.map(team => ({ team, rows: gatherTeamRows(stats, directory, team.id) })),
         [stats, directory, teams]
     );
+    const { openPlayerCard } = usePlayerCard();
     const hasAnyRows = teamRows.some(section => section.rows.length > 0);
     if (!hasAnyRows) return null;
-    const { openPlayerCard } = usePlayerCard();
 
     return (
         <div style={{
