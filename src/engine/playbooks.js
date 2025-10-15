@@ -122,6 +122,39 @@ export const PLAYBOOK_PLUS = [
         ],
         qbDrop: 1,
     },
+    {
+        name: 'Orbit Pitch Sweep',
+        type: 'RUN',
+        handoffTo: 'RB',
+        handoffStyle: 'PITCH',
+        handoffDelay: 0.42,
+        handoffWindow: 0.32,
+        pitchTarget: { dx: -2.5, dy: 0.15 },
+        rbPath: [
+            { dx: -4, dy: 1 },
+            { dx: -9, dy: 3 },
+            { dx: -11, dy: 4 },
+        ],
+        wrRoutes: {
+            WR1: [
+                { dx: -3, dy: 2 },
+                { dx: -5, dy: 3 },
+            ],
+            WR2: [
+                { dx: 5, dy: 2 },
+                { dx: 7, dy: 3 },
+            ],
+            WR3: [
+                { dx: -6, dy: 1 },
+                { dx: -7, dy: 3 },
+            ],
+        },
+        teRoute: [
+            { dx: -1, dy: 2 },
+            { dx: -3, dy: 3 },
+        ],
+        qbDrop: 0.75,
+    },
 
     // --- SHOT / PLAY-ACTION GAME ---
     {

@@ -2162,6 +2162,12 @@ export function createPlayState(roster, drive) {
         startToGo: safeDrive.toGo,
         mustReachSticks: safeDrive.down === 4 && safeDrive.toGo > 1,
         sticksDepthPx: safeDrive.toGo * PX_PER_YARD,
+        handed: false,
+        handoffTime: null,
+        handoffStyle: null,
+        handoffReadyAt: null,
+        handoffDeadline: null,
+        handoffPending: null,
     };
     play.statContext = createPlayStatContext();
     if (pendingPat) {
@@ -2270,6 +2276,10 @@ export function stepGame(state, dt) {
         case 'POSTSNAP': {
             if (s.play.elapsed > 1.2) {
                 s.play.phase = 'LIVE';
+                s.play.liveAt = s.play.elapsed;
+                s.play.handed = false;
+                s.play.handoffTime = null;
+                s.play.handoffPending = null;
                 startClockOnSnap(s);
                 recordPlayEvent(s, { type: 'phase:live' });
             }
@@ -2280,7 +2290,11 @@ export function stepGame(state, dt) {
             if (!s.play.routesInitialized) initRoutesAfterSnap(s);
 
             const off = s.play.formation.off;
-            off.__runFlag = s.play.playCall.type === 'RUN' && (s.play.ball.carrierId === 'RB' || !s.play.handed);
+            off.__runFlag = s.play.playCall.type === 'RUN' && (
+                s.play.ball.carrierId === 'RB' ||
+                !s.play.handed ||
+                (s.play.handoffPending && s.play.handoffPending.type === 'PITCH')
+            );
             off.__losPixY = yardsToPixY(ENDZONE_YARDS + s.drive.losYards);
             off.__carrierWrapped = null;
             off.__carrierWrappedId = null;
