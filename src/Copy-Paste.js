@@ -133,18 +133,163 @@ export const COLORS = {
 };
 
 export const PLAYBOOK = [
-    { name: 'Inside Zone', type: 'RUN', handoffTo: 'RB', rbPath: [{ dx: 0, dy: 10 }], wrRoutes: routesAllHitches(), teRoute: [{ dx: 0, dy: 6 }], qbDrop: 2 },
-    { name: 'Outside Zone', type: 'RUN', handoffTo: 'RB', rbPath: [{ dx: 10, dy: 10 }], wrRoutes: routesAllBlocks(), teRoute: [{ dx: 2, dy: 8 }], qbDrop: 1 },
-    { name: 'Slant Flat', type: 'PASS', primary: 'WR1', wrRoutes: { WR1: [{ dx: 3, dy: 6 }], WR2: [{ dx: -2, dy: 4 }], WR3: [{ dx: 0, dy: 2 }] }, teRoute: [{ dx: -1, dy: 5 }], rbCheckdown: [{ dx: 2, dy: 2 }], qbDrop: 5 },
-    { name: 'Four Verts', type: 'PASS', primary: 'WR1', wrRoutes: { WR1: [{ dx: 0, dy: 18 }], WR2: [{ dx: -5, dy: 18 }], WR3: [{ dx: 5, dy: 18 }] }, teRoute: [{ dx: 0, dy: 15 }], rbCheckdown: [{ dx: 2, dy: 3 }], qbDrop: 7 },
-    { name: 'PA Crossers', type: 'PASS', primary: 'WR2', wrRoutes: { WR1: [{ dx: -8, dy: 10 }], WR2: [{ dx: 8, dy: 12 }], WR3: [{ dx: 0, dy: 6 }] }, teRoute: [{ dx: -3, dy: 8 }], rbCheckdown: [{ dx: 2, dy: 2 }], qbDrop: 7, playAction: true },
+    {
+        name: 'Wide Zone Weak',
+        type: 'RUN',
+        handoffTo: 'RB',
+        rbPath: [
+            { dx: -2, dy: 1 },
+            { dx: -6, dy: 3 },
+            { dx: -4, dy: 5 },
+            { dx: -1, dy: 4 },
+        ],
+        wrRoutes: {
+            WR1: [
+                { dx: -1, dy: 3 },
+                { dx: -4, dy: 5 },
+                { dx: -2, dy: 2 },
+            ],
+            WR2: [
+                { dx: 2, dy: 2 },
+                { dx: 3, dy: 3 },
+            ],
+            WR3: [
+                { dx: -2, dy: 1 },
+                { dx: -3, dy: 4 },
+            ],
+        },
+        teRoute: [
+            { dx: 2, dy: 1 },
+            { dx: -8, dy: 3 },
+            { dx: -4, dy: 2 },
+        ],
+        qbDrop: 1,
+    },
+    {
+        name: 'Counter Bash (Gun)',
+        type: 'RUN',
+        handoffTo: 'RB',
+        rbPath: [
+            { dx: 4, dy: 1 },
+            { dx: -3, dy: 2 },
+            { dx: -8, dy: 4 },
+            { dx: -10, dy: 5 },
+        ],
+        wrRoutes: {
+            WR1: [
+                { dx: -1, dy: 2 },
+                { dx: -3, dy: 4 },
+                { dx: -1, dy: 2 },
+            ],
+            WR2: [
+                { dx: 2, dy: 1 },
+                { dx: 6, dy: 2 },
+            ],
+            WR3: [
+                { dx: -3, dy: 2 },
+                { dx: -5, dy: 3 },
+            ],
+        },
+        teRoute: [
+            { dx: 1, dy: 2 },
+            { dx: -2, dy: 4 },
+            { dx: -4, dy: 2 },
+        ],
+        qbDrop: 1,
+    },
+    {
+        name: 'Mesh Rail',
+        type: 'PASS',
+        primary: 'WR1',
+        wrRoutes: {
+            WR1: [
+                { dx: -1, dy: 5, speed: 1.02, label: 'Stem' },
+                { dx: -2, dy: 2, speed: 0.98 },
+                { dx: -6, dy: 6, label: 'Dig Break' },
+            ],
+            WR2: [
+                { dx: 3, dy: 2, speed: 0.95 },
+                { dx: 9, dy: 2, settle: true, speed: 0.9, label: 'Mesh Settle' },
+            ],
+            WR3: [
+                { dx: 4, dy: 4, speed: 1.05 },
+                { dx: 6, dy: 8, label: 'Rail' },
+            ],
+        },
+        teRoute: [
+            { dx: -2, dy: 3, speed: 0.96 },
+            { dx: -9, dy: 2, settle: true },
+        ],
+        rbCheckdown: [
+            { dx: 5, dy: 2 },
+            { dx: 8, dy: 2 },
+        ],
+        qbDrop: 5,
+    },
+    {
+        name: 'HOSS Y-Choice',
+        type: 'PASS',
+        quickGame: true,
+        primary: 'TE',
+        wrRoutes: {
+            WR1: [
+                { dx: -1, dy: 5, settle: true, label: 'Hitch' },
+            ],
+            WR2: [
+                { dx: 2, dy: 5, speed: 1.02, label: 'Seam Stem' },
+                { dx: 2, dy: 8 },
+            ],
+            WR3: [
+                { dx: -2, dy: 5, speed: 1.02 },
+                { dx: -2, dy: 8 },
+            ],
+        },
+        teRoute: [
+            { dx: 0, dy: 4, label: 'Choice Stem' },
+            { dx: 0, dy: 2, option: 'in-or-out', settle: true },
+        ],
+        rbCheckdown: [
+            { dx: 4, dy: 2 },
+            { dx: 6, dy: 1 },
+        ],
+        qbDrop: 3,
+    },
+    {
+        name: 'Boot Flood (PA)',
+        type: 'PASS',
+        primary: 'WR2',
+        playAction: true,
+        wrRoutes: {
+            WR1: [
+                { dx: -2, dy: 7, label: 'Post Stem' },
+                { dx: -6, dy: 9, label: 'Post Break' },
+            ],
+            WR2: [
+                { dx: 4, dy: 4, label: 'Corner Stem' },
+                { dx: 10, dy: 10, label: 'Corner' },
+            ],
+            WR3: [
+                { dx: 3, dy: 2, label: 'Flat Stem' },
+                { dx: 4, dy: 1, settle: true },
+            ],
+        },
+        teRoute: [
+            { dx: -1, dy: 3 },
+            { dx: 6, dy: 7 },
+        ],
+        rbCheckdown: [
+            { dx: -5, dy: 2 },
+            { dx: -7, dy: 6 },
+        ],
+        qbDrop: 6,
+    },
 ];
 
 export function routesAllHitches() {
-    return { WR1: [{ dx: 0, dy: 6 }], WR2: [{ dx: -2, dy: 6 }], WR3: [{ dx: 2, dy: 6 }] };
+    return { WR1: [{ dx: -1, dy: 5, settle: true }], WR2: [{ dx: 2, dy: 5 }], WR3: [{ dx: -2, dy: 5 }] };
 }
 export function routesAllBlocks() {
-    return { WR1: [{ dx: 0, dy: 2 }], WR2: [{ dx: -2, dy: 2 }], WR3: [{ dx: 2, dy: 2 }] };
+    return { WR1: [{ dx: -1, dy: 3 }], WR2: [{ dx: 2, dy: 2 }], WR3: [{ dx: -2, dy: 2 }] };
 }
 
 // ------------------------------------------------------------
