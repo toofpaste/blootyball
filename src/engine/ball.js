@@ -62,6 +62,7 @@ export function startPass(s, from, to, targetId) {
     ball.to = { ...to };
     ball.t = 0;
     ball.flight = {
+        kind: 'pass',
         duration,
         elapsed: 0,
         arc: clamp(distance * 0.18, 10, 60),
@@ -81,6 +82,43 @@ export function startPass(s, from, to, targetId) {
         to: { ...to },
         targetId: targetId ?? null,
         throwSpeed: speed,
+        duration,
+    });
+}
+
+export function startPitch(s, from, to, targetId) {
+    const ball = s.play.ball;
+    const qb = s.play?.formation?.off?.QB;
+    const distance = Math.max(1, dist(from, to));
+    const speed = clamp(distance / 0.2, 80, 200);
+    const duration = clamp(distance / speed, 0.12, 0.4);
+
+    ball.inAir = true;
+    ball.lastCarrierId = ball.carrierId || ball.lastCarrierId || qb?.id || 'QB';
+    ball.carrierId = null;
+    ball.from = { ...from };
+    ball.to = { ...to };
+    ball.t = 0;
+    ball.flight = {
+        kind: 'pitch',
+        duration,
+        elapsed: 0,
+        arc: clamp(distance * 0.1, 4, 18),
+        wobble: 0,
+        speed,
+        accuracy: 1,
+        totalDist: distance,
+        travelled: 0,
+    };
+    ball.shadowPos = { ...from };
+    ball.renderPos = { ...from };
+    ball.targetId = targetId;
+
+    recordPlayEvent(s, {
+        type: 'pitch:thrown',
+        from: { ...from },
+        to: { ...to },
+        targetId: targetId ?? null,
         duration,
     });
 }
@@ -147,6 +185,47 @@ export function moveBall(s, dt) {
         const reached = distToTarget <= Math.max(6, travelStep * 0.6);
 
         if (reached) {
+            const isPitch = flight?.kind === 'pitch';
+            if (isPitch) {
+                const runner = _resolveOffensivePlayer(off, ball.targetId);
+                const catchPos = runner?.pos ? { x: runner.pos.x, y: runner.pos.y } : { ...targetPos };
+                ball.inAir = false;
+                ball.flight = null;
+                ball.renderPos = catchPos;
+                ball.shadowPos = catchPos;
+                ball.to = { ...catchPos };
+
+                if (runner?.id) {
+                    ball.carrierId = runner.id;
+                    ball.lastCarrierId = runner.id;
+                    ball.targetId = null;
+                    if (s.play) {
+                        s.play.handoffTime = s.play.elapsed;
+                        s.play.handoffPending = null;
+                        s.play.handed = true;
+                    }
+                    recordPlayEvent(s, {
+                        type: 'pitch:caught',
+                        targetId: runner.id,
+                    });
+                } else {
+                    ball.carrierId = null;
+                    ball.targetId = null;
+                    if (s.play) {
+                        s.play.handoffPending = null;
+                        if (!s.play.deadAt) {
+                            s.play.deadAt = s.play.elapsed;
+                            s.play.phase = 'DEAD';
+                            s.play.resultWhy = 'Pitch misfire';
+                        }
+                    }
+                    recordPlayEvent(s, {
+                        type: 'pitch:misfire',
+                        targetId: null,
+                    });
+                }
+                return;
+            }
             if (!ball.targetId) {
                 s.play.deadAt = s.play.elapsed;
                 s.play.phase = 'DEAD';

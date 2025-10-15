@@ -98,6 +98,39 @@ export const PLAYBOOK = [
         qbDrop: 1,
     },
     {
+        name: 'Speed Option Pitch',
+        type: 'RUN',
+        handoffTo: 'RB',
+        handoffStyle: 'PITCH',
+        handoffDelay: 0.45,
+        handoffWindow: 0.35,
+        pitchTarget: { dx: 2.8, dy: 0.2 },
+        rbPath: [
+            { dx: 4, dy: 1 },
+            { dx: 8, dy: 3 },
+            { dx: 10, dy: 4 },
+        ],
+        wrRoutes: {
+            WR1: [
+                { dx: -2, dy: 2 },
+                { dx: -4, dy: 3 },
+            ],
+            WR2: [
+                { dx: 3, dy: 2 },
+                { dx: 5, dy: 3 },
+            ],
+            WR3: [
+                { dx: 6, dy: 1 },
+                { dx: 7, dy: 3 },
+            ],
+        },
+        teRoute: [
+            { dx: 2, dy: 1 },
+            { dx: 4, dy: 3 },
+        ],
+        qbDrop: 0.8,
+    },
+    {
         name: 'Mesh Rail',
         type: 'PASS',
         primary: 'WR1',

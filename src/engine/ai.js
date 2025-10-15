@@ -3,7 +3,7 @@ import { clamp, dist, rand, yardsToPixY } from './helpers';
 import { FIELD_PIX_W, PX_PER_YARD } from './constants';
 import { steerPlayer, dampMotion, applyCollisionSlowdown } from './motion';
 import { getPlayerMass, getPlayerRadius } from './physics';
-import { startPass } from './ball';
+import { startPass, startPitch } from './ball';
 
 /* =========================================================
    AI state helpers
@@ -286,6 +286,14 @@ export function initRoutesAfterSnap(s) {
 
     // ---- Run seeds ----
     if (call.type === 'RUN') {
+        const handoffStyle = (call.handoffStyle || 'HANDOFF').toUpperCase();
+        const handoffDelay = call.handoffDelay ?? (handoffStyle === 'PITCH' ? 0.45 : 0.6);
+        const handoffWindow = call.handoffWindow ?? (handoffStyle === 'PITCH' ? 0.35 : 0.5);
+        s.play.handoffStyle = handoffStyle;
+        s.play.handoffReadyAt = s.play.elapsed + handoffDelay;
+        s.play.handoffDeadline = s.play.elapsed + handoffDelay + handoffWindow;
+        s.play.handoffPending = null;
+        s.play.pitchTarget = call.pitchTarget || null;
         const first = (s.play.rbTargets && s.play.rbTargets[0]) ||
             (off.RB?.pos ? { x: off.RB.pos.x, y: off.RB.pos.y + 12 } : null);
         s.play.runHoleX = first ? clamp(first.x, 24, FIELD_PIX_W - 24) : clamp((off.QB?.pos?.x ?? FIELD_PIX_W / 2), 24, FIELD_PIX_W - 24);
@@ -298,6 +306,11 @@ export function initRoutesAfterSnap(s) {
         s.play.runLaneY = null;
         off.__runHoleX = null;
         off.__runLaneY = null;
+        s.play.handoffStyle = null;
+        s.play.handoffReadyAt = null;
+        s.play.handoffDeadline = null;
+        s.play.handoffPending = null;
+        s.play.pitchTarget = null;
     }
 
     // ---- QB timings ----
@@ -1107,9 +1120,13 @@ export function qbLogic(s, dt) {
 
     if (inHandoffPhase) {
         const firstTarget = Array.isArray(s.play.rbTargets) ? s.play.rbTargets[0] : null;
-        const aimX = clamp(firstTarget?.x ?? handoffRunner.pos.x, 20, FIELD_PIX_W - 20);
-        const aimY = Math.min(handoffRunner.pos.y - PX_PER_YARD * 0.4, qb.pos.y + PX_PER_YARD * 0.8);
-        moveToward(qb, { x: aimX, y: aimY }, dt, 0.88);
+        const meshX = clamp(firstTarget?.x ?? handoffRunner.pos.x, 20, FIELD_PIX_W - 20);
+        const meshY = Math.min(handoffRunner.pos.y - PX_PER_YARD * 0.2, qb.pos.y + PX_PER_YARD * 0.7);
+        const meshPoint = {
+            x: clamp((handoffRunner.pos.x * 2 + meshX) / 3, 20, FIELD_PIX_W - 20),
+            y: meshY,
+        };
+        moveToward(qb, meshPoint, dt, 0.92);
     } else if (s.play.qbMoveMode === 'DROP') {
         const t =
             Array.isArray(qb.targets) && qb.targets.length > 0
@@ -1147,24 +1164,59 @@ export function qbLogic(s, dt) {
         const runner = handoffRunner;
         if (!runner || !runner.pos) return;
 
-        const exchangeRadius = PX_PER_YARD * 1.35;
-        const meshDist = dist(qb.pos, runner.pos);
-        const atMeshPoint = dropArrived || meshDist <= exchangeRadius * 0.75;
-        const meshReady = s.play.elapsed >= (call.handoffDelay ?? 0.6);
+        const style = (s.play.handoffStyle || call.handoffStyle || 'HANDOFF').toUpperCase();
+        const isPitch = style === 'PITCH';
+        if (!s.play.handoffStyle) s.play.handoffStyle = style;
 
-        if (!s.play.handed && atMeshPoint && meshDist <= exchangeRadius && meshReady) {
+        const readyAt = s.play.handoffReadyAt ?? (s.play.elapsed + (call.handoffDelay ?? (isPitch ? 0.45 : 0.6)));
+        if (s.play.handoffReadyAt == null) s.play.handoffReadyAt = readyAt;
+        const window = call.handoffWindow ?? (isPitch ? 0.35 : 0.5);
+        const deadline = s.play.handoffDeadline ?? (readyAt + window);
+        if (s.play.handoffDeadline == null) s.play.handoffDeadline = deadline;
+
+        const exchangeRadius = PX_PER_YARD * (isPitch ? 1.8 : 1.45);
+        const meshDist = dist(qb.pos, runner.pos);
+        const closenessFactor = isPitch ? 1.12 : 0.95;
+        const atMeshPoint = dropArrived || meshDist <= exchangeRadius * closenessFactor;
+        const meshReady = s.play.elapsed >= readyAt;
+        const forced = s.play.elapsed >= deadline;
+
+        if (!s.play.handed && (meshReady && atMeshPoint || (forced && meshDist <= exchangeRadius * 1.35))) {
             const carrierKey = runner.id || handoffRole || 'RB';
-            s.play.ball.inAir = false;
-            s.play.ball.targetId = null;
-            s.play.ball.flight = null;
-            s.play.ball.carrierId = carrierKey;
-            s.play.ball.lastCarrierId = carrierKey;
-            s.play.handed = true;
-            s.play.handoffTime = s.play.elapsed;
-            s.play.qbMoveMode = 'SET';
-            if (Array.isArray(s.play.rbTargets) && s.play.rbTargets.length) {
-                runner.targets = s.play.rbTargets;
-                runner.routeIdx = 0;
+            if (isPitch) {
+                const pitchOffset = s.play.pitchTarget || {};
+                const pitchX = clamp(
+                    (typeof pitchOffset.dx === 'number' ? runner.pos.x + pitchOffset.dx * PX_PER_YARD : runner.pos.x),
+                    18,
+                    FIELD_PIX_W - 18,
+                );
+                const desiredY = typeof pitchOffset.dy === 'number'
+                    ? runner.pos.y + pitchOffset.dy * PX_PER_YARD
+                    : runner.pos.y;
+                const pitchY = Math.min(desiredY, Math.min(runner.pos.y + PX_PER_YARD * 0.6, qb.pos.y + PX_PER_YARD * 0.6));
+                const pitchTarget = { x: pitchX, y: pitchY };
+                startPitch(s, { x: qb.pos.x, y: qb.pos.y }, pitchTarget, carrierKey);
+                s.play.handed = true;
+                s.play.handoffPending = { type: 'PITCH', targetId: carrierKey };
+                s.play.qbMoveMode = 'SET';
+                if (Array.isArray(s.play.rbTargets) && s.play.rbTargets.length) {
+                    runner.targets = s.play.rbTargets;
+                    runner.routeIdx = 0;
+                }
+            } else {
+                s.play.ball.inAir = false;
+                s.play.ball.targetId = null;
+                s.play.ball.flight = null;
+                s.play.ball.carrierId = carrierKey;
+                s.play.ball.lastCarrierId = carrierKey;
+                s.play.handed = true;
+                s.play.handoffTime = s.play.elapsed;
+                s.play.handoffPending = null;
+                s.play.qbMoveMode = 'SET';
+                if (Array.isArray(s.play.rbTargets) && s.play.rbTargets.length) {
+                    runner.targets = s.play.rbTargets;
+                    runner.routeIdx = 0;
+                }
             }
         }
 
