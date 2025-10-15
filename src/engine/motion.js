@@ -78,8 +78,10 @@ function ensureMotion(player) {
             heading: { x: 0, y: 1 },
             stamina: 1,
             reaction: 1,
+            mass: player?.phys?.mass ?? 1,
         };
     }
+    if (player.motion.mass == null) player.motion.mass = player?.phys?.mass ?? 1;
     return player.motion;
 }
 
@@ -112,19 +114,22 @@ export function resolveMaxSpeed(player, { speedMultiplier = 1 } = {}) {
     const rating = player?.attrs?.speed ?? 5.5;
     const stamina = clamp(player?.motion?.stamina ?? 1, 0.55, 1.0);
     const mph = clamp(template.topSpeedMph + ratingToBonusMph(rating), 14.5, 23);
-    return mphToPixelsPerSecond(mph) * speedMultiplier * stamina;
+    const weightAdj = clamp(1 - ((player?.phys?.weight ?? 210) - 215) / 480, 0.82, 1.1);
+    return mphToPixelsPerSecond(mph) * speedMultiplier * stamina * weightAdj;
 }
 
 export function resolveAcceleration(player, { accelMultiplier = 1 } = {}) {
     const template = resolveTemplate(player?.role);
     const base = template.accelYds + ratingToAccelBonus(player?.attrs?.accel ?? 12);
-    return clamp(base * PX_PER_YARD * accelMultiplier, PX_PER_YARD * 2.5, PX_PER_YARD * 12);
+    const massAdj = clamp(1.05 - ((player?.phys?.mass ?? 1) - 1) * 0.35, 0.55, 1.25);
+    return clamp(base * PX_PER_YARD * accelMultiplier * massAdj, PX_PER_YARD * 2.5, PX_PER_YARD * 12.5);
 }
 
 export function dampMotion(player, dt, damping = 4.0) {
     const motion = ensureMotion(player);
     if (!motion) return;
-    const factor = clamp(1 - damping * dt, 0, 1);
+    const inertia = clamp((player?.phys?.mass ?? 1), 0.55, 1.95);
+    const factor = clamp(1 - (damping / (1 + (inertia - 1) * 0.65)) * dt, 0, 1);
     motion.vx *= factor;
     motion.vy *= factor;
     motion.speed = Math.hypot(motion.vx, motion.vy);
@@ -153,12 +158,24 @@ export function steerPlayer(player, target, dt, opts = {}) {
         return;
     }
 
-    const desiredHeading = distance > 0 ? { x: dx / distance, y: dy / distance } : motion.heading;
-    const desiredSpeed = Math.min(maxSpeed, smoothstep(clamp(distance / (PX_PER_YARD * 2), 0, 1)) * maxSpeed + maxSpeed * 0.15);
+    const rawHeading = distance > 0 ? { x: dx / distance, y: dy / distance } : motion.heading;
+    const agility = clamp(player?.attrs?.agility ?? 1, 0.5, 1.4);
+    const blend = clamp(0.78 - (agility - 1) * 0.18, 0.55, 0.88);
+    const desiredHeading = (() => {
+        const hx = motion.heading.x * blend + rawHeading.x * (1 - blend);
+        const hy = motion.heading.y * blend + rawHeading.y * (1 - blend);
+        const mag = Math.hypot(hx, hy) || 1;
+        return { x: hx / mag, y: hy / mag };
+    })();
+    const desiredSpeed = Math.min(
+        maxSpeed,
+        smoothstep(clamp(distance / (PX_PER_YARD * 2.2), 0, 1)) * maxSpeed + maxSpeed * 0.12
+    );
     const desiredVx = desiredHeading.x * desiredSpeed;
     const desiredVy = desiredHeading.y * desiredSpeed;
 
-    const maxDelta = accel * dt;
+    const agilityBoost = clamp(agility, 0.6, 1.35);
+    const maxDelta = accel * agilityBoost * dt;
     const { vx, vy } = projectVelocity(motion.vx, motion.vy, desiredVx, desiredVy, maxDelta);
 
     motion.vx = vx;
@@ -215,6 +232,7 @@ export function resetMotion(player) {
         heading: { x: 0, y: 1 },
         stamina: 1,
         reaction: 1,
+        mass: player?.phys?.mass ?? 1,
     };
 }
 

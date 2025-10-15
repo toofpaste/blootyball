@@ -2,6 +2,7 @@
 import { clamp, dist, rand, yardsToPixY } from './helpers';
 import { FIELD_PIX_W, PX_PER_YARD } from './constants';
 import { steerPlayer, dampMotion, applyCollisionSlowdown } from './motion';
+import { getPlayerMass, getPlayerRadius } from './physics';
 import { startPass } from './ball';
 
 /* =========================================================
@@ -205,6 +206,28 @@ const CFG = {
     PURSUIT_SPEED: 1.12,        // defenders run a bit hotter in pursuit
 };
 
+const SHOTGUN_HINTS = ['gun', 'shotgun', 'empty'];
+
+function guessShotgun(call = {}, formationName = '') {
+    if (call.shotgun != null) return !!call.shotgun;
+    const haystack = `${call.name || ''} ${formationName || ''}`.toLowerCase();
+    return SHOTGUN_HINTS.some((hint) => haystack.includes(hint));
+}
+
+function resolveDropDepth(call = {}, formationName = '') {
+    const shotgun = guessShotgun(call, formationName);
+    if (call.type === 'RUN') {
+        const base = call.qbDrop ?? (shotgun ? 1.2 : 0.9);
+        return clamp(base, 0.4, shotgun ? 2.6 : 1.8);
+    }
+    const quick = !!call.quickGame;
+    const playAction = !!call.playAction;
+    const defaultDepth = quick ? 3.6 : playAction ? 7.2 : 5.6;
+    const base = call.qbDrop != null ? call.qbDrop : defaultDepth;
+    if (shotgun) return clamp(base, 4.6, 7.6);
+    return clamp(base, quick ? 3.4 : 5.0, 7.4);
+}
+
 
 /* =========================================================
    Route and Play Initialization
@@ -284,9 +307,9 @@ export function initRoutesAfterSnap(s) {
     const holdBonus = (poise - 0.5) * 1.2;
     s.play.qbMaxHold = s.play.qbTTT + rand(1.2, 1.9) + holdBonus;
     const qbPos = qb?.pos || { x: FIELD_PIX_W / 2, y: yardsToPixY(25) };
-    const qbRunDrop = clamp(call.qbDrop ?? 0.6, 0, 1.8);
-    const qbDropYards = call.type === 'RUN' ? qbRunDrop : (call.qbDrop || 3);
-    s.play.qbDropTarget = { x: qbPos.x, y: qbPos.y - qbDropYards * PX_PER_YARD };
+    const dropDepth = resolveDropDepth(call, s.play.offFormation || '');
+    s.play.qbPreferredDrop = dropDepth;
+    s.play.qbDropTarget = { x: qbPos.x, y: qbPos.y - dropDepth * PX_PER_YARD };
 
     // Reset OL per-play
     ['LT', 'LG', 'C', 'RG', 'RT'].forEach(k => { if (off[k]) { off[k]._assignId = null; off[k]._stickTimer = 0; } });
@@ -556,16 +579,26 @@ function repelTeammates(players, R, push) {
             const a = players[i], b = players[j];
             const dx = b.pos.x - a.pos.x, dy = b.pos.y - a.pos.y;
             const d = Math.hypot(dx, dy);
-            if (d > 0 && d < R) {
-                const k = ((R - d) / R) * push;
-                const nx = dx / d, ny = dy / d;
-                a.pos.x -= nx * k;
-                a.pos.y -= ny * k;
-                b.pos.x += nx * k;
-                b.pos.y += ny * k;
-                applyCollisionSlowdown(a, 0.4);
-                applyCollisionSlowdown(b, 0.4);
-            }
+            if (!(d > 0 && d < R)) continue;
+
+            const nx = dx / d;
+            const ny = dy / d;
+            const radiusA = getPlayerRadius(a);
+            const radiusB = getPlayerRadius(b);
+            const separation = Math.max((radiusA + radiusB) * 0.5, R);
+            const k = ((separation - d) / separation) * push;
+            const massA = getPlayerMass(a);
+            const massB = getPlayerMass(b);
+            const totalMass = Math.max(massA + massB, 1e-3);
+            const shareA = massB / totalMass;
+            const shareB = massA / totalMass;
+
+            a.pos.x -= nx * k * shareA;
+            a.pos.y -= ny * k * shareA;
+            b.pos.x += nx * k * shareB;
+            b.pos.y += ny * k * shareB;
+            applyCollisionSlowdown(a, 0.28 + shareA * 0.22);
+            applyCollisionSlowdown(b, 0.28 + shareB * 0.22);
         }
     }
 }
@@ -939,9 +972,10 @@ export function qbLogic(s, dt) {
 
     // Ensure move mode + drop target exist
     if (!s.play.qbMoveMode) s.play.qbMoveMode = 'DROP';
+    const preferredDrop = s.play.qbPreferredDrop ?? resolveDropDepth(call, s.play.offFormation || '');
     const dropTarget = s.play?.qbDropTarget || {
         x: qb.pos.x,
-        y: qb.pos.y - (call.qbDrop || 3) * PX_PER_YARD,
+        y: qb.pos.y - preferredDrop * PX_PER_YARD,
     };
     s.play.qbDropTarget = dropTarget;
 
