@@ -75,6 +75,7 @@ export function createPlayerEntry(player, role, sideLabel, statsMap = {}, league
       description: irEntry.description || '',
       severity: irEntry.severity || null,
       gamesRemaining: irEntry.gamesRemaining ?? null,
+      status: irEntry.status || 'injury',
     };
   }
   if (player.temperament) {
@@ -124,6 +125,7 @@ function buildRosterGroup(collection = {}, order = [], sideLabel, statsMap, leag
           description: irEntry.description || injuredPlayer.injury?.description || '',
           severity: irEntry.severity || injuredPlayer.injury?.severity || null,
           gamesRemaining: irEntry.gamesRemaining ?? injuredPlayer.injury?.gamesRemaining ?? null,
+          status: irEntry.status || injuredPlayer.injury?.status || 'injury',
         };
         list.push(injuredPlayer);
       }
@@ -151,6 +153,7 @@ function buildSpecialGroup(special = {}, statsMap, league, teamId) {
           description: irEntry.description || injuredPlayer.injury?.description || '',
           severity: irEntry.severity || injuredPlayer.injury?.severity || null,
           gamesRemaining: irEntry.gamesRemaining ?? injuredPlayer.injury?.gamesRemaining ?? null,
+          status: irEntry.status || injuredPlayer.injury?.status || 'injury',
         };
         list.push(injuredPlayer);
       }
@@ -188,7 +191,7 @@ export function buildTeamDirectoryData(season, league) {
       },
     };
     const rosters = createTeams(matchup, league);
-    const coaches = prepareCoachesForMatchup(matchup);
+    const coaches = prepareCoachesForMatchup(matchup, league);
     applyLongTermAdjustments(rosters, coaches, development);
     const identity = getTeamIdentity(teamId) || team.info || { id: teamId, displayName: teamId };
     const record = team.record || { wins: 0, losses: 0, ties: 0 };
@@ -224,7 +227,8 @@ export function buildTeamDirectoryData(season, league) {
       pointsAgainst: team.pointsAgainst ?? 0,
       mood: league?.teamMoods?.[teamId] || { score: 0, label: 'Neutral' },
       scout: league?.teamScouts?.[teamId] || null,
-      coach: coaches?.[TEAM_RED] || null,
+      coach: league?.teamCoaches?.[teamId] || coaches?.[TEAM_RED] || null,
+      gm: league?.teamGms?.[teamId] || null,
       titles: titles.length,
       titleSeasons: titles.slice(),
       history: historyEntries,

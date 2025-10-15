@@ -1,6 +1,6 @@
 import { TEAM_RED, TEAM_BLK } from './constants';
 import { clamp } from './helpers';
-import { buildCoachesForMatchup, blendCoachValues, coachClockSettings } from './coaches';
+import { buildCoachesForMatchup, blendCoachValues, coachClockSettings, buildCoachForTeam } from './coaches';
 
 const ATTR_LIMITS = {
   speed: [4.0, 7.5],
@@ -256,8 +256,21 @@ export function finalizeGameDynamics(state) {
   });
 }
 
-export function prepareCoachesForMatchup(matchup) {
-  return buildCoachesForMatchup(matchup);
+export function prepareCoachesForMatchup(matchup, league = null) {
+  if (!league?.teamCoaches) {
+    return buildCoachesForMatchup(matchup);
+  }
+  const slotToTeam = matchup?.slotToTeam || {};
+  const identities = matchup?.identities || {};
+  const coaches = {};
+  [TEAM_RED, TEAM_BLK].forEach((slot) => {
+    const teamId = slotToTeam[slot] || slot;
+    const stored = league.teamCoaches?.[teamId] || null;
+    const identity = identities[slot] || stored?.identity || null;
+    const base = stored ? { ...stored } : buildCoachForTeam(teamId, { slot, identity });
+    coaches[slot] = { ...base, identity, teamSlot: slot };
+  });
+  return coaches;
 }
 
 export function coachClockPlan(coaches) {

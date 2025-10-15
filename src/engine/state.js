@@ -38,11 +38,12 @@ import {
 } from './progression';
 import {
     ensureSeasonPersonnel,
-    signBestFreeAgentForRole,
     registerPlayerInjury,
     decrementInjuryTimers,
     advanceLeagueOffseason,
     applyPostGameMoodAdjustments,
+    assignReplacementForAbsence,
+    maybeGenerateLeagueHeadlines,
 } from './personnel';
 import { applyTeamMoodToMatchup } from './temperament';
 
@@ -300,14 +301,7 @@ function maybeTriggerInjury(state, {
         seasonNumber,
         degrade: profile.degrade,
     });
-    const replacement = signBestFreeAgentForRole(league, teamId, role, {
-        reason: 'injury replacement',
-    });
-    if (replacement && irEntry?.player?.id && league.injuredReserve?.[irEntry.player.id]) {
-        league.injuredReserve[irEntry.player.id].replacementId = replacement.id;
-        league.injuredReserve[irEntry.player.id].replacementGames ||= 0;
-        league.injuredReserve[irEntry.player.id].replacementLastGameId ||= null;
-    }
+    const replacement = assignReplacementForAbsence(league, irEntry, { reason: 'injury replacement' });
     state.teams = createTeams(state.matchup, league);
     state.roster = rosterForPossession(state.teams, state.possession);
     state.playerDirectory = buildPlayerDirectory(state.teams, state.matchup?.slotToTeam, state.matchup?.identities);
@@ -635,7 +629,7 @@ function prepareGameForMatchup(state, matchup) {
         ensureSeasonPersonnel(state.league, state.season.seasonNumber || state.league.seasonNumber || 1);
     }
     ensureSeasonProgression(state.season);
-    state.coaches = prepareCoachesForMatchup(matchup);
+    state.coaches = prepareCoachesForMatchup(matchup, state.league);
     state.teams = createTeams(matchup, state.league);
     applyLongTermAdjustments(state.teams, state.coaches, state.season?.playerDevelopment || {});
     applyTeamMoodToMatchup(state.teams, matchup, state.league);
@@ -698,6 +692,7 @@ function finalizeCurrentGame(state) {
         decrementInjuryTimers(state.league, game.homeTeam);
         decrementInjuryTimers(state.league, game.awayTeam);
         state.league.seasonSnapshot = updatedSeason;
+        maybeGenerateLeagueHeadlines(state.league, updatedSeason, { game });
     }
     const latestResult = state.season.schedule?.[currentIndex]?.result || null;
     const currentTag = game?.tag || state.matchup?.tag || null;
