@@ -1918,6 +1918,22 @@ function _computeRouteMirrorAim(ctx, defender, target, { isDB, cushion, targetRo
 }
 
 function _computeManAim(ctx, defender, target, { isDB, cushion, zoneDrop = null, targetRole = null }) {
+    const targeted = ctx.ball.inAir && ctx.passTarget && target && (
+        ctx.passTarget.id === target.id ||
+        (ctx.passTargetRole && targetRole && ctx.passTargetRole === targetRole)
+    );
+    if (targeted) {
+        const dest = ctx.ball.to || ctx.passTarget.pos || target.pos;
+        const clampX = (x) => clamp(x, 16, FIELD_PIX_W - 16);
+        const floorY = ctx.cover.losY + PX_PER_YARD * (isDB ? 1.4 : 1.1);
+        const aim = {
+            x: clampX(dest.x),
+            y: Math.max(dest.y - PX_PER_YARD * (isDB ? 0.8 : 0.6), floorY),
+        };
+        const speedMul = (isDB ? 1.18 : 1.08) * (zoneDrop?.speed || 1);
+        return { point: aim, speedMul };
+    }
+
     const mirror = _computeRouteMirrorAim(ctx, defender, target, { isDB, cushion, targetRole });
     if (mirror) {
         let aimX = mirror.point.x;
@@ -2018,12 +2034,19 @@ function _handleZoneCoverage(ctx, key, defender) {
     const targetPos = ctx.ball.to || null;
     let chase = null;
 
+    const assignedRole = ctx.cover.assigned?.[key] || null;
+
+    let targetedIntercept = false;
+
     if (ctx.ball.inAir && ctx.passTarget?.pos) {
         const dest = targetPos || ctx.passTarget.pos;
         const dx = dest.x - anchorPoint.x;
         const dy = dest.y - anchorPoint.y;
         const distScore = Math.hypot(dx, dy);
-        if (distScore <= radius * 1.6) {
+        const targeted = assignedRole && ctx.passTargetRole && assignedRole === ctx.passTargetRole;
+        const reachFactor = targeted ? 2.6 : 1.9;
+        if (distScore <= radius * reachFactor || targeted) {
+            targetedIntercept = targeted;
             chase = { player: ctx.passTarget, intercept: true, dest };
         }
     }
@@ -2051,7 +2074,8 @@ function _handleZoneCoverage(ctx, key, defender) {
                 x: clamp(chase.dest.x, 16, FIELD_PIX_W - 16),
                 y: Math.max(chase.dest.y - PX_PER_YARD * 0.8, ctx.cover.losY + PX_PER_YARD * 1.5),
             };
-            moveToward(defender, aim, ctx.dt, attackSpeed);
+            const burst = targetedIntercept ? 1.12 : attackSpeed;
+            moveToward(defender, aim, ctx.dt, burst);
         } else {
             const aim = {
                 x: clamp(chase.player.pos.x, 16, FIELD_PIX_W - 16),
