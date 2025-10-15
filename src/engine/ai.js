@@ -286,10 +286,9 @@ export function initRoutesAfterSnap(s) {
 
     // ---- Run seeds ----
     if (call.type === 'RUN') {
-        const handoffStyle = (call.handoffStyle || 'HANDOFF').toUpperCase();
-        const handoffDelay = call.handoffDelay ?? (handoffStyle === 'PITCH' ? 0.45 : 0.6);
-        const handoffWindow = call.handoffWindow ?? (handoffStyle === 'PITCH' ? 0.35 : 0.5);
-        s.play.handoffStyle = handoffStyle;
+        const handoffDelay = call.handoffDelay ?? 0.45;
+        const handoffWindow = call.handoffWindow ?? 0.35;
+        s.play.handoffStyle = 'PITCH';
         s.play.handoffReadyAt = s.play.elapsed + handoffDelay;
         s.play.handoffDeadline = s.play.elapsed + handoffDelay + handoffWindow;
         s.play.handoffPending = null;
@@ -1165,59 +1164,37 @@ export function qbLogic(s, dt) {
         const runner = handoffRunner;
         if (!runner || !runner.pos) return;
 
-        const style = (s.play.handoffStyle || call.handoffStyle || 'HANDOFF').toUpperCase();
-        const isPitch = style === 'PITCH';
-        if (!s.play.handoffStyle) s.play.handoffStyle = style;
+        if (s.play.handoffStyle !== 'PITCH') s.play.handoffStyle = 'PITCH';
 
-        const readyAt = s.play.handoffReadyAt ?? (s.play.elapsed + (call.handoffDelay ?? (isPitch ? 0.45 : 0.6)));
+        const readyAt = s.play.handoffReadyAt ?? (s.play.elapsed + (call.handoffDelay ?? 0.45));
         if (s.play.handoffReadyAt == null) s.play.handoffReadyAt = readyAt;
-        const window = call.handoffWindow ?? (isPitch ? 0.35 : 0.5);
+        const window = call.handoffWindow ?? 0.35;
         const deadline = s.play.handoffDeadline ?? (readyAt + window);
         if (s.play.handoffDeadline == null) s.play.handoffDeadline = deadline;
 
-        const exchangeRadius = PX_PER_YARD * (isPitch ? 1.8 : 1.45);
-        const meshDist = dist(qb.pos, runner.pos);
-        const closenessFactor = isPitch ? 1.12 : 0.95;
-        const atMeshPoint = dropArrived || meshDist <= exchangeRadius * closenessFactor;
         const meshReady = s.play.elapsed >= readyAt;
         const forced = s.play.elapsed >= deadline;
 
-        if (!s.play.handed && (meshReady && atMeshPoint || (forced && meshDist <= exchangeRadius * 1.35))) {
+        if (!s.play.handed && (meshReady || forced)) {
             const carrierKey = runner.id || handoffRole || 'RB';
-            if (isPitch) {
-                const pitchOffset = s.play.pitchTarget || {};
-                const pitchX = clamp(
-                    (typeof pitchOffset.dx === 'number' ? runner.pos.x + pitchOffset.dx * PX_PER_YARD : runner.pos.x),
-                    18,
-                    FIELD_PIX_W - 18,
-                );
-                const desiredY = typeof pitchOffset.dy === 'number'
-                    ? runner.pos.y + pitchOffset.dy * PX_PER_YARD
-                    : runner.pos.y;
-                const pitchY = Math.min(desiredY, Math.min(runner.pos.y + PX_PER_YARD * 0.6, qb.pos.y + PX_PER_YARD * 0.6));
-                const pitchTarget = { x: pitchX, y: pitchY };
-                startPitch(s, { x: qb.pos.x, y: qb.pos.y }, pitchTarget, carrierKey);
-                s.play.handed = true;
-                s.play.handoffPending = { type: 'PITCH', targetId: carrierKey };
-                s.play.qbMoveMode = 'SET';
-                if (Array.isArray(s.play.rbTargets) && s.play.rbTargets.length) {
-                    runner.targets = s.play.rbTargets;
-                    runner.routeIdx = 0;
-                }
-            } else {
-                s.play.ball.inAir = false;
-                s.play.ball.targetId = null;
-                s.play.ball.flight = null;
-                s.play.ball.carrierId = carrierKey;
-                s.play.ball.lastCarrierId = carrierKey;
-                s.play.handed = true;
-                s.play.handoffTime = s.play.elapsed;
-                s.play.handoffPending = null;
-                s.play.qbMoveMode = 'SET';
-                if (Array.isArray(s.play.rbTargets) && s.play.rbTargets.length) {
-                    runner.targets = s.play.rbTargets;
-                    runner.routeIdx = 0;
-                }
+            const pitchOffset = s.play.pitchTarget || {};
+            const pitchX = clamp(
+                (typeof pitchOffset.dx === 'number' ? runner.pos.x + pitchOffset.dx * PX_PER_YARD : runner.pos.x),
+                18,
+                FIELD_PIX_W - 18,
+            );
+            const desiredY = typeof pitchOffset.dy === 'number'
+                ? runner.pos.y + pitchOffset.dy * PX_PER_YARD
+                : runner.pos.y;
+            const pitchY = Math.min(desiredY, Math.min(runner.pos.y + PX_PER_YARD * 0.6, qb.pos.y + PX_PER_YARD * 0.6));
+            const pitchTarget = { x: pitchX, y: pitchY };
+            startPitch(s, { x: qb.pos.x, y: qb.pos.y }, pitchTarget, carrierKey);
+            s.play.handed = true;
+            s.play.handoffPending = { type: 'PITCH', targetId: carrierKey };
+            s.play.qbMoveMode = 'SET';
+            if (Array.isArray(s.play.rbTargets) && s.play.rbTargets.length) {
+                runner.targets = s.play.rbTargets;
+                runner.routeIdx = 0;
             }
         }
 
