@@ -39,6 +39,21 @@ const GameView = React.forwardRef(function GameView({
   const lastResetTokenRef = useRef(resetSignal?.token ?? 0);
   const notifiedCompleteRef = useRef(false);
   const prevGlobalRunningRef = useRef(globalRunning);
+  const stateRef = useRef(null);
+  const runningRef = useRef({ global: globalRunning, local: localRunning });
+  const simSpeedRef = useRef(simSpeed);
+
+  useEffect(() => {
+    stateRef.current = state;
+  }, [state]);
+
+  useEffect(() => {
+    runningRef.current = { global: globalRunning, local: localRunning };
+  }, [globalRunning, localRunning]);
+
+  useEffect(() => {
+    simSpeedRef.current = simSpeed;
+  }, [simSpeed]);
 
   useImperativeHandle(ref, () => ({
     getSeasonSnapshot() {
@@ -68,19 +83,21 @@ const GameView = React.forwardRef(function GameView({
     let rafId;
     let last = performance.now();
     const loop = (now) => {
-      const dt = Math.min(0.033, (now - last) / 1000) * simSpeed;
+      const speed = simSpeedRef.current ?? 1;
+      const dt = Math.min(0.033, (now - last) / 1000) * speed;
       last = now;
-      if (globalRunning && localRunning) {
+      const { global, local } = runningRef.current;
+      if (global && local) {
         setState(prev => stepGame(prev, dt));
       }
       if (canvasRef.current) {
-        drawSafe(canvasRef.current, state);
+        drawSafe(canvasRef.current, stateRef.current || state);
       }
       rafId = requestAnimationFrame(loop);
     };
     rafId = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(rafId);
-  }, [globalRunning, localRunning, simSpeed, state]);
+  }, []);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
