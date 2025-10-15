@@ -2450,14 +2450,28 @@ function _computeCoverageAssignments(s) {
         delete assigned.S2;
     }
 
-    const usedRoles = new Set(Object.values(assigned));
+    const roleOwners = {};
+    Object.entries(assigned).forEach(([defKey, role]) => {
+        if (role) roleOwners[role] = defKey;
+    });
     const ensure = (defKey, role) => {
         if (!role || !off[role]?.pos) return;
         if (!def[defKey]?.pos) return;
-        if (assigned[defKey]) return;
-        if (usedRoles.has(role)) return;
+
+        const current = assigned[defKey];
+        if (current === role) return;
+
+        if (current && roleOwners[current] === defKey) {
+            delete roleOwners[current];
+        }
+
+        const prevOwner = roleOwners[role];
+        if (prevOwner && prevOwner !== defKey) {
+            delete assigned[prevOwner];
+        }
+
         assigned[defKey] = role;
-        usedRoles.add(role);
+        roleOwners[role] = defKey;
     };
 
     if (isTwoMan) {
