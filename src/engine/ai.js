@@ -2035,6 +2035,7 @@ function _handleZoneCoverage(ctx, key, defender) {
     let chase = null;
 
     const assignedRole = ctx.cover.assigned?.[key] || null;
+    const assignedPlayer = assignedRole ? ctx.off[assignedRole] : null;
 
     let targetedIntercept = false;
 
@@ -2051,6 +2052,19 @@ function _handleZoneCoverage(ctx, key, defender) {
         }
     }
 
+    if (!chase && assignedPlayer?.pos) {
+        const dx = assignedPlayer.pos.x - anchorPoint.x;
+        const dy = assignedPlayer.pos.y - anchorPoint.y;
+        if (dy >= -PX_PER_YARD * 0.8) {
+            const distScore = Math.hypot(dx, dy);
+            const depthBias = Math.max(0, assignedPlayer.pos.y - ctx.cover.losY) * 0.28;
+            const effectiveRadius = radius * 2.15;
+            if ((distScore - depthBias) <= effectiveRadius) {
+                chase = { player: assignedPlayer, role: assignedRole, dist: distScore, priority: true };
+            }
+        }
+    }
+
     if (!chase) {
         const zoneThreat = threats.reduce((best, entry) => {
             const p = entry.player;
@@ -2060,7 +2074,7 @@ function _handleZoneCoverage(ctx, key, defender) {
             const distScore = Math.hypot(dx, dy);
             const depthBias = Math.max(0, p.pos.y - ctx.cover.losY) * 0.35;
             const score = distScore - depthBias;
-            if (distScore > radius * 1.55) return best;
+            if (distScore > radius * 1.8) return best;
             return (!best || score < best.score) ? { score, entry, dist: distScore } : best;
         }, null);
         if (zoneThreat) {
@@ -2081,7 +2095,8 @@ function _handleZoneCoverage(ctx, key, defender) {
                 x: clamp(chase.player.pos.x, 16, FIELD_PIX_W - 16),
                 y: Math.max(chase.player.pos.y - PX_PER_YARD * 0.6, ctx.cover.losY + PX_PER_YARD * 1.2),
             };
-            moveToward(defender, aim, ctx.dt, chaseSpeed);
+            const speed = chase.priority ? Math.max(chaseSpeed, 1.02) : chaseSpeed;
+            moveToward(defender, aim, ctx.dt, speed);
         }
         return true;
     }
