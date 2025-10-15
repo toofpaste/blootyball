@@ -7,6 +7,7 @@ export default function GlobalControls({
   onSimSpeedChange,
   onShowTeamDirectory,
   onShowSeasonStats,
+  onShowSchedule,
   onShowLeaderboards,
   onShowNews,
   seasonProgressLabel,
@@ -48,6 +49,13 @@ export default function GlobalControls({
         onClick={onShowSeasonStats}
       >
         Season Stats
+      </button>
+      <button
+        type="button"
+        className="global-controls__button global-controls__button--secondary"
+        onClick={onShowSchedule}
+      >
+        Season Schedule
       </button>
       <button
         type="button"

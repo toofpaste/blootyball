@@ -282,6 +282,7 @@ function buildTeamDirectoryData(season, league) {
   const statsMap = season.playerStats || {};
   const development = season.playerDevelopment || {};
   const teamTitles = league?.teamChampionships || {};
+  const teamSeasonHistory = league?.teamSeasonHistory || {};
 
   return teams.map((team) => {
     const teamId = team.id;
@@ -299,6 +300,22 @@ function buildTeamDirectoryData(season, league) {
     const identity = getTeamIdentity(teamId) || team.info || { id: teamId, displayName: teamId };
     const record = team.record || { wins: 0, losses: 0, ties: 0 };
     const titles = teamTitles[teamId]?.seasons || [];
+    const historyEntries = Array.isArray(teamSeasonHistory[teamId])
+      ? teamSeasonHistory[teamId]
+          .map((entry) => ({
+            seasonNumber: entry.seasonNumber ?? null,
+            record: entry.record || { wins: 0, losses: 0, ties: 0 },
+            recordText: formatRecord(entry.record),
+            pointsFor: entry.pointsFor ?? 0,
+            pointsAgainst: entry.pointsAgainst ?? 0,
+            pointDifferential:
+              entry.pointDifferential != null
+                ? entry.pointDifferential
+                : (entry.pointsFor ?? 0) - (entry.pointsAgainst ?? 0),
+            playoffResult: entry.playoffResult || 'Regular Season',
+          }))
+          .sort((a, b) => (b.seasonNumber ?? 0) - (a.seasonNumber ?? 0))
+      : [];
 
     const group = rosters[TEAM_RED] || { off: {}, def: {}, special: {} };
     const offense = buildRosterGroup(group.off, ROLES_OFF, 'Offense', statsMap, league, teamId, 'offense');
@@ -317,6 +334,7 @@ function buildTeamDirectoryData(season, league) {
       coach: coaches?.[TEAM_RED] || null,
       titles: titles.length,
       titleSeasons: titles.slice(),
+      history: historyEntries,
       roster: {
         offense,
         defense,
@@ -1021,6 +1039,72 @@ export default function TeamDirectoryModal({ open, onClose, season, league = nul
                   >
                     {teamNewsItems.length ? 'Show Team News' : 'No Team News'}
                   </button>
+                </div>
+
+                <div
+                  style={{
+                    marginTop: 12,
+                    border: '1px solid rgba(26,92,26,0.35)',
+                    borderRadius: 12,
+                    background: 'rgba(5,32,5,0.92)',
+                    overflow: 'hidden',
+                  }}
+                >
+                  <div
+                    style={{
+                      padding: '8px 12px',
+                      background: 'rgba(10,70,10,0.85)',
+                      fontWeight: 700,
+                      letterSpacing: 0.4,
+                      textTransform: 'uppercase',
+                      fontSize: 13,
+                    }}
+                  >
+                    Season History
+                  </div>
+                  <div style={{ maxHeight: 180, overflowY: 'auto' }}>
+                    {selectedTeam.history?.length ? (
+                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                        <thead>
+                          <tr style={{ background: 'rgba(6,44,6,0.95)', textAlign: 'left' }}>
+                            <th style={{ padding: '6px 10px' }}>Season</th>
+                            <th style={{ padding: '6px 10px' }}>Record</th>
+                            <th style={{ padding: '6px 10px' }}>PF / PA</th>
+                            <th style={{ padding: '6px 10px' }}>Diff</th>
+                            <th style={{ padding: '6px 10px' }}>Postseason</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {selectedTeam.history.map((entry, index) => {
+                            const striped = index % 2 === 0;
+                            const isChampion = entry.playoffResult === 'Champion';
+                            return (
+                              <tr
+                                key={`history-${entry.seasonNumber ?? index}`}
+                                style={{
+                                  background: striped ? 'rgba(7,45,7,0.78)' : 'rgba(5,32,5,0.92)',
+                                  color: isChampion ? '#fff2a8' : '#f2fff2',
+                                  fontWeight: isChampion ? 700 : 500,
+                                }}
+                              >
+                                <td style={{ padding: '6px 10px' }}>{entry.seasonNumber != null ? entry.seasonNumber : '—'}</td>
+                                <td style={{ padding: '6px 10px' }}>{entry.recordText || '0-0'}</td>
+                                <td style={{ padding: '6px 10px' }}>
+                                  {entry.pointsFor} / {entry.pointsAgainst}
+                                </td>
+                                <td style={{ padding: '6px 10px' }}>{entry.pointDifferential}</td>
+                                <td style={{ padding: '6px 10px' }}>{entry.playoffResult}</td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    ) : (
+                      <div style={{ padding: '10px 12px', color: '#cde8cd' }}>
+                        Historical results will appear once the season completes.
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
 
