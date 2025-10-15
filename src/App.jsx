@@ -9,6 +9,7 @@ import LeaderboardsModal from './ui/LeaderboardsModal';
 import NewsModal from './ui/NewsModal';
 import SeasonScheduleModal from './ui/SeasonScheduleModal';
 import './AppLayout.css';
+import { PlayerCardProvider } from './ui/PlayerCardProvider';
 
 const GAME_COUNT = 2;
 const RESET_DELAY_MS = 1200;
@@ -63,6 +64,9 @@ function cloneResult(result) {
   return {
     ...result,
     score: { ...(result.score || {}) },
+    playLog: Array.isArray(result.playLog) ? result.playLog.map((entry) => ({ ...entry })) : [],
+    playerStats: clonePlayerStatsMap(result.playerStats || {}),
+    playerTeams: { ...(result.playerTeams || {}) },
   };
 }
 
@@ -1012,11 +1016,12 @@ export default function App() {
     : 'Season Overview';
 
   return (
-    <div className="app-root">
-      <GlobalControls
-        running={globalRunning}
-        onToggleRunning={handleToggleRunning}
-        simSpeed={simSpeed}
+    <PlayerCardProvider season={aggregatedSeasonStats?.season || null} league={aggregatedSeasonStats?.league || null}>
+      <div className="app-root">
+        <GlobalControls
+          running={globalRunning}
+          onToggleRunning={handleToggleRunning}
+          simSpeed={simSpeed}
         onSimSpeedChange={handleSimSpeedChange}
         onShowTeamDirectory={handleOpenTeamDirectory}
         onShowSeasonStats={handleOpenSeasonStats}
@@ -1085,6 +1090,7 @@ export default function App() {
         league={aggregatedSeasonStats?.league || null}
         season={aggregatedSeasonStats?.season || null}
       />
-    </div>
+      </div>
+    </PlayerCardProvider>
   );
 }

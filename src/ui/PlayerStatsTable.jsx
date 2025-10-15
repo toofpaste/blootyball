@@ -1,5 +1,6 @@
 import React, { useMemo } from 'react';
 import { ROLES_OFF, ROLES_DEF } from '../engine/constants';
+import { usePlayerCard } from './PlayerCardProvider';
 
 const POSITION_ORDER = [...ROLES_OFF, ...ROLES_DEF];
 const ALWAYS_SHOW = new Set(['QB', 'RB', 'WR1', 'WR2', 'WR3', 'TE']);
@@ -92,6 +93,7 @@ export default function PlayerStatsTable({ stats = {}, directory = {}, teams = [
     );
     const hasAnyRows = teamRows.some(section => section.rows.length > 0);
     if (!hasAnyRows) return null;
+    const { openPlayerCard } = usePlayerCard();
 
     return (
         <div style={{
@@ -161,9 +163,22 @@ export default function PlayerStatsTable({ stats = {}, directory = {}, teams = [
                                         >
                                             <Td>
                                                 <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                                                    <span style={{ fontWeight: 600 }}>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => openPlayerCard({ playerId: row.id, teamId: team.id })}
+                                                        style={{
+                                                            background: 'none',
+                                                            border: 'none',
+                                                            padding: 0,
+                                                            margin: 0,
+                                                            fontWeight: 600,
+                                                            color: '#f2fff2',
+                                                            textAlign: 'left',
+                                                            cursor: 'pointer',
+                                                        }}
+                                                    >
                                                         {row.name}
-                                                    </span>
+                                                    </button>
                                                     <span style={{ fontSize: 11, color: '#9bd79b' }}>
                                                         {row.number ? `#${row.number}` : '—'}
                                                     </span>

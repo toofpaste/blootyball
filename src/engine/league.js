@@ -19,6 +19,65 @@ const TEAM_STAT_KEYS = [
   'interceptions',
 ];
 
+function createBlankTeamStats() {
+  return TEAM_STAT_KEYS.reduce((acc, key) => {
+    acc[key] = 0;
+    return acc;
+  }, {});
+}
+
+function createZeroTeamSummary(teamId = null, info = null) {
+  return {
+    id: teamId,
+    info: info || null,
+    record: { wins: 0, losses: 0, ties: 0 },
+    pointsFor: 0,
+    pointsAgainst: 0,
+    stats: createBlankTeamStats(),
+  };
+}
+
+function ensureTeamSummary(map, teamId, infoLookup = {}) {
+  if (!teamId) return null;
+  if (!map[teamId]) {
+    const info = infoLookup[teamId] || getTeamIdentity(teamId) || null;
+    map[teamId] = createZeroTeamSummary(teamId, info);
+  }
+  return map[teamId];
+}
+
+function applyScoreToSummary(summary, scored, allowed) {
+  if (!summary) return;
+  summary.pointsFor += scored;
+  summary.pointsAgainst += allowed;
+}
+
+function registerOutcome(summary, result) {
+  if (!summary) return;
+  if (result === 'win') summary.record.wins += 1;
+  else if (result === 'loss') summary.record.losses += 1;
+  else if (result === 'tie') summary.record.ties += 1;
+}
+
+function clonePlayerStatsSnapshot(stats = {}) {
+  const map = {};
+  Object.entries(stats).forEach(([playerId, entry]) => {
+    map[playerId] = clonePlayerSeasonEntry(entry);
+  });
+  return map;
+}
+
+function extractPlayerTeams(directory = {}) {
+  const map = {};
+  Object.entries(directory).forEach(([playerId, meta]) => {
+    if (!playerId) return;
+    const teamId = meta.team || meta.teamId || null;
+    if (!teamId) return;
+    map[playerId] = teamId;
+  });
+  return map;
+}
+
 function createEmptyTeamTotals(teamId = null, info = null) {
   const stats = TEAM_STAT_KEYS.reduce((acc, key) => {
     acc[key] = 0;
@@ -338,24 +397,7 @@ export function createSeasonState(options = {}) {
   const assignmentTotals = {};
   TEAM_IDS.forEach((id) => {
     const info = getTeamIdentity(id) || { id, name: id, city: id, abbr: id, colors: {} };
-    teams[id] = {
-      id,
-      info,
-      record: { wins: 0, losses: 0, ties: 0 },
-      pointsFor: 0,
-      pointsAgainst: 0,
-      stats: {
-        passingYards: 0,
-        passingTD: 0,
-        rushingYards: 0,
-        rushingTD: 0,
-        receivingYards: 0,
-        receivingTD: 0,
-        tackles: 0,
-        sacks: 0,
-        interceptions: 0,
-      },
-    };
+    teams[id] = createZeroTeamSummary(id, info);
     assignmentTotals[id] = createEmptyTeamTotals(id, info);
   });
 
@@ -947,62 +989,8 @@ export function applyGameResultToSeason(season, game, scores, directory, playerS
   const awayScore = scores?.[TEAM_BLK] ?? 0;
   const tag = game.tag || null;
 
-  const homeEntry = cloneTeamSeasonEntry(season.teams[homeId]);
-  const awayEntry = cloneTeamSeasonEntry(season.teams[awayId]);
-  if (!homeEntry || !awayEntry) return season;
-
-  const assignmentTotals = cloneAssignmentTotalsMap(season.assignmentTotals || {}, season.teams || {});
-  const homeTotals = assignmentTotals[homeId] || createEmptyTeamTotals(homeId, homeEntry.info || null);
-  const awayTotals = assignmentTotals[awayId] || createEmptyTeamTotals(awayId, awayEntry.info || null);
-
-  homeEntry.pointsFor = (homeEntry.pointsFor || 0) + homeScore;
-  homeEntry.pointsAgainst = (homeEntry.pointsAgainst || 0) + awayScore;
-  awayEntry.pointsFor = (awayEntry.pointsFor || 0) + awayScore;
-  awayEntry.pointsAgainst = (awayEntry.pointsAgainst || 0) + homeScore;
-
-  homeTotals.pointsFor = (homeTotals.pointsFor || 0) + homeScore;
-  homeTotals.pointsAgainst = (homeTotals.pointsAgainst || 0) + awayScore;
-  awayTotals.pointsFor = (awayTotals.pointsFor || 0) + awayScore;
-  awayTotals.pointsAgainst = (awayTotals.pointsAgainst || 0) + homeScore;
-
-  if (homeScore > awayScore) {
-    homeEntry.record.wins += 1;
-    awayEntry.record.losses += 1;
-    homeTotals.record.wins += 1;
-    awayTotals.record.losses += 1;
-  } else if (awayScore > homeScore) {
-    awayEntry.record.wins += 1;
-    homeEntry.record.losses += 1;
-    awayTotals.record.wins += 1;
-    homeTotals.record.losses += 1;
-  } else {
-    homeEntry.record.ties += 1;
-    awayEntry.record.ties += 1;
-    homeTotals.record.ties += 1;
-    awayTotals.record.ties += 1;
-  }
-
-  const updatedTeams = {
-    ...season.teams,
-    [homeId]: homeEntry,
-    [awayId]: awayEntry,
-  };
-
-  assignmentTotals[homeId] = homeTotals;
-  assignmentTotals[awayId] = awayTotals;
-
-  const nextSeason = {
-    ...season,
-    teams: updatedTeams,
-    schedule: [...season.schedule],
-    results: [...(season.results || [])],
-    playerStats: { ...(season.playerStats || {}) },
-    assignmentTotals: { ...assignmentTotals },
-  };
-
-  accumulateTeamStatsFromPlayers(nextSeason, directory, playerStats);
-  accumulateTeamStatsFromPlayers({ teams: assignmentTotals }, directory, playerStats);
-  mergePlayerStatsIntoSeason(nextSeason, playerStats);
+  const playerStatsClone = clonePlayerStatsSnapshot(playerStats || {});
+  const playerTeams = extractPlayerTeams(directory || {});
 
   const result = {
     gameId: game.id,
@@ -1013,10 +1001,33 @@ export function applyGameResultToSeason(season, game, scores, directory, playerS
     winner: homeScore === awayScore ? null : (homeScore > awayScore ? homeId : awayId),
     playLog: Array.isArray(playLog) ? [...playLog] : [],
     tag,
+    playerStats: playerStatsClone,
+    playerTeams,
   };
-  nextSeason.results.push(result);
-  nextSeason.schedule[game.index] = { ...game, played: true, result };
-  nextSeason.completedGames = (season.completedGames || 0) + 1;
+
+  const nextSeason = {
+    ...season,
+    teams: { ...(season.teams || {}) },
+    schedule: [...(season.schedule || [])],
+    results: Array.isArray(season.results) ? season.results.filter(Boolean) : [],
+    playerStats: {},
+    assignmentTotals: { ...(season.assignmentTotals || {}) },
+  };
+
+  const existingIndex = nextSeason.results.findIndex((entry) => entry && entry.index === game.index);
+  if (existingIndex >= 0) {
+    nextSeason.results[existingIndex] = result;
+  } else {
+    nextSeason.results.push(result);
+  }
+  nextSeason.results.sort((a, b) => (a.index ?? 0) - (b.index ?? 0));
+  nextSeason.completedGames = nextSeason.results.length;
+
+  if (nextSeason.schedule[game.index]) {
+    nextSeason.schedule[game.index] = { ...nextSeason.schedule[game.index], ...game, played: true, result };
+  } else {
+    nextSeason.schedule[game.index] = { ...game, played: true, result };
+  }
 
   if (tag === 'playoff-semifinal' && nextSeason.playoffBracket) {
     const semifinal = nextSeason.playoffBracket.semifinalGames?.find((entry) => entry.index === game.index);
@@ -1038,7 +1049,101 @@ export function applyGameResultToSeason(season, game, scores, directory, playerS
     }
   }
 
+  recalculateSeasonAggregates(nextSeason);
+
   return nextSeason;
+}
+
+function recalculateSeasonAggregates(season) {
+  if (!season) return;
+
+  const teams = {};
+  const assignmentTotals = {};
+  const infoLookup = {};
+
+  Object.entries(season.teams || {}).forEach(([teamId, team]) => {
+    teams[teamId] = createZeroTeamSummary(teamId, team?.info || null);
+    infoLookup[teamId] = teams[teamId].info || null;
+  });
+
+  Object.entries(season.assignmentTotals || {}).forEach(([teamId, entry]) => {
+    assignmentTotals[teamId] = createZeroTeamSummary(teamId, entry?.info || infoLookup[teamId] || null);
+    if (!infoLookup[teamId]) {
+      infoLookup[teamId] = assignmentTotals[teamId].info || null;
+    }
+  });
+
+  TEAM_IDS.forEach((teamId) => {
+    if (!teams[teamId]) {
+      teams[teamId] = createZeroTeamSummary(teamId, getTeamIdentity(teamId) || null);
+    }
+    if (!assignmentTotals[teamId]) {
+      assignmentTotals[teamId] = createZeroTeamSummary(teamId, teams[teamId].info || null);
+    }
+    if (!infoLookup[teamId]) {
+      infoLookup[teamId] = teams[teamId].info || assignmentTotals[teamId].info || null;
+    }
+  });
+
+  const aggregatedPlayers = { playerStats: {} };
+
+  const results = Array.isArray(season.results) ? season.results.filter(Boolean) : [];
+  results.forEach((result) => {
+    const homeId = result.homeTeamId;
+    const awayId = result.awayTeamId;
+    const score = result.score || {};
+    const gamePlayerStats = result.playerStats || {};
+    const gamePlayerTeams = result.playerTeams || {};
+
+    const homeScore = score[homeId] ?? 0;
+    const awayScore = score[awayId] ?? 0;
+
+    const homeTeam = ensureTeamSummary(teams, homeId, infoLookup);
+    const awayTeam = ensureTeamSummary(teams, awayId, infoLookup);
+    const homeTotals = ensureTeamSummary(assignmentTotals, homeId, infoLookup);
+    const awayTotals = ensureTeamSummary(assignmentTotals, awayId, infoLookup);
+
+    applyScoreToSummary(homeTeam, homeScore, awayScore);
+    applyScoreToSummary(awayTeam, awayScore, homeScore);
+    applyScoreToSummary(homeTotals, homeScore, awayScore);
+    applyScoreToSummary(awayTotals, awayScore, homeScore);
+
+    if (homeScore > awayScore) {
+      registerOutcome(homeTeam, 'win');
+      registerOutcome(awayTeam, 'loss');
+      registerOutcome(homeTotals, 'win');
+      registerOutcome(awayTotals, 'loss');
+    } else if (awayScore > homeScore) {
+      registerOutcome(awayTeam, 'win');
+      registerOutcome(homeTeam, 'loss');
+      registerOutcome(awayTotals, 'win');
+      registerOutcome(homeTotals, 'loss');
+    } else {
+      registerOutcome(homeTeam, 'tie');
+      registerOutcome(awayTeam, 'tie');
+      registerOutcome(homeTotals, 'tie');
+      registerOutcome(awayTotals, 'tie');
+    }
+
+    const directory = {};
+    Object.entries(gamePlayerTeams).forEach(([playerId, teamId]) => {
+      if (!playerId || !teamId) return;
+      directory[playerId] = { team: teamId };
+      if (!infoLookup[teamId]) {
+        infoLookup[teamId] = getTeamIdentity(teamId) || null;
+      }
+      ensureTeamSummary(teams, teamId, infoLookup);
+      ensureTeamSummary(assignmentTotals, teamId, infoLookup);
+    });
+
+    accumulateTeamStatsFromPlayers({ teams }, directory, gamePlayerStats);
+    accumulateTeamStatsFromPlayers({ teams: assignmentTotals }, directory, gamePlayerStats);
+    mergePlayerStatsIntoSeason(aggregatedPlayers, gamePlayerStats);
+  });
+
+  season.teams = teams;
+  season.assignmentTotals = assignmentTotals;
+  season.playerStats = aggregatedPlayers.playerStats || {};
 }
 
 export function prepareSeasonMatchup(season) {
