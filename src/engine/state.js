@@ -2174,10 +2174,10 @@ export function stepGame(state, dt) {
 
             if (s.play.phase === 'DEAD' && s.play.deadAt == null) s.play.deadAt = s.play.elapsed;
             if (s.play.phase === 'DEAD' && s.play.elapsed > s.play.deadAt + 1.0) {
-                endFrame(activePlayers);
+                endFrame(activePlayers, dt);
                 return betweenPlays(s);
             }
-            endFrame(activePlayers);
+            endFrame(activePlayers, dt);
             return s;
         }
         case 'DEAD': {

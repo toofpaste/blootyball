@@ -227,18 +227,30 @@ export function steerPlayer(player, target, dt, opts = {}) {
     integratePlayer(player, desiredVx, desiredVy, dt, accel, opts);
 }
 
-export function syncMotionToPosition(player) {
+export function syncMotionToPosition(player, dt = 0) {
     if (!player?.motion || !player?.pos) return;
     const motion = ensureMotion(player);
     motion.prevPos = motion.prevPos || { x: player.pos.x, y: player.pos.y };
     const dx = player.pos.x - motion.prevPos.x;
     const dy = player.pos.y - motion.prevPos.y;
     const moved = Math.hypot(dx, dy);
-    motion.speed = moved;
+    const hasDt = dt > 1e-5;
+    motion.speed = hasDt ? moved / dt : moved;
     if (moved > 0.01) {
         motion.heading = unitVec({ x: dx, y: dy });
-        motion.vx = dx;
-        motion.vy = dy;
+        if (hasDt) {
+            motion.vx = dx / dt;
+            motion.vy = dy / dt;
+        } else {
+            motion.vx = dx;
+            motion.vy = dy;
+        }
+    } else if (hasDt) {
+        if (motion.speed < 0.1) {
+            motion.vx = 0;
+            motion.vy = 0;
+            motion.speed = 0;
+        }
     }
     motion.prevPos.x = player.pos.x;
     motion.prevPos.y = player.pos.y;
@@ -254,10 +266,10 @@ export function beginFrame(players = []) {
     }
 }
 
-export function endFrame(players = []) {
+export function endFrame(players = [], dt = 0) {
     for (const p of players) {
         if (!p?.pos) continue;
-        syncMotionToPosition(p);
+        syncMotionToPosition(p, dt);
     }
 }
 
