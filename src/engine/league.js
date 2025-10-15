@@ -166,6 +166,7 @@ export function createLeagueContext() {
     awardsHistory: [],
     teamChampionships: {},
     lastChampion: null,
+    teamSeasonHistory: {},
   };
   initializeLeaguePersonnel(league);
   ensureSeasonPersonnel(league, league.seasonNumber);
@@ -694,6 +695,73 @@ export function registerChampion(season, league, result) {
       record.seasons.push(season.seasonNumber);
     }
   }
+}
+
+function determinePlayoffOutcome(season, teamId) {
+  if (!season || !teamId) return 'Regular Season';
+  const bracket = season.playoffBracket || {};
+  if (season.championTeamId === teamId || bracket.champion === teamId) {
+    return 'Champion';
+  }
+  const champ = bracket.championshipGame || null;
+  if (champ && (champ.homeTeam === teamId || champ.awayTeam === teamId)) {
+    if (champ.winner === teamId) return 'Champion';
+    if (champ.winner) return 'Runner-Up';
+    return 'Championship';
+  }
+  const semifinal = (bracket.semifinalGames || []).find(
+    (game) => game && (game.homeTeam === teamId || game.awayTeam === teamId),
+  );
+  if (semifinal) {
+    if (semifinal.winner === teamId) {
+      return 'Championship';
+    }
+    if (semifinal.winner) {
+      return 'Semifinalist';
+    }
+    return 'Playoffs';
+  }
+  if (Array.isArray(bracket.seeds) && bracket.seeds.includes(teamId)) {
+    return 'Playoffs';
+  }
+  return bracket.stage && bracket.stage !== 'regular' ? 'Playoffs' : 'Regular Season';
+}
+
+function cloneHistoryRecord(record) {
+  return {
+    wins: record?.wins ?? 0,
+    losses: record?.losses ?? 0,
+    ties: record?.ties ?? 0,
+  };
+}
+
+export function recordTeamSeasonHistory(league, season) {
+  if (!league || !season) return;
+  const seasonNumber = season.seasonNumber ?? league.seasonNumber ?? 1;
+  league.teamSeasonHistory ||= {};
+  Object.values(season.teams || {}).forEach((team) => {
+    if (!team?.id) return;
+    const entry = {
+      seasonNumber,
+      record: cloneHistoryRecord(team.record),
+      pointsFor: team.pointsFor ?? 0,
+      pointsAgainst: team.pointsAgainst ?? 0,
+      pointDifferential: (team.pointsFor ?? 0) - (team.pointsAgainst ?? 0),
+      playoffResult: determinePlayoffOutcome(season, team.id),
+    };
+    if (!league.teamSeasonHistory[team.id]) {
+      league.teamSeasonHistory[team.id] = [entry];
+      return;
+    }
+    const history = league.teamSeasonHistory[team.id];
+    const index = history.findIndex((item) => item.seasonNumber === seasonNumber);
+    if (index >= 0) {
+      history[index] = entry;
+    } else {
+      history.push(entry);
+    }
+    history.sort((a, b) => (a.seasonNumber ?? 0) - (b.seasonNumber ?? 0));
+  });
 }
 
 export function mergePlayerStatsIntoCareer(careerMap, seasonStats = {}) {

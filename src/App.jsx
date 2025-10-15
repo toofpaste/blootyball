@@ -7,6 +7,7 @@ import { SeasonStatsContent } from './ui/SeasonStatsModal';
 import TeamDirectoryModal from './ui/TeamDirectoryModal';
 import LeaderboardsModal from './ui/LeaderboardsModal';
 import NewsModal from './ui/NewsModal';
+import SeasonScheduleModal from './ui/SeasonScheduleModal';
 import './AppLayout.css';
 
 const GAME_COUNT = 2;
@@ -412,6 +413,24 @@ function cloneNewsFeed(feed = []) {
   return Array.isArray(feed) ? feed.map((entry) => ({ ...entry })) : [];
 }
 
+function cloneTeamHistoryEntry(entry = {}) {
+  return {
+    seasonNumber: entry.seasonNumber ?? null,
+    record: {
+      wins: entry.record?.wins ?? 0,
+      losses: entry.record?.losses ?? 0,
+      ties: entry.record?.ties ?? 0,
+    },
+    pointsFor: entry.pointsFor ?? 0,
+    pointsAgainst: entry.pointsAgainst ?? 0,
+    pointDifferential:
+      entry.pointDifferential != null
+        ? entry.pointDifferential
+        : (entry.pointsFor ?? 0) - (entry.pointsAgainst ?? 0),
+    playoffResult: entry.playoffResult || 'Regular Season',
+  };
+}
+
 function cloneInjuredReserve(reserve = {}) {
   return Object.entries(reserve).reduce((acc, [playerId, entry]) => {
     acc[playerId] = {
@@ -471,6 +490,10 @@ function cloneLeague(league) {
     acc[seasonNumber] = { ...(counts || {}) };
     return acc;
   }, {});
+  const teamSeasonHistory = Object.entries(league.teamSeasonHistory || {}).reduce((acc, [teamId, seasons]) => {
+    acc[teamId] = Array.isArray(seasons) ? seasons.map((entry) => cloneTeamHistoryEntry(entry)) : [];
+    return acc;
+  }, {});
   return {
     ...league,
     playerDevelopment: clonePlayerDevelopmentMap(league.playerDevelopment || {}),
@@ -494,6 +517,7 @@ function cloneLeague(league) {
     injuryLog,
     injuryCounts,
     seasonSnapshot: league.seasonSnapshot ? cloneSeason(league.seasonSnapshot) : null,
+    teamSeasonHistory,
   };
 }
 
@@ -544,6 +568,25 @@ function mergeLeagueData(target, source) {
     (data.seasons || []).forEach((seasonNumber) => seasons.add(seasonNumber));
     entry.seasons = Array.from(seasons).sort((a, b) => a - b);
     entry.count = entry.seasons.length;
+  });
+
+  target.teamSeasonHistory ||= {};
+  Object.entries(source.teamSeasonHistory || {}).forEach(([teamId, seasons]) => {
+    const existingList = Array.isArray(target.teamSeasonHistory[teamId])
+      ? target.teamSeasonHistory[teamId].map((entry) => cloneTeamHistoryEntry(entry))
+      : [];
+    const existing = new Map(existingList.map((entry, index) => {
+      const key = entry.seasonNumber != null ? entry.seasonNumber : `legacy-${index}`;
+      return [key, entry];
+    }));
+    (seasons || []).forEach((entry) => {
+      if (!entry) return;
+      const cloned = cloneTeamHistoryEntry(entry);
+      const key = cloned.seasonNumber != null ? cloned.seasonNumber : `pending-${existing.size}`;
+      existing.set(key, cloned);
+    });
+    const merged = Array.from(existing.values()).sort((a, b) => (a.seasonNumber ?? 0) - (b.seasonNumber ?? 0));
+    target.teamSeasonHistory[teamId] = merged;
   });
 
   if (!target.lastChampion || (source.lastChampion && (source.lastChampion.seasonNumber || 0) > (target.lastChampion.seasonNumber || 0))) {
@@ -817,6 +860,7 @@ export default function App() {
   const [teamDirectoryOpen, setTeamDirectoryOpen] = useState(false);
   const [leaderboardsOpen, setLeaderboardsOpen] = useState(false);
   const [newsOpen, setNewsOpen] = useState(false);
+  const [scheduleOpen, setScheduleOpen] = useState(false);
   const [lastSeenNewsTimestamp, setLastSeenNewsTimestamp] = useState(0);
   const [seasonSnapshots, setSeasonSnapshots] = useState(() => []);
   const gameRefs = useRef([]);
@@ -902,6 +946,11 @@ export default function App() {
     setSeasonStatsOpen(true);
   }, [collectSeasonSnapshots]);
 
+  const handleOpenSchedule = useCallback(() => {
+    collectSeasonSnapshots();
+    setScheduleOpen(true);
+  }, [collectSeasonSnapshots]);
+
   const handleOpenTeamDirectory = useCallback(() => {
     collectSeasonSnapshots();
     setTeamDirectoryOpen(true);
@@ -966,16 +1015,17 @@ export default function App() {
     <div className="app-root">
       <GlobalControls
         running={globalRunning}
-      onToggleRunning={handleToggleRunning}
-      simSpeed={simSpeed}
-      onSimSpeedChange={handleSimSpeedChange}
-      onShowTeamDirectory={handleOpenTeamDirectory}
-      onShowSeasonStats={handleOpenSeasonStats}
-      onShowLeaderboards={handleOpenLeaderboards}
-      onShowNews={handleOpenNews}
-      seasonProgressLabel={seasonProgress.label}
-      hasUnseenNews={hasUnseenNews}
-    />
+        onToggleRunning={handleToggleRunning}
+        simSpeed={simSpeed}
+        onSimSpeedChange={handleSimSpeedChange}
+        onShowTeamDirectory={handleOpenTeamDirectory}
+        onShowSeasonStats={handleOpenSeasonStats}
+        onShowSchedule={handleOpenSchedule}
+        onShowLeaderboards={handleOpenLeaderboards}
+        onShowNews={handleOpenNews}
+        seasonProgressLabel={seasonProgress.label}
+        hasUnseenNews={hasUnseenNews}
+      />
       <div className="games-stack">
         {Array.from({ length: GAME_COUNT }).map((_, index) => (
           <GameView
@@ -1017,6 +1067,11 @@ export default function App() {
         onClose={() => setTeamDirectoryOpen(false)}
         season={aggregatedSeasonStats?.season || null}
         league={aggregatedSeasonStats?.league || null}
+      />
+      <SeasonScheduleModal
+        open={scheduleOpen}
+        onClose={() => setScheduleOpen(false)}
+        season={aggregatedSeasonStats?.season || null}
       />
       <LeaderboardsModal
         open={leaderboardsOpen}
