@@ -68,9 +68,9 @@ export default function GlobalControls({
         <span className="global-controls__speed-label">Speed</span>
         <input
           type="range"
-          min="0.1"
+          min="0.2"
           max="3"
-          step="0.05"
+          step="0.1"
           value={simSpeed}
           onChange={handleSpeedChange}
           className="global-controls__speed-slider"
