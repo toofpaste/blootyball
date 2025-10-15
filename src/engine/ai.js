@@ -2180,8 +2180,8 @@ function _pursueCarrierIfNeeded(ctx, key, defender, assignedTarget) {
 
     if (!assigned) {
         const rally = recentPossession && (closeEnough || sameSide);
-        const qbBehindRelease = carrierRole === 'QB' && carrierPos.y < release.qb - PX_PER_YARD * 0.5;
-        if (!clearedRelease && !closeEnough && !rally && !qbBehindRelease) return false;
+        const qbBeyondRelease = carrierRole === 'QB' && carrierPos.y >= release.qb - PX_PER_YARD * 0.5;
+        if (!clearedRelease && !closeEnough && !rally && !qbBeyondRelease) return false;
         if (distToCarrier > CFG.PURSUIT_TRIGGER_R * 1.4) return false;
     }
 
