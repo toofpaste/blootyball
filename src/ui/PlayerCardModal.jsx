@@ -59,6 +59,17 @@ export function resolveAttributeDescription(label) {
   return ATTRIBUTE_DESCRIPTIONS[normalized] || null;
 }
 
+export function coerceNumber(value) {
+  if (value == null) return null;
+  if (typeof value === 'object') {
+    if (value.value != null) return coerceNumber(value.value);
+    if (value.rating != null) return coerceNumber(value.rating);
+  }
+  const numeric = Number(value);
+  if (Number.isNaN(numeric)) return null;
+  return numeric;
+}
+
 export function formatAttrValue(value) {
   if (value == null || Number.isNaN(value)) return '—';
   return value.toFixed(2);
@@ -148,16 +159,34 @@ export default function PlayerCardModal({ open, onClose, entry, team }) {
     entry.number != null ? `#${entry.number}` : null,
     entry.age != null ? `Age ${entry.age}` : null,
   ].filter(Boolean);
+  const overallRating = (() => {
+    const candidates = [
+      entry.overall,
+      entry.overallRating,
+      entry.rating,
+      entry.rating?.overall,
+      entry.playerMeta?.overall,
+      entry.meta?.overall,
+    ];
+    for (const candidate of candidates) {
+      const numeric = coerceNumber(candidate);
+      if (numeric != null) {
+        const normalized = Math.abs(numeric) <= 1 ? numeric * 100 : numeric;
+        if (!Number.isNaN(normalized)) return normalized;
+      }
+    }
+    return null;
+  })();
   const secondaryMeta = [
-    entry.overall != null ? `${Math.round(entry.overall)} OVR` : null,
+    overallRating != null ? `${Math.round(overallRating)} OVR` : null,
     entry.height != null ? formatHeight(entry.height) : null,
     entry.weight != null ? formatWeight(entry.weight) : null,
   ].filter(Boolean);
   const ratingBadges = [];
-  if (entry.overall != null) {
+  if (overallRating != null) {
     ratingBadges.push({
       label: 'Overall',
-      value: Math.round(entry.overall),
+      value: Math.round(overallRating),
       description: 'Current overall rating on a 0-99 scale.',
     });
   }
