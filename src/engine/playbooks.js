@@ -3,68 +3,183 @@ import { PX_PER_YARD } from './constants';
 
 /** Extra plays to extend your existing PLAYBOOK (keeps existing names intact). */
 export const PLAYBOOK_PLUS = [
-    // --- QUICK GAME (PASS) ---
+    // --- QUICK / INTERMEDIATE PASS ---
     {
-        name: 'Stick (2x2)', type: 'PASS', quickGame: true, primary: 'TE',
-        wrRoutes: { WR1: [{ dx: -2, dy: 5 }], WR2: [{ dx: 2, dy: 5 }], WR3: [{ dx: 4, dy: 2 }] },
-        teRoute: [{ dx: 0, dy: 5 }], rbCheckdown: [{ dx: -2, dy: 2 }], qbDrop: 3
+        name: 'Sail Switch (Trips)',
+        type: 'PASS',
+        quickGame: true,
+        primary: 'WR2',
+        wrRoutes: {
+            WR1: [
+                { dx: -1, dy: 4, label: 'Switch Release' },
+                { dx: 6, dy: 11, label: 'Switch Go' },
+            ],
+            WR2: [
+                { dx: 2, dy: 6, label: 'Sail Stem' },
+                { dx: 8, dy: 5, label: 'Sail Break' },
+            ],
+            WR3: [
+                { dx: 4, dy: 2, label: 'Flat Stem' },
+                { dx: 6, dy: 1, settle: true },
+            ],
+        },
+        teRoute: [
+            { dx: -3, dy: 5, label: 'Backside Post Stem' },
+            { dx: -9, dy: 6, label: 'Backside Post' },
+        ],
+        rbCheckdown: [
+            { dx: -4, dy: 2 },
+            { dx: -6, dy: 3 },
+        ],
+        qbDrop: 5,
     },
     {
-        name: 'Spacing (Trips)', type: 'PASS', quickGame: true, primary: 'WR3',
-        wrRoutes: { WR1: [{ dx: -6, dy: 4 }], WR2: [{ dx: -2, dy: 4 }], WR3: [{ dx: 2, dy: 4 }] },
-        teRoute: [{ dx: 0, dy: 4 }], rbCheckdown: [{ dx: 3, dy: 2 }], qbDrop: 3
+        name: 'Drive Scissors',
+        type: 'PASS',
+        primary: 'WR1',
+        wrRoutes: {
+            WR1: [
+                { dx: -1, dy: 6, label: 'Drive Stem' },
+                { dx: -5, dy: 6, label: 'Dig' },
+            ],
+            WR2: [
+                { dx: 3, dy: 3, label: 'Shallow' },
+                { dx: 9, dy: 2, settle: true },
+            ],
+            WR3: [
+                { dx: 5, dy: 6, label: 'Scissors Stem' },
+                { dx: 8, dy: 8, label: 'Post' },
+            ],
+        },
+        teRoute: [
+            { dx: 0, dy: 5, settle: true },
+        ],
+        rbCheckdown: [
+            { dx: -5, dy: 2 },
+            { dx: -6, dy: 2 },
+        ],
+        qbDrop: 5,
     },
 
-    // --- CORE DROPBACK ---
+    // --- POWER / GAP RUNS ---
     {
-        name: 'Flood (Trips Right)', type: 'PASS', primary: 'WR2',
-        wrRoutes: { WR1: [{ dx: -10, dy: 10 }], WR2: [{ dx: 8, dy: 14 }], WR3: [{ dx: 3, dy: 6 }] },
-        teRoute: [{ dx: -4, dy: 8 }], rbCheckdown: [{ dx: -2, dy: 2 }], qbDrop: 6
+        name: 'Duo Insert',
+        type: 'RUN',
+        handoffTo: 'RB',
+        rbPath: [
+            { dx: 0, dy: 2 },
+            { dx: 1, dy: 3 },
+            { dx: -1, dy: 4 },
+            { dx: -1, dy: 3 },
+        ],
+        wrRoutes: {
+            WR1: [
+                { dx: -1, dy: 3 },
+                { dx: -2, dy: 4 },
+            ],
+            WR2: [
+                { dx: 2, dy: 2 },
+                { dx: 3, dy: 4 },
+            ],
+            WR3: [
+                { dx: -2, dy: 1 },
+                { dx: -2, dy: 3 },
+            ],
+        },
+        teRoute: [
+            { dx: 2, dy: 1 },
+            { dx: 1, dy: 3 },
+            { dx: -1, dy: 3 },
+        ],
+        qbDrop: 1,
     },
     {
-        name: 'Levels (2x2)', type: 'PASS', primary: 'WR1',
-        wrRoutes: { WR1: [{ dx: -6, dy: 12 }], WR2: [{ dx: 6, dy: 10 }], WR3: [{ dx: 2, dy: 6 }] },
-        teRoute: [{ dx: -2, dy: 6 }], rbCheckdown: [{ dx: 2, dy: 2 }], qbDrop: 6
-    },
-    {
-        name: 'Dagger (2x2)', type: 'PASS', primary: 'WR2',
-        wrRoutes: { WR1: [{ dx: -4, dy: 8 }], WR2: [{ dx: 6, dy: 16 }], WR3: [{ dx: 2, dy: 6 }] },
-        teRoute: [{ dx: -6, dy: 14 }], rbCheckdown: [{ dx: 3, dy: 3 }], qbDrop: 7
-    },
-    {
-        name: 'Smash (2x2)', type: 'PASS', primary: 'WR2',
-        wrRoutes: { WR1: [{ dx: -8, dy: 4 }], WR2: [{ dx: 8, dy: 12 }], WR3: [{ dx: -2, dy: 10 }] },
-        teRoute: [{ dx: 2, dy: 5 }], rbCheckdown: [{ dx: -2, dy: 2 }], qbDrop: 5
+        name: 'Crack Toss',
+        type: 'RUN',
+        handoffTo: 'RB',
+        rbPath: [
+            { dx: 6, dy: 1 },
+            { dx: 10, dy: 4 },
+            { dx: 8, dy: 4 },
+        ],
+        wrRoutes: {
+            WR1: [
+                { dx: -2, dy: 3 },
+                { dx: -5, dy: 6 },
+            ],
+            WR2: [
+                { dx: 4, dy: 2 },
+                { dx: 8, dy: 3 },
+            ],
+            WR3: [
+                { dx: -1, dy: 1 },
+                { dx: -1, dy: 4 },
+            ],
+        },
+        teRoute: [
+            { dx: 5, dy: 2 },
+            { dx: 9, dy: 3 },
+        ],
+        qbDrop: 1,
     },
 
-    // --- PLAY ACTION ---
+    // --- SHOT / PLAY-ACTION GAME ---
     {
-        name: 'PA Shot Post', type: 'PASS', playAction: true, primary: 'WR1',
-        wrRoutes: { WR1: [{ dx: -2, dy: 18 }], WR2: [{ dx: 6, dy: 12 }], WR3: [{ dx: -3, dy: 6 }] },
-        teRoute: [{ dx: 0, dy: 10 }], rbCheckdown: [{ dx: 2, dy: 2 }], qbDrop: 7
+        name: 'Bunch Switch Verts',
+        type: 'PASS',
+        primary: 'WR2',
+        wrRoutes: {
+            WR1: [
+                { dx: 2, dy: 5, label: 'Point Seam' },
+                { dx: 2, dy: 12 },
+            ],
+            WR2: [
+                { dx: 5, dy: 4, label: 'Switch Go' },
+                { dx: 8, dy: 12 },
+            ],
+            WR3: [
+                { dx: 1, dy: 4, label: 'Choice Stem' },
+                { dx: -4, dy: 4, option: 'in-or-out', settle: true },
+            ],
+        },
+        teRoute: [
+            { dx: -4, dy: 6, label: 'Backside Dig Stem' },
+            { dx: -7, dy: 8, label: 'Backside Dig' },
+        ],
+        rbCheckdown: [
+            { dx: 4, dy: 2 },
+            { dx: 6, dy: 3 },
+        ],
+        qbDrop: 7,
     },
     {
-        name: 'PA Cross (TE Over)', type: 'PASS', playAction: true, primary: 'TE',
-        wrRoutes: { WR1: [{ dx: -8, dy: 12 }], WR2: [{ dx: 8, dy: 12 }], WR3: [{ dx: 2, dy: 6 }] },
-        teRoute: [{ dx: 6, dy: 14 }], rbCheckdown: [{ dx: -3, dy: 3 }], qbDrop: 6
-    },
-
-    // --- RUN GAME ---
-    {
-        name: 'Power O', type: 'RUN', handoffTo: 'RB',
-        rbPath: [{ dx: -2, dy: 3 }, { dx: -4, dy: 8 }]
-    },
-    {
-        name: 'Counter GT', type: 'RUN', handoffTo: 'RB',
-        rbPath: [{ dx: 4, dy: 2 }, { dx: -4, dy: 8 }]
-    },
-    {
-        name: 'Stretch (Outside Zone)', type: 'RUN', handoffTo: 'RB',
-        rbPath: [{ dx: 6, dy: 1 }, { dx: 8, dy: 6 }]
-    },
-    {
-        name: 'Draw (from Gun)', type: 'RUN', handoffTo: 'RB',
-        rbPath: [{ dx: 0, dy: 2 }, { dx: 0, dy: 8 }]
+        name: 'PA Yankee Shot',
+        type: 'PASS',
+        playAction: true,
+        primary: 'WR2',
+        wrRoutes: {
+            WR1: [
+                { dx: -2, dy: 8, label: 'Post Stem' },
+                { dx: -8, dy: 12, label: 'Post' },
+            ],
+            WR2: [
+                { dx: 4, dy: 6, label: 'Over Stem' },
+                { dx: 10, dy: 14, label: 'Deep Over' },
+            ],
+            WR3: [
+                { dx: 6, dy: 8, label: 'Clear Go' },
+                { dx: 6, dy: 10 },
+            ],
+        },
+        teRoute: [
+            { dx: -1, dy: 4, label: 'Under' },
+            { dx: -4, dy: 6, settle: true },
+        ],
+        rbCheckdown: [
+            { dx: 5, dy: 2 },
+            { dx: 7, dy: 5 },
+        ],
+        qbDrop: 7,
     },
 ];
 
@@ -174,7 +289,7 @@ export function pickPlayCall(allPlays, ctx) {
             else if (medium) s += 5;
             if (firstDown && !long) s += 4;
             if (long) s -= 5;
-            if (p.name.includes('Stretch') || p.name.includes('Outside')) s += 2;
+            if (/Zone|Toss|Sweep/i.test(p.name || '')) s += 2;
             if (redzone) s += 3;
             s += runMomentum * 12;
             s += runBias * 8;
@@ -184,7 +299,7 @@ export function pickPlayCall(allPlays, ctx) {
 
             const drop = typeof p.qbDrop === 'number' ? p.qbDrop : 5;
             const deepPenalty = Math.max(0, drop - 5) * (medium ? 3 : 2);
-            const isShotPlay = /Shot|Post|Dagger|Cross|Levels/i.test(p.name || '');
+            const isShotPlay = /Shot|Post|Yankee|Flood|Rail|Switch|Over/i.test(p.name || '');
 
             if (p.quickGame) {
                 s += short ? 7 : medium ? 5 : 1;
@@ -196,7 +311,7 @@ export function pickPlayCall(allPlays, ctx) {
             s -= deepPenalty;
             if (isShotPlay && !long) s -= 4;
             if (p.playAction) s += (!long && !short) ? 2 : (short ? 1 : -2);
-            if (redzone) s += p.name.includes('Smash') || p.name.includes('Spacing') ? 3 : 0;
+            if (redzone) s += /HOSS|Drive|Sail/i.test(p.name || '') ? 3 : 0;
             const chemistry = chemistryForPlay(p);
             s += chemistry * 14;
             s += passBias * 8;
