@@ -955,7 +955,16 @@ export function qbLogic(s, dt) {
     // Only run QB logic if the ball is with the QB (role string or id match).
     const carrierId = s.play?.ball?.carrierId;
     const qbHasBall = carrierId === 'QB' || carrierId === qb.id;
-    if (!qbHasBall) return;
+    if (!qbHasBall) {
+        if (carrierId && carrierId !== qb.id && carrierId !== 'QB') {
+            s.play.qbVision = null;
+        }
+        return;
+    }
+
+    if (call.type !== 'PASS') {
+        s.play.qbVision = null;
+    }
 
     // Rush context (robust to missing defenders)
     const rushers = ['LE', 'DT', 'RTk', 'RE']
@@ -1018,7 +1027,7 @@ export function qbLogic(s, dt) {
     if (s.play.qbMoveMode === 'DROP' && dropArrived) {
         s.play.qbMoveMode = 'SET';
         s.play.qbDropArrivedAt = s.play.qbDropArrivedAt ?? time;
-        s.play.qbReadyAt = Math.max(time + 0.16, Math.min(ttt - 0.05, 1.25));
+        s.play.qbReadyAt = Math.max(time + 0.22, Math.min(ttt + 0.12, 1.55));
         s.play.qbSettlePoint = {
             x: dropTarget.x,
             y: Math.min(dropTarget.y + PX_PER_YARD * 0.6, qb.pos.y + PX_PER_YARD * 0.4),
@@ -1028,7 +1037,7 @@ export function qbLogic(s, dt) {
     const pressureToSet = underImmediatePressure && s.play.qbMoveMode === 'DROP' && time > ttt * 0.35;
     if (pressureToSet) {
         s.play.qbMoveMode = 'SET';
-        s.play.qbReadyAt = s.play.qbReadyAt || Math.max(time + 0.12, Math.min(ttt - 0.05, 1.2));
+        s.play.qbReadyAt = s.play.qbReadyAt || Math.max(time + 0.18, Math.min(ttt + 0.1, 1.45));
         s.play.qbSettlePoint = {
             x: dropTarget.x,
             y: Math.min(dropTarget.y + PX_PER_YARD * 0.5, qb.pos.y + PX_PER_YARD * 0.3),
@@ -1055,9 +1064,25 @@ export function qbLogic(s, dt) {
             s.play.scrambleMode = Math.random() < 0.7 ? 'LATERAL' : 'FORWARD';
             s.play.scrambleDir = lateralBias;
             s.play.scrambleUntil = time + rand(0.45, 0.9);
+            const lookX = clamp(qb.pos.x + (s.play.scrambleDir || lateralBias || 1) * 36, 12, FIELD_PIX_W - 12);
+            const lookY = qb.pos.y + PX_PER_YARD * 2.2;
+            s.play.qbVision = {
+                lookAt: { x: lookX, y: lookY },
+                intent: 'SCRAMBLE',
+                targetRole: null,
+                targetId: null,
+                updatedAt: time,
+            };
         } else {
             s.play.qbMoveMode = 'SET';
             s.play.qbReadyAt = Math.min(s.play.qbReadyAt ?? (time + 0.2), time + 0.35);
+            s.play.qbVision = {
+                lookAt: { x: qb.pos.x, y: qb.pos.y + PX_PER_YARD * 5 },
+                intent: 'HOLD',
+                targetRole: null,
+                targetId: null,
+                updatedAt: time,
+            };
         }
     }
 
@@ -1240,9 +1265,28 @@ function tryThrow(s, press) {
     const chemistryMap = dynamics?.relationshipValues?.passing?.[qb.id] || {};
     const rushingMomentum = dynamics?.relationshipValues?.rushing || {};
     const tNow = s.play.elapsed, ttt = s.play.qbTTT || 2.5, maxHold = s.play.qbMaxHold || 4.8;
-    const minThrowGate = Math.min(ttt - 0.15, 1.35);
-    const readyAt = s.play.qbReadyAt != null ? Math.max(minThrowGate * 0.85, s.play.qbReadyAt) : minThrowGate;
-    if (tNow < readyAt) return;
+    const minThrowGate = Math.max(Math.min(ttt + 0.18, 1.65), 1.05);
+    const readyAt = s.play.qbReadyAt != null ? Math.max(minThrowGate, s.play.qbReadyAt) : minThrowGate;
+    const updateVision = (info = null) => {
+        if (!qb?.pos) {
+            s.play.qbVision = null;
+            return;
+        }
+        const fallbackLook = { x: qb.pos.x, y: qb.pos.y + PX_PER_YARD * 5.5 };
+        const src = info?.r?.pos || info?.pos || fallbackLook;
+        const look = {
+            x: Number.isFinite(src?.x) ? src.x : fallbackLook.x,
+            y: Number.isFinite(src?.y) ? src.y : fallbackLook.y,
+        };
+        const intent = info?.intent || (info?.r ? 'PROGRESS' : 'SCAN');
+        s.play.qbVision = {
+            lookAt: look,
+            intent,
+            targetRole: info?.key || info?.targetRole || null,
+            targetId: info?.r?.id || info?.targetId || null,
+            updatedAt: tNow,
+        };
+    };
     const checkdownGate = press.underImmediatePressure || s.play.qbMoveMode === 'SCRAMBLE' || (tNow >= ttt + CFG.CHECKDOWN_LAG);
     const losY = off.__losPixY ?? (qb.pos.y - PX_PER_YARD);
 
@@ -1293,6 +1337,40 @@ function tryThrow(s, press) {
         }
     }
 
+    let focusInfo = null;
+    if (targetChoice) {
+        focusInfo = { key: targetChoice.key, r: targetChoice.r, intent: 'PRIMARY' };
+    } else if (checkdownGate && rbCand) {
+        focusInfo = { key: rbCand.key, r: rbCand.r, intent: 'CHECKDOWN' };
+    } else if (bestWRTE) {
+        focusInfo = { key: bestWRTE.key, r: bestWRTE.r, intent: 'PROGRESS' };
+    } else if (rbCand) {
+        focusInfo = { key: rbCand.key, r: rbCand.r, intent: 'CHECKDOWN' };
+    }
+
+    if (!focusInfo) {
+        const fallbackKey = progression.find((key) => {
+            if (key === 'RB') return false;
+            const player = off[key];
+            return player && player.alive && player.pos && player.pos.y >= losY;
+        });
+        if (fallbackKey) {
+            focusInfo = { key: fallbackKey, r: off[fallbackKey], intent: 'PROGRESS' };
+        }
+    }
+
+    if (!focusInfo && rbCand?.r?.pos) {
+        focusInfo = { key: rbCand.key, r: rbCand.r, intent: 'CHECKDOWN' };
+    }
+
+    if (!focusInfo) {
+        focusInfo = { pos: { x: qb.pos.x, y: qb.pos.y + PX_PER_YARD * 4.5 }, intent: 'SCAN' };
+    }
+
+    updateVision(focusInfo);
+
+    if (tNow < readyAt) return;
+
     const mustThrow =
         (press.underImmediatePressure && tNow >= maxHold) ||
         (press.underHeat && tNow >= (ttt + 0.85)) ||
@@ -1320,6 +1398,8 @@ function tryThrow(s, press) {
         }
         const from = { x: qb.pos.x, y: qb.pos.y - 2 };
         const safeTo = { x: to.x, y: Math.max(to.y, qb.pos.y - PX_PER_YARD * 0.25) };
+        const throwIntent = opts.intent || 'THROW';
+        updateVision({ key: cand.key, r: cand.r, intent: throwIntent });
         startPass(s, from, { x: safeTo.x, y: safeTo.y }, cand.r.id);
         s.play.passRisky = separationMetric < riskThreshold;
         return true;
@@ -1367,11 +1447,13 @@ function tryThrow(s, press) {
             s.play.scrambleDir = dir;
             s.play.scrambleUntil = tNow + rand(0.45, 0.9);
             s.play.qbMaxHold = Math.max(maxHold + 0.35, tNow + 0.6);
+            updateVision({ pos: { x: qb.pos.x + dir * 42, y: qb.pos.y + PX_PER_YARD * 2.4 }, intent: 'SCRAMBLE' });
             return;
         }
 
         const sidelineX = qb.pos.x < FIELD_PIX_W / 2 ? 8 : FIELD_PIX_W - 8;
         const outY = Math.max(qb.pos.y + PX_PER_YARD * 2, losY + PX_PER_YARD);
+        updateVision({ pos: { x: sidelineX, y: outY }, intent: 'THROW_AWAY' });
         startPass(s, { x: qb.pos.x, y: qb.pos.y - 2 }, { x: sidelineX, y: outY }, null);
     }
 
