@@ -22,6 +22,30 @@ const ROLE_PHYSICS = {
     DEFAULT: { topSpeed: 18.6, accel: 6.6, radius: 8.0 },
 };
 
+const ROLE_SPEED_SCALE = {
+    WR: 0.82,
+    RB: 0.84,
+    TE: 0.86,
+    QB: 0.9,
+    DB: 0.84,
+    LB: 0.88,
+    OL: 0.92,
+    DL: 0.92,
+    DEFAULT: 0.9,
+};
+
+const ROLE_ACCEL_SCALE = {
+    WR: 0.78,
+    RB: 0.8,
+    TE: 0.82,
+    QB: 0.88,
+    DB: 0.8,
+    LB: 0.86,
+    OL: 0.9,
+    DL: 0.9,
+    DEFAULT: 0.88,
+};
+
 function roleKey(role = '') {
     if (!role) return 'DEFAULT';
     if (/^WR/.test(role)) return 'WR';
@@ -39,6 +63,18 @@ function roleKey(role = '') {
 function templateFor(player) {
     const tpl = ROLE_PHYSICS[roleKey(player?.role)] || ROLE_PHYSICS.DEFAULT;
     return tpl;
+}
+
+function resolveRoleTuning(table, player, fallback = 1) {
+    if (!player) return fallback;
+    const key = roleKey(player.role);
+    if (Object.prototype.hasOwnProperty.call(table, key)) {
+        return table[key];
+    }
+    if (Object.prototype.hasOwnProperty.call(table, 'DEFAULT')) {
+        return table.DEFAULT;
+    }
+    return fallback;
 }
 
 // ---------------------------------------------------------------------------
@@ -122,7 +158,8 @@ export function resolveMaxSpeed(player, { speedMultiplier = 1 } = {}) {
         + agility * 1.6
         - weightPenalty * 1.1;
     const finalMph = clamp(mph, 14.8, 23.8);
-    return mphToPixelsPerSecond(finalMph) * speedMultiplier * stamina;
+    const tuning = resolveRoleTuning(ROLE_SPEED_SCALE, player, 0.9);
+    return mphToPixelsPerSecond(finalMph) * speedMultiplier * stamina * tuning;
 }
 
 export function resolveAcceleration(player, { accelMultiplier = 1 } = {}) {
@@ -138,7 +175,8 @@ export function resolveAcceleration(player, { accelMultiplier = 1 } = {}) {
         + agility * 0.8
         - massPenalty * 1.25;
     const base = clamp(yardsPerSec2, 3.6, 12.5) * PX_PER_YARD;
-    return base * accelMultiplier;
+    const tuning = resolveRoleTuning(ROLE_ACCEL_SCALE, player, 0.88);
+    return base * accelMultiplier * tuning;
 }
 
 function applyDrag(motion, dt, groundDrag = 0.92) {
