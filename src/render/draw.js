@@ -10,6 +10,17 @@ import { yardsToPixY } from '../engine/helpers';
 import { getBallPix } from '../engine/ball';
 import { resolveTeamColor, resolveSlotColors } from '../engine/colors';
 
+const QB_VISION_COLORS = {
+    PRIMARY: '#ffd54f',
+    THROW: '#ffb74d',
+    THROW_AWAY: '#b0bec5',
+    CHECKDOWN: '#4fc3f7',
+    PROGRESS: '#80cbc4',
+    SCRAMBLE: '#ff8a80',
+    HOLD: '#d7ccc8',
+    SCAN: '#f5f5f5',
+};
+
 export function draw(canvas, state) {
     if (!canvas || !state || !state.play || !state.play.formation) return;
     const ctx = canvas.getContext('2d');
@@ -70,8 +81,10 @@ function drawContent(ctx, state) {
         const defenseSlot = offenseSlot === TEAM_RED ? TEAM_BLK : TEAM_RED;
         const offenseColor = getTeamDisplayColor(state, offenseSlot, 'offense');
         const defenseColor = getTeamDisplayColor(state, defenseSlot, 'defense');
+        const playElapsed = typeof state.play?.elapsed === 'number' ? state.play.elapsed : null;
+        const qbVision = state.play?.qbVision || null;
         safePlayers(def).forEach(p => drawPlayer(ctx, p, defenseColor));
-        safePlayers(off).forEach(p => drawPlayer(ctx, p, offenseColor));
+        safePlayers(off).forEach(p => drawPlayer(ctx, p, offenseColor, { qbVision, playElapsed }));
 
         // Ball
         try {
@@ -258,7 +271,7 @@ function highlightUprights(ctx, uprights, intensity = 1) {
 }
 
 /* ----------------- Entities ----------------- */
-function drawPlayer(ctx, p, color) {
+function drawPlayer(ctx, p, color, opts = {}) {
     if (!p || !p.pos || !Number.isFinite(p.pos.x) || !Number.isFinite(p.pos.y)) return;
 
     const r = 8;
@@ -271,6 +284,10 @@ function drawPlayer(ctx, p, color) {
     ctx.fillStyle = color;
     ctx.beginPath(); ctx.arc(p.pos.x, p.pos.y, r, 0, Math.PI * 2); ctx.fill();
     ctx.restore();
+
+    if (opts.qbVision && p.role === 'QB') {
+        drawQbVisionIndicator(ctx, p, opts.qbVision, opts.playElapsed);
+    }
 
     // Label: rotate +90° around the player to counter the global -90°,
     // then draw centered *below* the player (in landscape coordinates).
@@ -291,6 +308,55 @@ function drawPlayer(ctx, p, color) {
     // Fill
     ctx.fillStyle = '#fff';
     ctx.fillText(label, 0, dy);
+
+    ctx.restore();
+}
+
+function drawQbVisionIndicator(ctx, player, vision, playElapsed = null) {
+    if (!vision || !player?.pos) return;
+    const look = vision.lookAt;
+    if (!look || !Number.isFinite(look.x) || !Number.isFinite(look.y)) return;
+
+    const dx = look.x - player.pos.x;
+    const dy = look.y - player.pos.y;
+    const dist = Math.hypot(dx, dy);
+    if (!Number.isFinite(dist) || dist < 2) return;
+
+    const angle = Math.atan2(dy, dx);
+    const baseRadius = 10;
+    const arrowLength = Math.min(14, Math.max(7, dist * 0.12));
+    const tipRadius = baseRadius + arrowLength;
+    const color = QB_VISION_COLORS[vision.intent] || QB_VISION_COLORS.SCAN;
+
+    let alpha = vision.intent === 'THROW' ? 0.95 : 0.82;
+    if (typeof playElapsed === 'number' && typeof vision.updatedAt === 'number') {
+        const age = Math.max(0, playElapsed - vision.updatedAt);
+        if (age > 4.5) return;
+        const fade = Math.max(0.25, 1 - age / 4.5);
+        alpha *= fade;
+    }
+
+    ctx.save();
+    ctx.translate(player.pos.x, player.pos.y);
+    ctx.rotate(angle);
+
+    ctx.globalAlpha = alpha * 0.6;
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(0, 0, baseRadius, -Math.PI / 2.3, Math.PI / 2.3);
+    ctx.stroke();
+
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.moveTo(baseRadius - 3, -3.6);
+    ctx.lineTo(baseRadius, -3.6);
+    ctx.lineTo(tipRadius, 0);
+    ctx.lineTo(baseRadius, 3.6);
+    ctx.lineTo(baseRadius - 3, 3.6);
+    ctx.closePath();
+    ctx.fill();
 
     ctx.restore();
 }
