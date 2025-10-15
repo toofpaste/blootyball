@@ -1765,6 +1765,25 @@ function _isDefensiveBack(key) {
     return key === 'CB1' || key === 'CB2' || key === 'NB';
 }
 
+function _coverageRolePenalty(defKey, targetRole) {
+    if (!targetRole) return 0;
+    const isWR = /^WR[1-3]$/.test(targetRole);
+    const isTE = targetRole === 'TE';
+    const isRB = targetRole === 'RB';
+    const isDB = _isDefensiveBack(defKey);
+
+    if (isWR) {
+        return isDB ? 0 : PX_PER_YARD * 24;
+    }
+    if (isTE) {
+        return isDB ? PX_PER_YARD * 6 : 0;
+    }
+    if (isRB) {
+        return isDB ? PX_PER_YARD * 8 : 0;
+    }
+    return 0;
+}
+
 function _coverageReleaseDepthFor(cover, key) {
     const isDB = _isDefensiveBack(key);
     const releaseBoost = cover?.releaseBoost || {};
@@ -1795,7 +1814,7 @@ function _maybeHandOff(ctx, key, targetRole) {
     if (!target?.pos) return null;
 
     const current = def[key];
-    const currentScore = _manMatchScore(current, target, cover.losY);
+    const currentScore = _manMatchScore(current, target, cover.losY) + _coverageRolePenalty(key, targetRole);
     let bestKey = key;
     let bestScore = currentScore;
 
@@ -1803,7 +1822,7 @@ function _maybeHandOff(ctx, key, targetRole) {
         if (otherKey === key) continue;
         const other = def[otherKey];
         if (!other?.pos) continue;
-        const score = _manMatchScore(other, target, cover.losY);
+        const score = _manMatchScore(other, target, cover.losY) + _coverageRolePenalty(otherKey, targetRole);
         if (score + 8 < bestScore) {
             bestScore = score;
             bestKey = otherKey;
