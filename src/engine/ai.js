@@ -185,7 +185,13 @@ const CFG = {
     FP_CONTACT_R: 3,
     FP_SLOW_SPEED: 2.5,
     FP_DURATION: 0.55,
-    CONTACT_R: 11,
+    // CONTACT_R defines how close a defender needs to be to initiate a wrap/tackle.
+    // Player physics prevents bodies from overlapping closer than roughly the sum
+    // of their radii (~16-18px for two average players). With the previous 11px
+    // threshold, defenders were never considered "in contact", so wraps and
+    // tackles could not start. Bump the radius above the physical separation
+    // limit so legitimate collisions trigger tackles again.
+    CONTACT_R: 18,
     TACKLER_COOLDOWN: 0.9,
     GLOBAL_IMMUNITY: 0.45,
     MIN_DIST_AFTER_BREAK: 8,
