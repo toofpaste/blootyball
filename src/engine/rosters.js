@@ -22,6 +22,53 @@ function normaliseAttrs(ratings = {}, role) {
     };
 }
 
+const ROLE_BODY_TEMPLATES = {
+    QB: { height: [74, 78], weight: [205, 238] },
+    RB: { height: [70, 74], weight: [200, 228] },
+    WR: { height: [71, 76], weight: [188, 214] },
+    TE: { height: [74, 79], weight: [238, 264] },
+    OL: { height: [75, 80], weight: [295, 335] },
+    DL: { height: [74, 79], weight: [275, 320] },
+    LB: { height: [72, 77], weight: [230, 256] },
+    DB: { height: [70, 75], weight: [188, 208] },
+    DEFAULT: { height: [72, 76], weight: [210, 240] },
+};
+
+function roleToBodyKey(role = '') {
+    if (/^WR/.test(role)) return 'WR';
+    if (/^CB/.test(role) || /^S/.test(role) || role === 'NB') return 'DB';
+    if (/^LB/.test(role)) return 'LB';
+    if (/^LT$/.test(role) || /^LG$/.test(role) || /^RG$/.test(role) || /^RT$/.test(role) || role === 'C') return 'OL';
+    if (/^LE$/.test(role) || /^RE$/.test(role) || /^DT$/.test(role) || /^RTk$/.test(role)) return 'DL';
+    if (role === 'RB') return 'RB';
+    if (role === 'TE') return 'TE';
+    if (role === 'QB') return 'QB';
+    return 'DEFAULT';
+}
+
+function resolvePhysical(role, data = {}) {
+    const tpl = ROLE_BODY_TEMPLATES[roleToBodyKey(role)] || ROLE_BODY_TEMPLATES.DEFAULT;
+    const heightData = data.heightIn ?? data.height ?? null;
+    const weightData = data.weightLb ?? data.weight ?? null;
+    const clampRange = (value, range) => clamp(value, range[0], range[1]);
+    const pickRange = (range) => rand(range[0], range[1]);
+    const heightIn = Math.round(clampRange(heightData ?? pickRange(tpl.height), tpl.height));
+    const weightLb = Math.round(clampRange(weightData ?? pickRange(tpl.weight), tpl.weight));
+    const radius = clamp(
+        role === 'OL' || /^L[GT]/.test(role) ? 9.4
+            : role === 'DL' ? 9.1
+                : role === 'TE' ? 8.6
+                    : role === 'RB' ? 7.8
+                        : role === 'QB' ? 8.3
+                            : role === 'WR' || /^WR/.test(role) ? 7.6
+                                : role === 'DB' ? 7.4
+                                    : 8.0,
+        6.8,
+        9.8,
+    );
+    return { heightIn, weightLb, radius };
+}
+
 function makePlayer(team, role, data = {}, meta = {}) {
     const firstName = data.firstName || role;
     const lastName = data.lastName || '';
@@ -48,6 +95,12 @@ function makePlayer(team, role, data = {}, meta = {}) {
     };
 
     player.baseAttrs = { ...player.attrs };
+
+    const physical = resolvePhysical(role, data.physical || {});
+    player.physical = { ...physical };
+    player.heightIn = physical.heightIn;
+    player.weightLb = physical.weightLb;
+    player.radius = physical.radius;
 
     player.meta = {
         teamId: meta.teamId || null,
