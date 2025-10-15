@@ -163,11 +163,11 @@ function drawOffensivePlayArt(ctx, state) {
     const rbCheckdown = call.rbCheckdown || null;
     const qbDrop = call.qbDrop || null;
 
-    const ROUTE_COLOR = 'rgba(240,248,255,0.78)';
-    const PRIMARY_COLOR = 'rgba(255,224,138,0.9)';
-    const CHECKDOWN_COLOR = 'rgba(129,212,250,0.85)';
-    const RUN_COLOR = 'rgba(165,214,167,0.85)';
-    const DROP_COLOR = 'rgba(255,255,255,0.55)';
+    const ROUTE_COLOR = '#3bb0ff';
+    const PRIMARY_COLOR = '#ffd400';
+    const CHECKDOWN_COLOR = '#53e0ff';
+    const RUN_COLOR = '#8df082';
+    const DROP_COLOR = '#ffffff';
 
     ctx.save();
     ctx.lineJoin = 'round';
@@ -181,7 +181,7 @@ function drawOffensivePlayArt(ctx, state) {
         if (!usePath) return null;
         const color = options.color || ROUTE_COLOR;
         const alpha = options.alpha ?? 1;
-        const width = options.width || 2.4;
+        const width = options.width || 3.2;
         const dash = options.dash || null;
         const forceLabel = options.forceLabel || false;
         const labelText = options.label || role;
@@ -190,16 +190,21 @@ function drawOffensivePlayArt(ctx, state) {
         const points = buildRoutePoints(player.pos, usePath);
         if (!points.length) return null;
 
+        const renderPoints = [player.pos, ...points];
+
         ctx.save();
-        ctx.strokeStyle = color;
-        ctx.lineWidth = width;
         ctx.globalAlpha = alpha;
+        ctx.lineJoin = 'round';
+        ctx.lineCap = 'round';
         if (dash) ctx.setLineDash(dash);
-        ctx.beginPath();
-        ctx.moveTo(player.pos.x, player.pos.y);
-        points.forEach((p) => ctx.lineTo(p.x, p.y));
-        ctx.stroke();
+
+        drawRouteShadow(ctx, renderPoints, width);
+        drawRouteStroke(ctx, renderPoints, width, color);
+
         ctx.restore();
+
+        drawRouteStart(ctx, player.pos, color, alpha);
+        drawRouteBreaks(ctx, renderPoints, color, alpha);
 
         const start = player.pos;
         const end = points[points.length - 1];
@@ -244,8 +249,8 @@ function drawOffensivePlayArt(ctx, state) {
         const dropPath = [{ dx: 0, dy: -qbDrop }];
         drawForRole('QB', dropPath, {
             color: DROP_COLOR,
-            alpha: 0.75,
-            dash: [6, 6],
+            alpha: 0.85,
+            dash: [8, 6],
             label: 'DROP',
             forceLabel: true,
         });
@@ -278,19 +283,23 @@ function drawArrowHead(ctx, from, to, color, alpha = 1) {
     const len = Math.hypot(dx, dy);
     if (!Number.isFinite(len) || len < 4) return;
     const angle = Math.atan2(dy, dx);
-    const size = 8;
+    const size = 10;
 
     ctx.save();
     ctx.translate(to.x, to.y);
     ctx.rotate(angle);
     ctx.globalAlpha = alpha;
     ctx.fillStyle = color;
+    ctx.strokeStyle = 'rgba(0,0,0,0.4)';
+    ctx.lineJoin = 'round';
+    ctx.lineWidth = 2;
     ctx.beginPath();
     ctx.moveTo(0, 0);
     ctx.lineTo(-size, size * 0.55);
     ctx.lineTo(-size, -size * 0.55);
     ctx.closePath();
     ctx.fill();
+    ctx.stroke();
     ctx.restore();
 }
 
@@ -307,6 +316,65 @@ function drawRouteLabel(ctx, point, text, color, alpha = 1) {
     const y = point.y - 6;
     ctx.strokeText(text, point.x, y);
     ctx.fillText(text, point.x, y);
+    ctx.restore();
+}
+
+function drawRouteShadow(ctx, points, width) {
+    if (!points || points.length < 2) return;
+    ctx.save();
+    ctx.strokeStyle = 'rgba(0, 0, 0, 0.45)';
+    ctx.lineWidth = width + 2.5;
+    ctx.beginPath();
+    ctx.moveTo(points[0].x, points[0].y);
+    for (let i = 1; i < points.length; i += 1) {
+        ctx.lineTo(points[i].x, points[i].y);
+    }
+    ctx.stroke();
+    ctx.restore();
+}
+
+function drawRouteStroke(ctx, points, width, color) {
+    if (!points || points.length < 2) return;
+    ctx.save();
+    ctx.strokeStyle = color;
+    ctx.lineWidth = width;
+    ctx.beginPath();
+    ctx.moveTo(points[0].x, points[0].y);
+    for (let i = 1; i < points.length; i += 1) {
+        ctx.lineTo(points[i].x, points[i].y);
+    }
+    ctx.stroke();
+    ctx.restore();
+}
+
+function drawRouteStart(ctx, start, color, alpha = 1) {
+    if (!start) return;
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = color;
+    ctx.strokeStyle = 'rgba(0,0,0,0.45)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(start.x, start.y, 5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    ctx.restore();
+}
+
+function drawRouteBreaks(ctx, points, color, alpha = 1) {
+    if (!points || points.length < 3) return;
+    ctx.save();
+    ctx.globalAlpha = alpha * 0.9;
+    ctx.fillStyle = color;
+    ctx.strokeStyle = 'rgba(0,0,0,0.35)';
+    ctx.lineWidth = 1.5;
+    for (let i = 1; i < points.length - 1; i += 1) {
+        const p = points[i];
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, 3.2, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+    }
     ctx.restore();
 }
 
