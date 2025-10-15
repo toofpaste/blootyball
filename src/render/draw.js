@@ -6,7 +6,7 @@ import {
     TEAM_RED, TEAM_BLK,
 } from '../engine/constants';
 
-import { yardsToPixY } from '../engine/helpers';
+import { yardsToPixY, clamp } from '../engine/helpers';
 import { getBallPix } from '../engine/ball';
 import { resolveTeamColor, resolveSlotColors } from '../engine/colors';
 
@@ -70,6 +70,10 @@ function drawContent(ctx, state) {
 
     // Players
     const isFieldGoal = state.play?.phase === 'FIELD_GOAL' && state.play?.specialTeams?.visual;
+    if (!isFieldGoal) {
+        drawOffensivePlayArt(ctx, state);
+    }
+
     if (isFieldGoal) {
         drawFieldGoalScene(ctx, state);
     } else {
@@ -142,6 +146,168 @@ function drawFieldGoalScene(ctx, state) {
     if (visual.phase === 'RESULT' && special?.outcome?.success) {
         highlightUprights(ctx, visual.uprights, visual.goalHighlight ?? 1);
     }
+}
+
+function drawOffensivePlayArt(ctx, state) {
+    const play = state?.play;
+    if (!play || play.phase !== 'PRESNAP') return;
+    const call = play.playCall;
+    if (!call) return;
+    const offense = play.formation?.off;
+    if (!offense) return;
+
+    const primary = call.primary || null;
+    const wrRoutes = call.wrRoutes || {};
+    const teRoute = call.teRoute || null;
+    const rbPath = call.rbPath || null;
+    const rbCheckdown = call.rbCheckdown || null;
+    const qbDrop = call.qbDrop || null;
+
+    const ROUTE_COLOR = 'rgba(240,248,255,0.78)';
+    const PRIMARY_COLOR = 'rgba(255,224,138,0.9)';
+    const CHECKDOWN_COLOR = 'rgba(129,212,250,0.85)';
+    const RUN_COLOR = 'rgba(165,214,167,0.85)';
+    const DROP_COLOR = 'rgba(255,255,255,0.55)';
+
+    ctx.save();
+    ctx.lineJoin = 'round';
+    ctx.lineCap = 'round';
+
+    const drawForRole = (role, path, options = {}) => {
+        if (!role || !Array.isArray(path)) return null;
+        const player = offense[role];
+        if (!player?.pos) return null;
+        const usePath = path.length ? path : null;
+        if (!usePath) return null;
+        const color = options.color || ROUTE_COLOR;
+        const alpha = options.alpha ?? 1;
+        const width = options.width || 2.4;
+        const dash = options.dash || null;
+        const forceLabel = options.forceLabel || false;
+        const labelText = options.label || role;
+        const minLabelDist = options.labelDistance ?? 10;
+
+        const points = buildRoutePoints(player.pos, usePath);
+        if (!points.length) return null;
+
+        ctx.save();
+        ctx.strokeStyle = color;
+        ctx.lineWidth = width;
+        ctx.globalAlpha = alpha;
+        if (dash) ctx.setLineDash(dash);
+        ctx.beginPath();
+        ctx.moveTo(player.pos.x, player.pos.y);
+        points.forEach((p) => ctx.lineTo(p.x, p.y));
+        ctx.stroke();
+        ctx.restore();
+
+        const start = player.pos;
+        const end = points[points.length - 1];
+        const prev = points.length > 1 ? points[points.length - 2] : player.pos;
+        drawArrowHead(ctx, prev, end, color, alpha);
+        if (forceLabel || Math.hypot(end.x - start.x, end.y - start.y) >= minLabelDist) {
+            drawRouteLabel(ctx, end, labelText, color, alpha);
+        }
+        return end;
+    };
+
+    ['WR1', 'WR2', 'WR3'].forEach((role) => {
+        const path = wrRoutes?.[role];
+        if (!Array.isArray(path)) return;
+        const isPrimary = primary && primary === role;
+        drawForRole(role, path, {
+            color: isPrimary ? PRIMARY_COLOR : ROUTE_COLOR,
+            alpha: isPrimary ? 1 : 0.9,
+        });
+    });
+
+    if (Array.isArray(teRoute)) {
+        drawForRole('TE', teRoute, {
+            color: primary === 'TE' ? PRIMARY_COLOR : ROUTE_COLOR,
+            alpha: 0.9,
+        });
+    }
+
+    if (call.type === 'RUN' && Array.isArray(rbPath)) {
+        drawForRole('RB', rbPath, {
+            color: RUN_COLOR,
+            alpha: 0.95,
+        });
+    } else if (Array.isArray(rbCheckdown)) {
+        drawForRole('RB', rbCheckdown, {
+            color: primary === 'RB' ? PRIMARY_COLOR : CHECKDOWN_COLOR,
+            alpha: 0.9,
+        });
+    }
+
+    if (typeof qbDrop === 'number' && offense.QB?.pos) {
+        const dropPath = [{ dx: 0, dy: -qbDrop }];
+        drawForRole('QB', dropPath, {
+            color: DROP_COLOR,
+            alpha: 0.75,
+            dash: [6, 6],
+            label: 'DROP',
+            forceLabel: true,
+        });
+    }
+
+    ctx.restore();
+}
+
+function buildRoutePoints(start, path) {
+    if (!start || !Array.isArray(path)) return [];
+    const points = [];
+    let cursor = { x: start.x, y: start.y };
+    path.forEach((step) => {
+        if (!step) return;
+        const dx = (step.dx || 0) * PX_PER_YARD;
+        const dy = (step.dy || 0) * PX_PER_YARD;
+        cursor = {
+            x: clamp(cursor.x + dx, 16, FIELD_PIX_W - 16),
+            y: cursor.y + dy,
+        };
+        points.push({ ...cursor });
+    });
+    return points;
+}
+
+function drawArrowHead(ctx, from, to, color, alpha = 1) {
+    if (!from || !to) return;
+    const dx = to.x - from.x;
+    const dy = to.y - from.y;
+    const len = Math.hypot(dx, dy);
+    if (!Number.isFinite(len) || len < 4) return;
+    const angle = Math.atan2(dy, dx);
+    const size = 8;
+
+    ctx.save();
+    ctx.translate(to.x, to.y);
+    ctx.rotate(angle);
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.lineTo(-size, size * 0.55);
+    ctx.lineTo(-size, -size * 0.55);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+}
+
+function drawRouteLabel(ctx, point, text, color, alpha = 1) {
+    if (!point || !text) return;
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = color;
+    ctx.strokeStyle = 'rgba(0,0,0,0.6)';
+    ctx.lineWidth = 3;
+    ctx.font = '10px ui-sans-serif, system-ui';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'bottom';
+    const y = point.y - 6;
+    ctx.strokeText(text, point.x, y);
+    ctx.fillText(text, point.x, y);
+    ctx.restore();
 }
 
 /* ------------ Field rendering with hashes & numbers ------------ */
