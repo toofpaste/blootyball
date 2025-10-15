@@ -110,7 +110,7 @@ function ratingDelta(val, center = 1) {
     return clamp((val ?? center) - center, -0.7, 0.9);
 }
 
-function resolveMaxSpeed(player, { speedMultiplier = 1 } = {}) {
+export function resolveMaxSpeed(player, { speedMultiplier = 1 } = {}) {
     const tpl = templateFor(player);
     const physical = ensurePhysicalProfile(player);
     const rating = clamp(player?.attrs?.speed ?? 5.5, 3.5, 7.8);
@@ -125,7 +125,7 @@ function resolveMaxSpeed(player, { speedMultiplier = 1 } = {}) {
     return mphToPixelsPerSecond(finalMph) * speedMultiplier * stamina;
 }
 
-function resolveAcceleration(player, { accelMultiplier = 1 } = {}) {
+export function resolveAcceleration(player, { accelMultiplier = 1 } = {}) {
     const tpl = templateFor(player);
     const physical = ensurePhysicalProfile(player);
     const accelRating = clamp(player?.attrs?.accel ?? 14, 8, 26);
