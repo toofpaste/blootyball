@@ -137,6 +137,7 @@ export default function FreeAgentModal({ open, onClose, league = null }) {
           title={coach.philosophy ? `${coach.philosophy.charAt(0).toUpperCase() + coach.philosophy.slice(1)} Coach` : 'Coach'}
           name={coach.name}
           rows={[
+            { label: 'Overall', value: coach.overall != null ? Math.round(coach.overall) : '—' },
             { label: 'Tactical IQ', value: formatNumber(coach.tacticalIQ) },
             { label: 'Playcalling IQ', value: formatNumber(coach.playcallingIQ) },
             { label: 'Aggression', value: formatBoostValue(coach.tendencies?.aggression ?? 0) },
@@ -156,6 +157,7 @@ export default function FreeAgentModal({ open, onClose, league = null }) {
           title="Scout"
           name={scout.name}
           rows={[
+            { label: 'Overall', value: scout.overall != null ? Math.round(scout.overall) : '—' },
             { label: 'Evaluation', value: formatNumber(scout.evaluation) },
             { label: 'Development', value: formatNumber(scout.development) },
             { label: 'Trade', value: formatNumber(scout.trade) },
@@ -176,6 +178,7 @@ export default function FreeAgentModal({ open, onClose, league = null }) {
           title="General Manager"
           name={gm.name}
           rows={[
+            { label: 'Overall', value: gm.overall != null ? Math.round(gm.overall) : '—' },
             { label: 'Evaluation', value: formatNumber(gm.evaluation) },
             { label: 'Vision', value: formatNumber(gm.vision) },
             { label: 'Culture', value: formatNumber(gm.culture) },

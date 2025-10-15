@@ -51,6 +51,117 @@ const ROLE_FOCUS = {
   NB: { speed: 0.78, agility: 0.76, awareness: 0.66, catch: 0.52 },
 };
 
+const ROLE_BODY_PROFILES = {
+  QB: { height: [73, 78], weight: [208, 248] },
+  RB: { height: [69, 73], weight: [198, 225] },
+  WR1: { height: [71, 76], weight: [188, 212] },
+  WR2: { height: [70, 75], weight: [184, 208] },
+  WR3: { height: [69, 74], weight: [180, 204] },
+  TE: { height: [75, 79], weight: [240, 268] },
+  LT: { height: [77, 81], weight: [305, 335] },
+  LG: { height: [76, 80], weight: [302, 332] },
+  C: { height: [75, 79], weight: [298, 328] },
+  RG: { height: [76, 80], weight: [302, 332] },
+  RT: { height: [77, 81], weight: [305, 335] },
+  LE: { height: [75, 79], weight: [272, 298] },
+  DT: { height: [75, 79], weight: [300, 332] },
+  RTk: { height: [75, 79], weight: [296, 326] },
+  RE: { height: [75, 79], weight: [270, 296] },
+  LB1: { height: [74, 78], weight: [234, 255] },
+  LB2: { height: [73, 77], weight: [230, 252] },
+  CB1: { height: [70, 74], weight: [186, 205] },
+  CB2: { height: [69, 73], weight: [182, 202] },
+  S1: { height: [71, 75], weight: [200, 220] },
+  S2: { height: [70, 74], weight: [198, 218] },
+  NB: { height: [69, 73], weight: [180, 202] },
+  K: { height: [70, 75], weight: [182, 214] },
+  DEFAULT: { height: [71, 76], weight: [198, 228] },
+};
+
+function profileTemplateForRole(role = 'DEFAULT') {
+  if (!role) return ROLE_BODY_PROFILES.DEFAULT;
+  return ROLE_BODY_PROFILES[role] || ROLE_BODY_PROFILES[role?.replace(/\d+$/, '')] || ROLE_BODY_PROFILES.DEFAULT;
+}
+
+function clampRating(value) {
+  if (value == null || Number.isNaN(value)) return 0;
+  return clamp(Math.round(value), 0, 99);
+}
+
+function assignPhysicalProfile(player, role = 'QB') {
+  if (!player) return;
+  const template = profileTemplateForRole(role);
+  const [minHeight, maxHeight] = template.height;
+  const [minWeight, maxWeight] = template.weight;
+  const resolvedHeight = clamp(player.height ?? player.body?.height ?? rand(minHeight, maxHeight), minHeight, maxHeight);
+  const resolvedWeight = clamp(player.weight ?? player.body?.weight ?? rand(minWeight, maxWeight), minWeight, maxWeight);
+  const heightInt = Math.round(resolvedHeight);
+  const weightInt = Math.round(resolvedWeight);
+  player.height = heightInt;
+  player.weight = weightInt;
+  player.body = { ...(player.body || {}), height: heightInt, weight: weightInt };
+}
+
+function computeCoachOverall(coach = {}) {
+  const tactical = clamp((coach.tacticalIQ ?? 1) / 1.25, 0, 1);
+  const playcalling = clamp((coach.playcallingIQ ?? coach.tacticalIQ ?? 1) / 1.25, 0, 1);
+  const development = clamp(((coach.development?.offense ?? 0.2) + (coach.development?.defense ?? 0.2)) / 0.85, 0, 1);
+  const skillFocus = clamp(((coach.development?.qb ?? 0.2) + (coach.development?.skill ?? 0.2)) / 0.75, 0, 1);
+  const aggression = coach.tendencies?.aggression ?? 0;
+  const aggressionScore = 1 - Math.min(1, Math.abs(aggression) * 1.25);
+  const total = tactical * 0.3 + playcalling * 0.25 + development * 0.2 + skillFocus * 0.1 + aggressionScore * 0.15;
+  return clampRating(40 + total * 55);
+}
+
+function computeScoutOverall(scout = {}) {
+  const evaluation = clamp(scout.evaluation ?? 0.5, 0, 1);
+  const development = clamp(scout.development ?? 0.5, 0, 1);
+  const trade = clamp(scout.trade ?? 0.5, 0, 1);
+  const temperament = clamp(scout.temperamentSense ?? 0.5, 0, 1);
+  const aggression = clamp(1 - Math.min(1, Math.abs((scout.aggression ?? 0.5) - 0.5) * 2), 0, 1);
+  const total = evaluation * 0.35 + development * 0.25 + trade * 0.2 + temperament * 0.12 + aggression * 0.08;
+  return clampRating(40 + total * 55);
+}
+
+function computeGmOverall(gm = {}) {
+  const evaluation = clamp(gm.evaluation ?? 0.5, 0, 1);
+  const vision = clamp(gm.vision ?? 0.5, 0, 1);
+  const culture = clamp(gm.culture ?? 0.5, 0, 1);
+  const discipline = clamp(gm.discipline ?? 0.5, 0, 1);
+  const patience = clamp(gm.patience ?? 0.5, 0, 1);
+  const charisma = clamp(gm.charisma ?? 0.5, 0, 1);
+  const total = evaluation * 0.24 + vision * 0.2 + culture * 0.16 + discipline * 0.16 + patience * 0.14 + charisma * 0.1;
+  return clampRating(42 + total * 52);
+}
+
+function computeKickerOverall(player = {}) {
+  const maxDistance = clamp(player.maxDistance ?? 48, 30, 70);
+  const accuracy = clamp(player.accuracy ?? 0.75, 0.4, 0.99);
+  const rangeScore = clamp((maxDistance - 35) / 40, 0, 1);
+  const accuracyScore = clamp((accuracy - 0.45) / 0.5, 0, 1);
+  const clutch = clamp(player.clutch ?? 0.6, 0, 1);
+  const total = rangeScore * 0.45 + accuracyScore * 0.4 + clutch * 0.15;
+  return clampRating(38 + total * 58);
+}
+
+function updateCoachOverall(coach) {
+  if (!coach) return coach;
+  coach.overall = computeCoachOverall(coach);
+  return coach;
+}
+
+function updateScoutOverall(scout) {
+  if (!scout) return scout;
+  scout.overall = computeScoutOverall(scout);
+  return scout;
+}
+
+function updateGmOverall(gm) {
+  if (!gm) return gm;
+  gm.overall = computeGmOverall(gm);
+  return gm;
+}
+
 const FIRST_NAMES = [
   'Aiden', 'Bryce', 'Carter', 'Damien', 'Elijah', 'Felix', 'Gavin', 'Hayden', 'Isaac', 'Jalen',
   'Kai', 'Landon', 'Mason', 'Noah', 'Owen', 'Parker', 'Quinn', 'Riley', 'Silas', 'Tobias',
@@ -144,6 +255,9 @@ function clonePlayerData(data = {}) {
     health: data.health || { durability: 1, history: [] },
     age: data.age ?? null,
     temperament: cloneTemperament(data.temperament),
+    body: { ...(data.body || {}) },
+    height: data.height ?? null,
+    weight: data.weight ?? null,
   };
 }
 
@@ -184,22 +298,35 @@ function computeOverallFromRatings(ratings = {}, role = 'QB') {
   });
   if (weightSum <= 0) return 50;
   const normalizedScore = clamp(total / weightSum, 0, 1);
-  return Math.round(40 + normalizedScore * 55);
+  return clampRating(40 + normalizedScore * 55);
 }
 
 function decoratePlayerMetrics(player, role) {
   if (!player) return player;
   const updated = player;
-  updated.overall = computeOverallFromRatings(updated.ratings, role);
+  if (role === 'K') {
+    const maxDistance = clamp(player.maxDistance ?? player.attrs?.maxDistance ?? 48, 30, 70);
+    const accuracy = clamp(player.accuracy ?? player.attrs?.accuracy ?? 0.75, 0.4, 0.99);
+    const clutch = clamp(player.clutch ?? rand(0.45, 0.9), 0, 1);
+    updated.maxDistance = maxDistance;
+    updated.accuracy = accuracy;
+    updated.clutch = clutch;
+    updated.attrs = { maxDistance, accuracy };
+    updated.baseAttrs = updated.baseAttrs || { maxDistance, accuracy };
+    updated.overall = computeKickerOverall(updated);
+  } else {
+    updated.overall = computeOverallFromRatings(updated.ratings, role);
+  }
   if (updated.potential == null) {
     const variance = rand(0.05, 0.25);
-    const normalized = clamp(updated.overall / 100 + variance, 0, 1.25);
-    updated.potential = Math.max(normalized, updated.overall / 100);
+    const normalized = clamp(updated.overall / 99 + variance, 0, 1.25);
+    updated.potential = Math.max(normalized, updated.overall / 99);
   }
-  updated.ceiling = updated.ceiling != null ? updated.ceiling : Math.max(updated.potential, updated.overall / 100 + 0.1);
+  updated.ceiling = updated.ceiling != null ? updated.ceiling : Math.max(updated.potential, updated.overall / 99 + 0.1);
   if (!updated.health) {
     updated.health = { durability: clamp(rand(0.7, 1.05), 0.5, 1.2), history: [] };
   }
+  assignPhysicalProfile(updated, role);
   ensurePlayerTemperament(updated);
   return updated;
 }
@@ -209,12 +336,15 @@ function initialiseRosterMetrics(league) {
   Object.entries(rosters).forEach(([teamId, roster]) => {
     Object.entries(roster.offense || {}).forEach(([role, player]) => {
       roster.offense[role] = decoratePlayerMetrics(player, role);
+      ensurePlayerDirectoryEntry(league, teamId, role, roster.offense[role]);
     });
     Object.entries(roster.defense || {}).forEach(([role, player]) => {
       roster.defense[role] = decoratePlayerMetrics(player, role);
+      ensurePlayerDirectoryEntry(league, teamId, role, roster.defense[role]);
     });
     if (roster.special?.K) {
       roster.special.K = decoratePlayerMetrics(roster.special.K, 'K');
+      ensurePlayerDirectoryEntry(league, teamId, 'K', roster.special.K);
     }
   });
 }
@@ -276,6 +406,11 @@ function buildFreeAgent(role, archetype, tier, seasonNumber) {
     type: tier,
     preferredRole: role,
   };
+  if (role === 'K') {
+    player.maxDistance = clamp(rand(43, 62), 35, 68);
+    player.accuracy = clamp(rand(0.62, 0.92), 0.4, 0.98);
+    player.clutch = clamp(rand(0.45, 0.9), 0.3, 1);
+  }
   decoratePlayerMetrics(player, role);
   return player;
 }
@@ -369,13 +504,13 @@ function generateCoachCandidate() {
   coach.resume ||= { experience: Math.round(rand(3, 12)) };
   delete coach.teamId;
   delete coach.identity;
-  return coach;
+  return updateCoachOverall(coach);
 }
 
 function generateScoutCandidate() {
   const idSuffix = String(scoutFreeAgentCounter).padStart(3, '0');
   scoutFreeAgentCounter += 1;
-  return {
+  const scout = {
     id: `SCOUT-FA-${idSuffix}`,
     name: randomScoutName(),
     evaluation: clamp(rand(0.45, 0.9), 0.35, 0.95),
@@ -385,6 +520,7 @@ function generateScoutCandidate() {
     temperamentSense: clamp(rand(0.3, 0.85), 0.2, 0.95),
     origin: 'staff-free-agent',
   };
+  return updateScoutOverall(scout);
 }
 
 function generateGmCandidate({ teamId = null } = {}) {
@@ -395,7 +531,7 @@ function generateGmCandidate({ teamId = null } = {}) {
   const evaluation = clamp(rand(0.45, 0.92), 0.35, 0.98);
   const vision = clamp(rand(0.4, 0.92), 0.3, 0.98);
   const culture = clamp(rand(0.4, 0.9), 0.3, 0.96);
-  return {
+  const gm = {
     id,
     teamId,
     name: randomGmName(),
@@ -409,15 +545,19 @@ function generateGmCandidate({ teamId = null } = {}) {
     frustration: 0,
     origin: teamId ? 'franchise' : 'staff-free-agent',
   };
+  return updateGmOverall(gm);
 }
 
 function ensureTeamCoaches(league) {
   if (!league.teamCoaches) league.teamCoaches = {};
   TEAM_IDS.forEach((teamId) => {
-    if (league.teamCoaches[teamId]) return;
-    const identity = getTeamIdentity(teamId) || null;
-    const coach = buildCoachForTeam(teamId, { identity });
-    league.teamCoaches[teamId] = { ...coach, teamId };
+    if (!league.teamCoaches[teamId]) {
+      const identity = getTeamIdentity(teamId) || null;
+      const coach = buildCoachForTeam(teamId, { identity });
+      league.teamCoaches[teamId] = updateCoachOverall({ ...coach, teamId });
+    } else {
+      updateCoachOverall(league.teamCoaches[teamId]);
+    }
   });
 }
 
@@ -426,6 +566,8 @@ function ensureTeamGms(league) {
   TEAM_IDS.forEach((teamId) => {
     if (!league.teamGms[teamId]) {
       league.teamGms[teamId] = generateGmCandidate({ teamId });
+    } else {
+      updateGmOverall(league.teamGms[teamId]);
     }
   });
 }
@@ -438,6 +580,9 @@ function ensureStaffFreeAgents(league) {
   pools.coaches = Array.isArray(pools.coaches) ? pools.coaches : [];
   pools.scouts = Array.isArray(pools.scouts) ? pools.scouts : [];
   pools.gms = Array.isArray(pools.gms) ? pools.gms : [];
+  pools.coaches.forEach(updateCoachOverall);
+  pools.scouts.forEach(updateScoutOverall);
+  pools.gms.forEach(updateGmOverall);
   while (pools.coaches.length < 6) {
     pools.coaches.push(generateCoachCandidate());
   }
@@ -1036,14 +1181,16 @@ function ensureScouts(league) {
   TEAM_IDS.forEach((teamId) => {
     if (!league.teamScouts[teamId]) {
       const primary = clamp(rand(0.5, 0.95), 0.4, 0.98);
-      league.teamScouts[teamId] = {
+      league.teamScouts[teamId] = updateScoutOverall({
         id: `SCOUT-${teamId}`,
         name: randomScoutName(),
         evaluation: primary,
         development: clamp(primary + rand(-0.2, 0.15), 0.3, 0.95),
         trade: clamp(primary + rand(-0.15, 0.2), 0.35, 0.96),
         aggression: clamp(rand(0.3, 0.9), 0.2, 0.95),
-      };
+      });
+    } else {
+      updateScoutOverall(league.teamScouts[teamId]);
     }
   });
 }
@@ -1077,7 +1224,7 @@ function takeCoachCandidate(league, gm) {
     }
   });
   const [candidate] = pool.splice(bestIndex, 1);
-  return candidate || generateCoachCandidate();
+  return updateCoachOverall(candidate || generateCoachCandidate());
 }
 
 function scoutCandidateScore(candidate = {}, gm = null) {
@@ -1106,20 +1253,20 @@ function takeScoutCandidate(league, gm) {
     }
   });
   const [candidate] = pool.splice(bestIndex, 1);
-  return candidate || generateScoutCandidate();
+  return updateScoutOverall(candidate || generateScoutCandidate());
 }
 
 function replaceCoach(league, teamId, coach, gm, seasonNumber, { reason } = {}) {
   if (!league || !teamId || !coach) return false;
   ensureStaffFreeAgents(league);
   const identity = getTeamIdentity(teamId) || { id: teamId, abbr: teamId, displayName: teamId };
-  league.staffFreeAgents.coaches.push({
+  league.staffFreeAgents.coaches.push(updateCoachOverall({
     ...coach,
     teamId: null,
     origin: 'released',
     releasedFrom: teamId,
     releasedSeason: seasonNumber,
-  });
+  }));
   recordNewsInternal(league, {
     type: 'staff_move',
     teamId,
@@ -1128,7 +1275,7 @@ function replaceCoach(league, teamId, coach, gm, seasonNumber, { reason } = {}) 
     seasonNumber,
   });
   const candidate = takeCoachCandidate(league, gm);
-  const assigned = { ...candidate, teamId, identity };
+  const assigned = updateCoachOverall({ ...candidate, teamId, identity });
   assigned.resume = { ...(candidate.resume || {}), lastTeam: teamId };
   assigned.tendencies ||= { aggression: 0, passBias: 0, runBias: 0 };
   league.teamCoaches[teamId] = assigned;
@@ -1147,13 +1294,13 @@ function replaceScout(league, teamId, scout, gm, seasonNumber, { reason } = {}) 
   ensureStaffFreeAgents(league);
   const identity = getTeamIdentity(teamId) || { id: teamId, abbr: teamId, displayName: teamId };
   if (scout) {
-    league.staffFreeAgents.scouts.push({
+    league.staffFreeAgents.scouts.push(updateScoutOverall({
       ...scout,
       teamId: null,
       origin: 'released',
       releasedFrom: teamId,
       releasedSeason: seasonNumber,
-    });
+    }));
     recordNewsInternal(league, {
       type: 'staff_move',
       teamId,
@@ -1163,7 +1310,7 @@ function replaceScout(league, teamId, scout, gm, seasonNumber, { reason } = {}) 
     });
   }
   const candidate = takeScoutCandidate(league, gm);
-  const assigned = { ...candidate, teamId };
+  const assigned = updateScoutOverall({ ...candidate, teamId });
   league.teamScouts[teamId] = assigned;
   recordNewsInternal(league, {
     type: 'staff_move',
@@ -1323,7 +1470,7 @@ export function ensureSeasonPersonnel(league, seasonNumber) {
 
 function evaluatePlayerTrueValue(player, mode = 'balanced') {
   const current = player.overall ?? 60;
-  const potential = (player.ceiling ?? player.potential ?? current / 100) * 100;
+  const potential = (player.ceiling ?? player.potential ?? current / 99) * 100;
   if (mode === 'win-now') {
     return current * 0.7 + potential * 0.3;
   }
@@ -1362,6 +1509,9 @@ function ensurePlayerDirectoryEntry(league, teamId, role, player) {
     number: player.number ?? null,
     teamName: identity.displayName,
     teamAbbr: identity.abbr,
+    overall: clampRating(player.overall ?? player.rating ?? 0),
+    height: player.height ?? player.body?.height ?? null,
+    weight: player.weight ?? player.body?.weight ?? null,
   };
 }
 

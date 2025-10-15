@@ -629,33 +629,32 @@ function mergeLeagueData(target, source) {
 
   target.playerDirectory ||= {};
   Object.entries(source.playerDirectory || {}).forEach(([playerId, meta]) => {
-    if (!target.playerDirectory[playerId]) {
-      target.playerDirectory[playerId] = { ...meta };
-    }
+    if (!meta) return;
+    const existing = target.playerDirectory[playerId] || {};
+    target.playerDirectory[playerId] = { ...existing, ...meta };
   });
 
   target.teamScouts ||= {};
   Object.entries(source.teamScouts || {}).forEach(([teamId, scout]) => {
-    if (!target.teamScouts[teamId]) {
-      target.teamScouts[teamId] = { ...scout };
-    }
+    if (!scout) return;
+    const existing = target.teamScouts[teamId] || {};
+    target.teamScouts[teamId] = { ...existing, ...scout };
   });
   target.teamCoaches ||= {};
   Object.entries(source.teamCoaches || {}).forEach(([teamId, coach]) => {
-    if (!target.teamCoaches[teamId]) {
-      target.teamCoaches[teamId] = coach
-        ? {
-          ...coach,
-          identity: coach.identity ? { ...coach.identity } : null,
-        }
-        : null;
-    }
+    if (!coach) return;
+    const existing = target.teamCoaches[teamId] || {};
+    target.teamCoaches[teamId] = {
+      ...existing,
+      ...coach,
+      identity: coach.identity ? { ...coach.identity } : existing.identity || null,
+    };
   });
   target.teamGms ||= {};
   Object.entries(source.teamGms || {}).forEach(([teamId, gm]) => {
-    if (!target.teamGms[teamId]) {
-      target.teamGms[teamId] = gm ? { ...gm } : null;
-    }
+    if (!gm) return;
+    const existing = target.teamGms[teamId] || {};
+    target.teamGms[teamId] = { ...existing, ...gm };
   });
   const mergedMoods = { ...(target.teamMoods || {}) };
   Object.entries(source.teamMoods || {}).forEach(([teamId, mood]) => {
@@ -695,12 +694,20 @@ function mergeLeagueData(target, source) {
 
   const newsSeed = new Map((target.newsFeed || []).map((entry) => [entry.id || `${entry.type}-${entry.text}`, entry]));
   (source.newsFeed || []).forEach((entry) => {
+    if (!entry) return;
     const key = entry.id || `${entry.type}-${entry.text}`;
     if (!newsSeed.has(key)) {
       newsSeed.set(key, { ...entry });
     }
   });
-  target.newsFeed = Array.from(newsSeed.values());
+  target.newsFeed = Array.from(newsSeed.values()).sort((a, b) => {
+    const aTime = a?.createdAt ? new Date(a.createdAt).getTime() : 0;
+    const bTime = b?.createdAt ? new Date(b.createdAt).getTime() : 0;
+    return bTime - aTime;
+  });
+  if (target.newsFeed.length > 200) {
+    target.newsFeed.length = 200;
+  }
 
   target.injuredReserve ||= {};
   Object.entries(source.injuredReserve || {}).forEach(([playerId, entry]) => {

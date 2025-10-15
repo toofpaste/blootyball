@@ -231,6 +231,7 @@ function CoachCardModal({ open, onClose, coach, team }) {
         </div>
 
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, fontSize: 13 }}>
+          <InfoBadge label="Overall" value={coach.overall != null ? Math.round(coach.overall) : null} precision={0} />
           <InfoBadge
             label="Tactical IQ"
             value={coach.tacticalIQ}
@@ -307,9 +308,14 @@ function CoachCardModal({ open, onClose, coach, team }) {
   );
 }
 
-function InfoBadge({ label, value, signed = false, description }) {
-  if (value == null || Number.isNaN(value)) return null;
-  const formatted = signed ? formatBoostValue(value) : value.toFixed(2);
+function InfoBadge({ label, value, signed = false, description, precision = 2 }) {
+  if (value == null || (typeof value === 'number' && Number.isNaN(value))) return null;
+  let formatted;
+  if (typeof value === 'number') {
+    formatted = signed ? formatBoostValue(value) : value.toFixed(precision);
+  } else {
+    formatted = value;
+  }
   const badge = (
     <span style={{ background: 'rgba(7,45,7,0.75)', padding: '4px 8px', borderRadius: 8 }}>
       <span style={{ color: '#9bd79b' }}>{label}:</span> {formatted}
@@ -342,6 +348,7 @@ function ScoutCardModal({ open, onClose, scout, team }) {
         </div>
 
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, fontSize: 13 }}>
+          <InfoBadge label="Overall" value={scout.overall != null ? Math.round(scout.overall) : null} precision={0} />
           <InfoBadge
             label="Evaluation"
             value={scout.evaluation}
@@ -401,6 +408,7 @@ function GMCardModal({ open, onClose, gm, team }) {
         </div>
 
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, fontSize: 13 }}>
+          <InfoBadge label="Overall" value={gm.overall != null ? Math.round(gm.overall) : null} precision={0} />
           <InfoBadge label="Evaluation" value={gm.evaluation ?? 0.5} description={GM_BADGE_DESCRIPTIONS.Evaluation} />
           <InfoBadge label="Vision" value={gm.vision ?? 0.5} description={GM_BADGE_DESCRIPTIONS.Vision} />
           <InfoBadge label="Culture" value={gm.culture ?? 0.5} description={GM_BADGE_DESCRIPTIONS.Culture} />
