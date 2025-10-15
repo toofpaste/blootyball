@@ -68,20 +68,3 @@ This section has moved here: [https://facebook.github.io/create-react-app/docs/d
 ### `npm run build` fails to minify
 
 This section has moved here: [https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify](https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify)
-
-## Developer Diagnostics
-
-When the sim is running in the browser you can open the developer console and use the helper functions exposed on `window.__blootyball.tools`:
-
-```js
-// Start tracing immediately (optional tuning shown)
-window.__blootyball.tools.enableTrace({ sampleInterval: 1 / 60, maxSamples: 900, maxHistory: 6 });
-
-// Stop recording new traces
-window.__blootyball.tools.disableTrace();
-
-// Inspect the most recent captures
-window.__blootyball.tools.getTrace();
-```
-
-While tracing is enabled the engine records per-sample snapshots (position, velocity and speed) for every offensive and defensive player as well as ball data. The most recent plays are kept in a small history buffer which you can inspect from the console or export for deeper analysis.
