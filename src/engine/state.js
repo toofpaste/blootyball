@@ -2290,8 +2290,17 @@ export function stepGame(state, dt) {
             if (!s.play.routesInitialized) initRoutesAfterSnap(s);
 
             const off = s.play.formation.off;
+            const call = s.play.playCall || {};
+            const handoffRole = typeof call.handoffTo === 'string' ? call.handoffTo : 'RB';
+            const runner = off?.[handoffRole] || off?.RB || null;
+            const runnerId = runner?.id || null;
+            const ballCarrier = s.play.ball.carrierId;
+            const runnerHasBall =
+                (typeof ballCarrier === 'string' && ballCarrier === handoffRole) ||
+                (runnerId != null && ballCarrier === runnerId);
+
             off.__runFlag = s.play.playCall.type === 'RUN' && (
-                s.play.ball.carrierId === 'RB' ||
+                runnerHasBall ||
                 !s.play.handed ||
                 (s.play.handoffPending && s.play.handoffPending.type === 'PITCH')
             );
