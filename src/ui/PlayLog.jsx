@@ -186,6 +186,11 @@ function formatLastPlay(item) {
     if (details.fumbledBy && !resultLower.includes('fumble')) {
         fragments.push(`fumble by ${details.fumbledBy}`);
     }
+    if (details.fumbleRecoveredBy) {
+        fragments.push(`recovered by ${details.fumbleRecoveredBy}`);
+    } else if (details.fumbleRecoveredTeam) {
+        fragments.push(`recovered by ${details.fumbleRecoveredTeam}`);
+    }
 
     if (fragments.length === 0) return 'Play recorded';
     return fragments.join(', ');

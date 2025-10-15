@@ -62,6 +62,8 @@ export function createPlayStatContext() {
         pass: null,
         tackles: [],
         fumbleBy: null,
+        fumbleRecoveredBy: null,
+        fumbleRecoveredTeam: null,
         rushCarrierId: null,
         touchdown: false,
     };
@@ -148,6 +150,11 @@ export function applyStatEvent(state, event) {
         }
         case 'ball:fumble': {
             ctx.fumbleBy = event.by || null;
+            break;
+        }
+        case 'ball:fumble-recovered': {
+            ctx.fumbleRecoveredBy = event.by || null;
+            ctx.fumbleRecoveredTeam = event.team || null;
             break;
         }
         case 'ball:touchdown': {

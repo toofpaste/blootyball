@@ -1,5 +1,5 @@
 // ⬇️ UPDATE your imports at the top of this file
-import { clamp, dist, yardsToPixY } from './helpers';
+import { clamp, dist, rand, yardsToPixY } from './helpers';
 import { FIELD_PIX_W, FIELD_PIX_H, PX_PER_YARD } from './constants';
 import { mphToPixelsPerSecond } from './motion';
 import { recordPlayEvent } from './diagnostics';
@@ -43,6 +43,215 @@ export function getBallPix(s) {
 
     // Safe default while the next formation is being placed
     return { x: FIELD_PIX_W / 2, y: yardsToPixY(25) };
+}
+
+export function isBallLoose(ball) {
+    return !!(ball && !ball.inAir && ball.carrierId == null && ball.loose && ball.loose.pos);
+}
+
+export function startFumble(s, { pos, byId, forcedById } = {}) {
+    if (!s?.play || !s.play.ball) return;
+    const ball = s.play.ball;
+    const drop = pos && Number.isFinite(pos.x) && Number.isFinite(pos.y)
+        ? { x: clamp(pos.x, 6, FIELD_PIX_W - 6), y: clamp(pos.y, 0, FIELD_PIX_H) }
+        : getBallPix(s);
+
+    ball.inAir = false;
+    ball.targetId = null;
+    ball.carrierId = null;
+    ball.lastCarrierId = byId || ball.lastCarrierId || null;
+    ball.renderPos = { ...drop };
+    ball.shadowPos = { ...drop };
+    ball.flight = { kind: 'fumble', height: 0 };
+    ball.loose = {
+        pos: { ...drop },
+        vx: rand(-40, 40),
+        vy: rand(-24, 42),
+        vz: 90 + Math.random() * 40,
+        gravity: 230,
+        friction: 0.9,
+        restitution: 0.42,
+        bounces: 0,
+        maxBounces: 3,
+        cooldown: 0.25,
+        height: 0,
+        settleTimer: 0,
+    };
+
+    const existing = s.play.fumble || {};
+    s.play.fumble = {
+        ...existing,
+        active: true,
+        startAt: s.play.elapsed ?? existing.startAt ?? 0,
+        byId: byId || existing.byId || ball.lastCarrierId || null,
+        forcedById: forcedById ?? existing.forcedById ?? null,
+        recoveredById: null,
+        recoveredByTeam: null,
+        recoveredAt: null,
+        dropPos: { ...drop },
+    };
+
+    s.play.resultText = 'Fumble!';
+    s.play.resultWhy = 'Fumble';
+    s.play.turnover = false;
+    s.play.deadAt = null;
+
+    recordPlayEvent(s, {
+        type: 'ball:fumble',
+        by: byId || ball.lastCarrierId || null,
+        forcedBy: forcedById ?? null,
+    });
+
+    if (s.debug?.forceNextOutcome === 'FUMBLE') {
+        s.play.__forcedFumbleDone = true;
+    }
+}
+
+function updateLooseBall(s, dt) {
+    const ball = s.play.ball;
+    const loose = ball.loose;
+    if (!loose || !loose.pos) {
+        ball.loose = null;
+        return;
+    }
+
+    const friction = Math.pow(loose.friction ?? 0.9, dt * 60);
+    loose.cooldown = Math.max(0, (loose.cooldown ?? 0) - dt);
+    loose.settleTimer = (loose.settleTimer || 0) + dt;
+
+    loose.vx = (loose.vx || 0) * friction;
+    loose.vy = (loose.vy || 0) * friction;
+    loose.vz = (loose.vz || 0) - (loose.gravity ?? 230) * dt;
+
+    loose.height = Math.max(0, (loose.height || 0) + (loose.vz || 0) * dt);
+    if (loose.height <= 0 && loose.vz < 0) {
+        if ((loose.bounces || 0) < (loose.maxBounces ?? 2) && Math.abs(loose.vz) > 30) {
+            loose.bounces = (loose.bounces || 0) + 1;
+            loose.vz = -loose.vz * (loose.restitution ?? 0.4);
+            loose.height = 0;
+            loose.vx *= 0.82;
+            loose.vy *= 0.82;
+        } else {
+            loose.height = 0;
+            loose.vz = 0;
+        }
+    }
+
+    loose.pos.x = clamp((loose.pos.x || 0) + (loose.vx || 0) * dt, 6, FIELD_PIX_W - 6);
+    loose.pos.y = clamp((loose.pos.y || 0) + (loose.vy || 0) * dt, 0, FIELD_PIX_H);
+
+    ball.renderPos = { x: loose.pos.x, y: loose.pos.y };
+    ball.shadowPos = { x: loose.pos.x, y: loose.pos.y };
+    ball.flight = { kind: 'fumble', height: loose.height || 0 };
+
+    handleLooseBallBoundaries(s);
+    if (ball.loose) maybeRecoverLooseBall(s);
+}
+
+function handleLooseBallBoundaries(s) {
+    if (!isBallLoose(s.play?.ball)) return;
+    const loose = s.play.ball.loose;
+    const pos = loose?.pos;
+    if (!pos) return;
+
+    const outLeft = pos.x <= 8;
+    const outRight = pos.x >= FIELD_PIX_W - 8;
+    const outTop = pos.y <= 4;
+    const outBottom = pos.y >= FIELD_PIX_H - 4;
+
+    if (outLeft || outRight || outTop || outBottom) {
+        s.play.ball.loose = null;
+        s.play.ball.flight = null;
+        s.play.ball.renderPos = { ...pos };
+        s.play.ball.shadowPos = { ...pos };
+        const existing = s.play.fumble || {};
+        s.play.fumble = {
+            ...existing,
+            active: false,
+            recoveredById: existing.recoveredById ?? null,
+            recoveredByTeam: existing.recoveredByTeam ?? null,
+            recoveredAt: { ...pos },
+        };
+        s.play.deadAt = s.play.elapsed;
+        s.play.phase = 'DEAD';
+        s.play.turnover = false;
+        s.play.resultWhy = 'Fumble out of bounds';
+        s.play.resultText = 'Fumble out of bounds';
+    }
+}
+
+function maybeRecoverLooseBall(s) {
+    if (!isBallLoose(s.play?.ball)) return;
+    const ball = s.play.ball;
+    const loose = ball.loose;
+    const pos = loose?.pos;
+    if (!pos) return;
+
+    const offPlayers = Object.values(s.play?.formation?.off || {});
+    const defPlayers = Object.values(s.play?.formation?.def || {});
+    const all = [...offPlayers, ...defPlayers].filter(p => p && p.pos);
+    if (!all.length) return;
+
+    const recoverRadius = loose.height > 4 ? 9 : 11;
+    let best = null;
+    for (const p of all) {
+        const d = dist(p.pos, pos);
+        if (!best || d < best.d) {
+            best = { player: p, d };
+        }
+        if (d <= recoverRadius && loose.cooldown <= 0 && loose.height <= 6) {
+            completeFumbleRecovery(s, p);
+            return;
+        }
+    }
+
+    if (best && (loose.settleTimer || 0) > 1.6) {
+        completeFumbleRecovery(s, best.player);
+    }
+}
+
+function completeFumbleRecovery(s, player) {
+    if (!player?.pos) return;
+    const ball = s.play.ball;
+    const offenseSlot = s.possession;
+    const recoveredByOffense = player.team ? (player.team === offenseSlot) : false;
+
+    ball.loose = null;
+    ball.flight = null;
+    ball.renderPos = { x: player.pos.x, y: player.pos.y };
+    ball.shadowPos = { x: player.pos.x, y: player.pos.y };
+    ball.carrierId = player.id || player.role || null;
+    ball.lastCarrierId = ball.carrierId || ball.lastCarrierId || null;
+
+    const existing = s.play.fumble || {};
+    s.play.fumble = {
+        ...existing,
+        active: false,
+        recoveredById: player.id || null,
+        recoveredByTeam: player.team || null,
+        recoveredAt: { x: player.pos.x, y: player.pos.y },
+    };
+
+    const baseName = player.profile?.lastName
+        || player.profile?.shortName
+        || player.profile?.fullName
+        || player.role
+        || player.id
+        || (recoveredByOffense ? 'offense' : 'defense');
+    const text = `Fumble recovered by ${baseName}`;
+
+    s.play.deadAt = s.play.elapsed;
+    s.play.phase = 'DEAD';
+    s.play.turnover = !recoveredByOffense;
+    s.play.resultWhy = text;
+    s.play.resultText = text;
+
+    recordPlayEvent(s, {
+        type: 'ball:fumble-recovered',
+        by: player.id || null,
+        team: player.team || null,
+        offenseRecovered: recoveredByOffense,
+    });
 }
 export function startPass(s, from, to, targetId) {
     const ball = s.play.ball;
@@ -128,14 +337,15 @@ export function moveBall(s, dt) {
     const def = s.play.formation.def;
     const ball = s.play.ball;
 
+    if (isBallLoose(ball)) {
+        updateLooseBall(s, dt);
+        return;
+    }
+
     // force fumble once per play if requested and someone has possession
     if (!ball.inAir && ball.carrierId && s.debug?.forceNextOutcome === 'FUMBLE' && !s.play.__forcedFumbleDone) {
-        s.play.__forcedFumbleDone = true;
-        s.play.deadAt = s.play.elapsed;
-        s.play.phase = 'DEAD';
-        s.play.resultWhy = 'Fumble';
-        s.play.turnover = true;
-        recordPlayEvent(s, { type: 'ball:fumble', by: ball.carrierId });
+        const carrier = _resolveOffensivePlayer(off, ball.carrierId);
+        startFumble(s, { pos: carrier?.pos ? { ...carrier.pos } : ball.renderPos, byId: ball.carrierId });
         return;
     }
 

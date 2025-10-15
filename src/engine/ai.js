@@ -1,9 +1,9 @@
 // src/engine/ai.js
 import { clamp, dist, rand, yardsToPixY } from './helpers';
-import { FIELD_PIX_W, PX_PER_YARD } from './constants';
+import { FIELD_PIX_W, FIELD_PIX_H, PX_PER_YARD } from './constants';
 import { steerPlayer, dampMotion, applyCollisionSlowdown } from './motion';
 import { getPlayerMass, getPlayerRadius } from './physics';
-import { startPass, startPitch } from './ball';
+import { startPass, startPitch, startFumble, isBallLoose } from './ball';
 
 /* =========================================================
    AI state helpers
@@ -23,6 +23,27 @@ function _blendHeading(prev, next, smooth = 0.82) {
 
 function _lerp(a, b, t) {
     return a + (b - a) * clamp(t, 0, 1);
+}
+
+function pursueLooseBallGroup(players, ball, dt, speedMul = 1, jitter = 8) {
+    if (!Array.isArray(players) || !players.length) return false;
+    if (!isBallLoose(ball)) return false;
+    const target = ball.loose?.pos || ball.renderPos || ball.shadowPos;
+    if (!target) return false;
+
+    let acted = false;
+    players.forEach((p) => {
+        if (!p?.pos) return;
+        if (p.targets) p.targets = null;
+        p.routeIdx = null;
+        const aim = {
+            x: clamp(target.x + rand(-jitter, jitter), 16, FIELD_PIX_W - 16),
+            y: clamp(target.y + rand(-jitter, jitter), 0, FIELD_PIX_H - 6),
+        };
+        moveToward(p, aim, dt, speedMul);
+        acted = true;
+    });
+    return acted;
 }
 
 function _routeTargetsFromPath(startPos, path = [], { releaseDepthYards = 2 } = {}) {
@@ -829,10 +850,18 @@ function _updateRunBlocker(ol, key, context, dt) {
     }
 }
 
-export function moveOL(off, def, dt) {
+export function moveOL(off, def, dt, state = null) {
     const olKeys = _olKeys(off);
     const dlKeys = _dlKeys(def);
     if (!olKeys.length) return;
+
+    const ball = state?.play?.ball || null;
+    if (isBallLoose(ball)) {
+        const blockers = olKeys.map(k => off[k]).filter(Boolean);
+        blockers.forEach((p) => { if (p) p.engagedId = null; });
+        pursueLooseBallGroup(blockers, ball, dt, 1.05, 10);
+        return;
+    }
 
     const qb = off.QB;
     const losY = off.__losPixY ?? (qb?.pos?.y ?? yardsToPixY(25)) - PX_PER_YARD;
@@ -884,6 +913,11 @@ export function moveReceivers(off, dt, s = null) {
         const p = off[key];
         if (!p || !p.alive) return;
 
+        if (s && isBallLoose(s.play?.ball)) {
+            pursueLooseBallGroup([p], s.play.ball, dt, 1.18, 10);
+            continue;
+        }
+
         // If this WR currently has the ball, switch to RAC logic
         if (s && _isCarrier(off, ball, p)) { _racAdvance(off, def, p, dt); return; }
 
@@ -921,6 +955,11 @@ export function moveTE(off, dt, s = null) {
 
     const def = s?.play?.formation?.def || null;
     const ball = s?.play?.ball || null;
+
+    if (s && isBallLoose(ball)) {
+        pursueLooseBallGroup([p], ball, dt, 1.12, 10);
+        return;
+    }
 
     // If TE is the ball carrier, use RAC logic
     if (s && _isCarrier(off, ball, p)) { _racAdvance(off, def, p, dt); return; }
@@ -976,6 +1015,9 @@ export function qbLogic(s, dt) {
     const carrierId = s.play?.ball?.carrierId;
     const qbHasBall = carrierId === 'QB' || carrierId === qb.id;
     if (!qbHasBall) {
+        if (isBallLoose(s.play?.ball)) {
+            pursueLooseBallGroup([qb], s.play.ball, dt, 1.15, 12);
+        }
         if (carrierId && carrierId !== qb.id && carrierId !== 'QB') {
             s.play.qbVision = null;
         }
@@ -1629,6 +1671,11 @@ export function rbLogic(s, dt) {
     const burst = clamp(1 + ((mods.burst ?? 0.5) - 0.5) * 0.4, 0.7, 1.4);
     const patienceBase = clamp(0.22 + ((mods.patience ?? 0.5) - 0.5) * 0.18, 0.1, 0.42);
 
+    if (isBallLoose(s.play?.ball)) {
+        pursueLooseBallGroup([rb], s.play.ball, dt, 1.3, 12);
+        return;
+    }
+
     // If RB has the ball (after catch or handoff), use RAC logic
     if (_isCarrier(off, s.play.ball, rb)) { _racAdvance(off, def, rb, dt); return; }
 
@@ -1698,11 +1745,51 @@ export function rbLogic(s, dt) {
    ========================================================= */
 function findOffRoleById(off, id) { for (const [role, p] of Object.entries(off || {})) { if (p && p.id === id) return role; } return null; }
 function normalizeCarrier(off, ball) {
+    if (isBallLoose(ball)) return { role: null, player: null, id: null };
     let role = null, player = null, id = null;
     if (typeof ball.carrierId === 'string' && off[ball.carrierId]) { role = ball.carrierId; player = off[role]; id = player?.id ?? null; }
     if (!player && ball.carrierId != null) { player = Object.values(off || {}).find(p => p && p.id === ball.carrierId) || null; role = player ? findOffRoleById(off, player.id) : role; id = player?.id ?? id; }
     if (!player) { role = 'QB'; player = off.QB || null; id = player?.id ?? 'QB'; }
     return { role, player, id };
+}
+
+function maybeForceFumble(s, { carrier, carrierRole, tackler, severity = 1 } = {}) {
+    if (!carrier?.pos) return false;
+    if (!s?.play || !s.play.ball) return false;
+    if (isBallLoose(s.play.ball)) return false;
+
+    const forced = s.debug?.forceNextOutcome === 'FUMBLE' && !s.play.__forcedFumbleDone;
+    const carrierSecurity = clamp(carrier.attrs?.ballSecurity ?? 0.78, 0.4, 1.6);
+    const carrierAwareness = clamp(carrier.attrs?.awareness ?? 0.9, 0.4, 1.4);
+    const carrierStrength = clamp(carrier.attrs?.strength ?? 0.9, 0.4, 1.5);
+    const tacklerSkill = clamp(tackler?.attrs?.tackle ?? 0.9, 0.4, 1.5);
+    const stripTrait = clamp((tackler?.modifiers?.tackle ?? 0.5) - 0.5, -0.3, 0.3);
+    const ballTrait = clamp((carrier?.modifiers?.ballSecurity ?? 0.5) - 0.5, -0.3, 0.3);
+
+    let chance = 0.035;
+    chance += (tacklerSkill - 1) * 0.1;
+    chance -= (carrierSecurity - 0.85) * 0.22;
+    chance -= (carrierAwareness - 1) * 0.08;
+    chance -= (carrierStrength - 1) * 0.06;
+    chance += stripTrait * 0.18;
+    chance -= ballTrait * 0.16;
+    chance += (severity - 1) * 0.08;
+    if (carrierRole === 'QB') chance += 0.03;
+    chance = clamp(chance, 0.015, 0.32);
+
+    if (!forced && Math.random() > chance) return false;
+
+    startFumble(s, { pos: { x: carrier.pos.x, y: carrier.pos.y }, byId: carrier.id ?? carrierRole ?? null, forcedById: tackler?.id ?? null });
+    if (tackler) tackler.engagedId = null;
+    if (s.play.wrap) endWrap(s, 'wrap:fumble');
+    (s.play.events ||= []).push({
+        t: s.play.elapsed,
+        type: 'fumble:forced',
+        carrierId: carrier.id ?? carrierRole ?? null,
+        byId: tackler?.id ?? null,
+        severity,
+    });
+    return true;
 }
 
 function startWrap(s, carrierId, defenderId) {
@@ -2621,6 +2708,13 @@ export function defenseLogic(s, dt) {
     const carrierRole = carrierInfo.role;
     const carrierPos = carrier?.pos || null;
 
+    if (isBallLoose(ball)) {
+        const defenders = Object.values(def || {}).filter(p => p && p.pos);
+        defenders.forEach((p) => { if (p) p.engagedId = null; });
+        pursueLooseBallGroup(defenders, ball, dt, 1.24, 12);
+        return;
+    }
+
     if (carrierInfo.id) {
         if (s.play.__lastCarrierId !== carrierInfo.id) {
             s.play.__lastCarrierId = carrierInfo.id;
@@ -2719,6 +2813,7 @@ export function defenseLogic(s, dt) {
 
         const wrapsSoFar = (s.play.wrapCounts && s.play.wrapCounts[carrierId]) || 1;
         if (wrapsSoFar >= 2) {
+            if (maybeForceFumble(s, { carrier: ballCarrier, carrierRole, tackler, severity: 1.15 })) return;
             s.play.deadAt = s.play.elapsed; s.play.phase = 'DEAD'; s.play.resultWhy = (carrierRole === 'QB') ? 'Sack' : 'Tackled';
             (s.play.events ||= []).push({ t: s.play.elapsed, type: 'tackle:wrap2', carrierId, byId: wr.byId }); endWrap(s); return;
         }
@@ -2730,6 +2825,7 @@ export function defenseLogic(s, dt) {
             const tackler = Object.values(def).find((d) => d && d.id === wr.byId);
 
             if (alreadyBroke) {
+                if (maybeForceFumble(s, { carrier: ballCarrier, carrierRole, tackler, severity: 1.05 })) return;
                 s.play.deadAt = s.play.elapsed; s.play.phase = 'DEAD'; s.play.resultWhy = (carrierRole === 'QB') ? 'Sack' : 'Tackled';
                 (s.play.events ||= []).push({ t: s.play.elapsed, type: 'tackle:wrapHold', carrierId, byId: wr.byId }); endWrap(s); return;
             }
@@ -2748,6 +2844,7 @@ export function defenseLogic(s, dt) {
                 tackleChance -= runResist;
             }
             if (tackleChance > 0.5) {
+                if (maybeForceFumble(s, { carrier: ballCarrier, carrierRole, tackler, severity: 1.0 + assistants * 0.12 })) return;
                 s.play.deadAt = s.play.elapsed; s.play.phase = 'DEAD'; s.play.resultWhy = (carrierRole === 'QB') ? 'Sack' : 'Tackled';
                 (s.play.events ||= []).push({ t: s.play.elapsed, type: 'tackle:wrapHoldWin', carrierId, byId: wr.byId }); endWrap(s); return;
             } else {
