@@ -2,6 +2,7 @@ import React, { useMemo } from 'react';
 import Modal from './Modal';
 import { formatRecord } from '../engine/league';
 import { TEAM_RED, TEAM_BLK } from '../engine/constants';
+import { buildTeamRatingMap } from './teamDirectoryData';
 
 function getTeamName(season, teamId) {
   if (!teamId) return '—';
@@ -9,15 +10,24 @@ function getTeamName(season, teamId) {
   return info?.displayName || `${info?.city || ''} ${info?.name || ''}`.trim() || teamId;
 }
 
-function buildTeamRows(season) {
+function formatTeamRatings(offenseRating, defenseRating) {
+  const formatValue = (value) => {
+    if (value == null || Number.isNaN(value)) return '—';
+    return value;
+  };
+  return `OFF ${formatValue(offenseRating)} • DEF ${formatValue(defenseRating)}`;
+}
+
+function buildTeamRows(season, ratingMap = {}) {
   const entries = Object.values(season?.teams || {});
   return entries
     .map((team) => {
       const gamesPlayed = (team.record?.wins || 0) + (team.record?.losses || 0) + (team.record?.ties || 0);
       const diff = (team.pointsFor || 0) - (team.pointsAgainst || 0);
+      const ratings = ratingMap?.[team.id] || {};
       return {
         id: team.id,
-        name: team.info?.displayName || team.id,
+        name: ratings.name || team.info?.displayName || team.id,
         recordText: formatRecord(team.record),
         gamesPlayed,
         pointsFor: team.pointsFor || 0,
@@ -31,6 +41,8 @@ function buildTeamRows(season) {
         wins: team.record?.wins || 0,
         losses: team.record?.losses || 0,
         ties: team.record?.ties || 0,
+        offenseRating: ratings.offense ?? null,
+        defenseRating: ratings.defense ?? null,
       };
     })
     .sort((a, b) => {
@@ -96,7 +108,8 @@ export function SeasonStatsContent({
   currentScores = {},
   lastCompletedGame = null,
 }) {
-  const teamRows = useMemo(() => buildTeamRows(season), [season]);
+  const ratingMap = useMemo(() => buildTeamRatingMap(season, league), [season, league]);
+  const teamRows = useMemo(() => buildTeamRows(season, ratingMap), [season, ratingMap]);
   const completed = useMemo(() => buildCompletedResults(season), [season]);
   const totalGames = season?.schedule?.length || 0;
   const completedCount = season?.completedGames || completed.length || 0;
@@ -162,7 +175,14 @@ export function SeasonStatsContent({
                 const isEven = idx % 2 === 0;
                 return (
                   <tr key={row.id} style={{ background: isEven ? 'rgba(7,45,7,0.75)' : 'rgba(5,32,5,0.9)', color: '#f2fff2' }}>
-                    <td style={tdStyle}>{row.name}</td>
+                    <td style={tdStyle}>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'baseline' }}>
+                        <span style={{ fontWeight: 600 }}>{row.name}</span>
+                        <span style={{ fontSize: 12, color: '#b6f0b6' }}>
+                          {formatTeamRatings(row.offenseRating, row.defenseRating)}
+                        </span>
+                      </div>
+                    </td>
                     <td style={tdStyle}>{row.recordText}</td>
                     <td style={tdStyle}>{row.gamesPlayed}</td>
                     <td style={tdStyle}>{row.pointsFor}</td>

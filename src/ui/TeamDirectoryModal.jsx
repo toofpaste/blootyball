@@ -56,6 +56,14 @@ function headlineType(type) {
   return type.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
+function formatTeamRatings(offenseRating, defenseRating) {
+  const formatValue = (value) => {
+    if (value == null || Number.isNaN(value)) return '—';
+    return value;
+  };
+  return `OFF ${formatValue(offenseRating)} • DEF ${formatValue(defenseRating)}`;
+}
+
 function RosterSection({ title, players, onPlayerSelect }) {
   return (
     <div
@@ -540,10 +548,17 @@ export default function TeamDirectoryModal({ open, onClose, season, league = nul
                       background: isActive ? 'rgba(18,94,18,0.95)' : 'transparent',
                       color: '#f2fff2',
                       fontWeight: 600,
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'flex-start',
+                      gap: 2,
                       cursor: 'pointer',
                     }}
                   >
-                    {team.identity?.displayName || team.identity?.name || team.id}
+                    <span>{team.identity?.displayName || team.identity?.name || team.id}</span>
+                    <span style={{ fontSize: 11, color: isActive ? '#e4ffe4' : '#b6f0b6' }}>
+                      {formatTeamRatings(team.offenseRating, team.defenseRating)}
+                    </span>
                   </button>
                 );
               })}
@@ -561,8 +576,11 @@ export default function TeamDirectoryModal({ open, onClose, season, league = nul
               }}
             >
               <div>
-                <div style={{ fontSize: 20, fontWeight: 700 }}>
-                  {selectedTeam.identity?.displayName || selectedTeam.identity?.name || selectedTeam.id}
+                <div style={{ fontSize: 20, fontWeight: 700, display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+                  <span>{selectedTeam.identity?.displayName || selectedTeam.identity?.name || selectedTeam.id}</span>
+                  <span style={{ fontSize: 13, fontWeight: 600, color: '#a5e0a5' }}>
+                    {formatTeamRatings(selectedTeam.offenseRating, selectedTeam.defenseRating)}
+                  </span>
                 </div>
                 <div style={{ fontSize: 13, color: '#cde8cd' }}>
                   Record {selectedTeam.recordText} • PF {selectedTeam.pointsFor} • PA {selectedTeam.pointsAgainst}
