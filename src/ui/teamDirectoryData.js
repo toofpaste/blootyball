@@ -4,6 +4,7 @@ import { getTeamIdentity, TEAM_IDS } from '../engine/data/teamLibrary';
 import { createTeams } from '../engine/rosters';
 import { applyLongTermAdjustments, prepareCoachesForMatchup } from '../engine/progression';
 import { describeTemperament, describeMood } from '../engine/temperament';
+import { clamp } from '../engine/helpers';
 
 function roundNumber(value) {
   if (value == null || Number.isNaN(value)) return 0;
@@ -55,6 +56,13 @@ export function createPlayerEntry(player, role, sideLabel, statsMap = {}, league
   const height = player.height ?? player.body?.height ?? player.phys?.height ?? null;
   const weight = player.weight ?? player.body?.weight ?? player.phys?.weight ?? null;
   const overall = player.overall != null ? Math.round(player.overall) : null;
+  const potentialRating = player.potential != null
+    ? clamp(Math.round((player.potential || 0) * 100), 0, 130)
+    : null;
+  const ceilingRating = player.ceiling != null
+    ? clamp(Math.round((player.ceiling || player.potential || 0) * 100), 0, 135)
+    : potentialRating;
+  const growthGap = overall != null && potentialRating != null ? potentialRating - overall : null;
   const entry = {
     id: player.id,
     role,
@@ -71,6 +79,9 @@ export function createPlayerEntry(player, role, sideLabel, statsMap = {}, league
     age: league?.playerAges?.[player.id] ?? null,
     awards: Array.isArray(league?.playerAwards?.[player.id]) ? [...league.playerAwards[player.id]] : [],
     overall,
+    potentialRating,
+    ceilingRating,
+    growthGap,
     height: height != null ? Math.round(height) : null,
     weight: weight != null ? Math.round(weight) : null,
   };

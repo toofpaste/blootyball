@@ -78,6 +78,38 @@ const ROLE_BODY_PROFILES = {
   DEFAULT: { height: [71, 76], weight: [198, 228] },
 };
 
+const ATTRIBUTE_SPREAD_POWER = 0.82;
+
+function amplifyNormalized(value, power = ATTRIBUTE_SPREAD_POWER) {
+  if (value == null || Number.isNaN(value)) return 0.5;
+  const normalized = clamp(value, 0, 1);
+  const delta = normalized - 0.5;
+  const distance = Math.abs(delta);
+  if (distance <= 1e-6) return 0.5;
+  const ratio = clamp(distance / 0.5, 0, 1);
+  const amplified = Math.pow(ratio, power) * 0.5;
+  return clamp(0.5 + Math.sign(delta) * amplified, 0, 1);
+}
+
+function applyAttributeSpreadValue(value, attr) {
+  if (value == null || Number.isNaN(value)) return value;
+  const range = ATTR_RANGES[attr];
+  if (!range) return value;
+  const [min, max] = range;
+  if (!Number.isFinite(min) || !Number.isFinite(max) || max <= min) return value;
+  const normalized = (value - min) / (max - min || 1);
+  const amplified = amplifyNormalized(normalized);
+  return clamp(min + (max - min) * amplified, min, max);
+}
+
+function applyAttributeSpreadMap(ratings = {}) {
+  const entries = {};
+  Object.entries(ratings).forEach(([attr, value]) => {
+    entries[attr] = applyAttributeSpreadValue(value, attr);
+  });
+  return entries;
+}
+
 function profileTemplateForRole(role = 'DEFAULT') {
   if (!role) return ROLE_BODY_PROFILES.DEFAULT;
   return ROLE_BODY_PROFILES[role] || ROLE_BODY_PROFILES[role?.replace(/\d+$/, '')] || ROLE_BODY_PROFILES.DEFAULT;
@@ -110,7 +142,7 @@ function computeCoachOverall(coach = {}) {
   const aggression = coach.tendencies?.aggression ?? 0;
   const aggressionScore = 1 - Math.min(1, Math.abs(aggression) * 1.25);
   const total = tactical * 0.3 + playcalling * 0.25 + development * 0.2 + skillFocus * 0.1 + aggressionScore * 0.15;
-  return clampRating(40 + total * 55);
+  return clampRating(32 + total * 63);
 }
 
 function computeScoutOverall(scout = {}) {
@@ -120,7 +152,7 @@ function computeScoutOverall(scout = {}) {
   const temperament = clamp(scout.temperamentSense ?? 0.5, 0, 1);
   const aggression = clamp(1 - Math.min(1, Math.abs((scout.aggression ?? 0.5) - 0.5) * 2), 0, 1);
   const total = evaluation * 0.35 + development * 0.25 + trade * 0.2 + temperament * 0.12 + aggression * 0.08;
-  return clampRating(40 + total * 55);
+  return clampRating(30 + total * 65);
 }
 
 function computeGmOverall(gm = {}) {
@@ -131,7 +163,7 @@ function computeGmOverall(gm = {}) {
   const patience = clamp(gm.patience ?? 0.5, 0, 1);
   const charisma = clamp(gm.charisma ?? 0.5, 0, 1);
   const total = evaluation * 0.24 + vision * 0.2 + culture * 0.16 + discipline * 0.16 + patience * 0.14 + charisma * 0.1;
-  return clampRating(42 + total * 52);
+  return clampRating(35 + total * 60);
 }
 
 function computeKickerOverall(player = {}) {
@@ -304,6 +336,26 @@ function computeOverallFromRatings(ratings = {}, role = 'QB') {
 function decoratePlayerMetrics(player, role) {
   if (!player) return player;
   const updated = player;
+  if (!updated.__attributeSpreadApplied) {
+    const sourceRatings = updated.ratings ? { ...updated.ratings } : null;
+    const sourceAttrs = updated.attrs ? { ...updated.attrs } : null;
+    const sourceBase = updated.baseAttrs ? { ...updated.baseAttrs } : null;
+    if (sourceRatings) {
+      updated.ratings = applyAttributeSpreadMap(sourceRatings);
+    }
+    if (sourceAttrs) {
+      updated.attrs = applyAttributeSpreadMap(sourceAttrs);
+    } else if (sourceRatings) {
+      updated.attrs = { ...updated.ratings };
+    }
+    if (sourceBase) {
+      updated.baseAttrs = applyAttributeSpreadMap(sourceBase);
+    }
+    if (!updated.baseAttrs && updated.attrs) {
+      updated.baseAttrs = { ...updated.attrs };
+    }
+    updated.__attributeSpreadApplied = true;
+  }
   if (role === 'K') {
     const maxDistance = clamp(player.maxDistance ?? player.attrs?.maxDistance ?? 48, 30, 70);
     const accuracy = clamp(player.accuracy ?? player.attrs?.accuracy ?? 0.75, 0.4, 0.99);
@@ -315,7 +367,14 @@ function decoratePlayerMetrics(player, role) {
     updated.baseAttrs = updated.baseAttrs || { maxDistance, accuracy };
     updated.overall = computeKickerOverall(updated);
   } else {
-    updated.overall = computeOverallFromRatings(updated.ratings, role);
+    const ratingSource = updated.ratings || updated.attrs || {};
+    updated.overall = computeOverallFromRatings(ratingSource, role);
+    if (!updated.attrs && updated.ratings) {
+      updated.attrs = { ...updated.ratings };
+    }
+    if (!updated.baseAttrs && updated.attrs) {
+      updated.baseAttrs = { ...updated.attrs };
+    }
   }
   if (updated.potential == null) {
     const variance = rand(0.05, 0.25);
@@ -349,11 +408,120 @@ function initialiseRosterMetrics(league) {
   });
 }
 
+function gatherRosterPlayers(roster) {
+  const players = [];
+  if (!roster) return players;
+  Object.entries(roster.offense || {}).forEach(([role, player]) => {
+    if (player) players.push({ player, role });
+  });
+  Object.entries(roster.defense || {}).forEach(([role, player]) => {
+    if (player) players.push({ player, role });
+  });
+  if (roster.special?.K) {
+    players.push({ player: roster.special.K, role: 'K' });
+  }
+  return players;
+}
+
+function computeTeamGrowthProfile(league, teamId) {
+  if (!league || !teamId) {
+    return { averageOverall: 0, averagePotential: 0, averageCeiling: 0, growthGap: 0, playerCount: 0 };
+  }
+  const roster = league.teamRosters?.[teamId] || null;
+  const entries = gatherRosterPlayers(roster);
+  if (!entries.length) {
+    return { averageOverall: 0, averagePotential: 0, averageCeiling: 0, growthGap: 0, playerCount: 0 };
+  }
+  let totalOverall = 0;
+  let totalPotential = 0;
+  let totalCeiling = 0;
+  entries.forEach(({ player, role }) => {
+    const ratingSource = player.attrs || player.ratings || {};
+    const overall = clamp(
+      player.overall != null ? player.overall : computeOverallFromRatings(ratingSource, role),
+      0,
+      99,
+    );
+    const potentialScore = clamp(
+      (player.potential != null ? player.potential : player.ceiling != null ? player.ceiling : overall / 99) * 100,
+      0,
+      130,
+    );
+    const ceilingScore = clamp(
+      (player.ceiling != null ? player.ceiling : player.potential != null ? player.potential : overall / 99) * 100,
+      0,
+      135,
+    );
+    totalOverall += overall;
+    totalPotential += potentialScore;
+    totalCeiling += ceilingScore;
+  });
+  const count = entries.length;
+  const averageOverall = totalOverall / count;
+  const averagePotential = totalPotential / count;
+  const averageCeiling = totalCeiling / count;
+  return {
+    averageOverall,
+    averagePotential,
+    averageCeiling,
+    growthGap: averagePotential - averageOverall,
+    playerCount: count,
+  };
+}
+
+function resolveTeamResultsProfile(league, season, teamId) {
+  const seasonSource = season || league?.season || league?.seasonSnapshot || null;
+  const teamEntry = seasonSource?.teams?.[teamId]
+    || league?.season?.teams?.[teamId]
+    || league?.seasonSnapshot?.teams?.[teamId]
+    || null;
+  const record = teamEntry?.record || { wins: 0, losses: 0, ties: 0 };
+  const games = (record.wins || 0) + (record.losses || 0) + (record.ties || 0);
+  const winPct = games > 0 ? ((record.wins || 0) + (record.ties || 0) * 0.5) / games : 0.5;
+  const history = Array.isArray(league?.teamSeasonHistory?.[teamId]) ? league.teamSeasonHistory[teamId] : [];
+  const prevEntry = history.length >= 2 ? history[history.length - 2] : null;
+  const prevRecord = prevEntry?.record || null;
+  const prevGames = prevRecord ? (prevRecord.wins || 0) + (prevRecord.losses || 0) + (prevRecord.ties || 0) : 0;
+  const prevWinPct = prevGames > 0
+    ? ((prevRecord.wins || 0) + (prevRecord.ties || 0) * 0.5) / prevGames
+    : winPct;
+  const pointDiff = (teamEntry?.pointsFor ?? 0) - (teamEntry?.pointsAgainst ?? 0);
+  return {
+    record,
+    games,
+    winPct,
+    trend: winPct - prevWinPct,
+    pointDiff,
+  };
+}
+
+function buildTeamDecisionContext(league, teamId, season = null) {
+  const growth = computeTeamGrowthProfile(league, teamId);
+  const results = resolveTeamResultsProfile(league, season, teamId);
+  return {
+    teamId,
+    winPct: results.winPct,
+    trend: results.trend,
+    pointDiff: results.pointDiff,
+    games: results.games,
+    averageOverall: growth.averageOverall,
+    averagePotential: growth.averagePotential,
+    averageCeiling: growth.averageCeiling,
+    growthGap: growth.growthGap,
+    playerCount: growth.playerCount,
+  };
+}
+
 function randomAttrValue(attr, skill, emphasis = 0.5) {
   const [min, max] = ATTR_RANGES[attr] || [0, 1];
-  const noise = rand(-0.08, 0.08);
-  const quality = clamp(skill * 0.65 + emphasis * 0.35 + noise, 0, 1);
-  return clamp(min + (max - min) * quality, min, max);
+  const noise = rand(-0.12, 0.12);
+  let quality = clamp(skill * 0.6 + emphasis * 0.4 + noise, 0, 1);
+  if (Math.random() < 0.18) {
+    const extreme = amplifyNormalized(Math.random());
+    quality = clamp(quality * 0.6 + extreme * 0.4, 0, 1);
+  }
+  const stretchedQuality = amplifyNormalized(quality);
+  return clamp(min + (max - min) * stretchedQuality, min, max);
 }
 
 function generateRatingsForRole(role, skillRating) {
@@ -446,6 +614,21 @@ function randomBoostAttribute() {
   return choice(keys);
 }
 
+function tieredRandom(lowRange, midRange, highRange, { lowChance = 0.22, highChance = 0.18 } = {}) {
+  const roll = Math.random();
+  if (roll < lowChance && lowRange) {
+    const [min, max] = lowRange;
+    return rand(min, max);
+  }
+  if (roll > 1 - highChance && highRange) {
+    const [min, max] = highRange;
+    return rand(min, max);
+  }
+  const range = midRange || highRange || lowRange || [0, 1];
+  const [min, max] = range;
+  return rand(min, max);
+}
+
 function buildBoostMap(roles, count = 2, magnitude = [0.02, 0.06]) {
   const entries = {};
   const pool = [...roles];
@@ -469,39 +652,51 @@ function generateCoachCandidate() {
   coach.id = `COACH-FA-${idSuffix}`;
   coach.name = randomCoachName();
   coach.philosophy = choice(['offense', 'defense', 'balanced']);
-  coach.tacticalIQ = clamp(rand(0.85, 1.25), 0.7, 1.35);
-  coach.playcallingIQ = clamp(coach.tacticalIQ + rand(-0.08, 0.12), 0.7, 1.35);
+  coach.tacticalIQ = clamp(tieredRandom([0.45, 0.75], [0.75, 1.28], [1.28, 1.48], { lowChance: 0.24, highChance: 0.2 }), 0.4, 1.5);
+  let playBase = coach.tacticalIQ + rand(-0.2, 0.2);
+  if (Math.random() < 0.18) {
+    playBase = rand(0.38, 0.7);
+  } else if (Math.random() > 0.85) {
+    playBase = rand(1.25, 1.5);
+  }
+  coach.playcallingIQ = clamp(playBase, 0.38, 1.5);
   coach.clock = {
-    hurry: clamp(Math.round(rand(130, 165)), 120, 180),
-    defensive: clamp(Math.round(rand(110, 145)), 100, 160),
-    must: clamp(Math.round(rand(28, 40)), 24, 45),
-    margin: clamp(Math.round(rand(6, 11)), 4, 12),
+    hurry: clamp(Math.round(rand(118, 178)), 108, 190),
+    defensive: clamp(Math.round(rand(100, 150)), 92, 170),
+    must: clamp(Math.round(rand(24, 44)), 20, 48),
+    margin: clamp(Math.round(rand(5, 12)), 3, 14),
   };
   coach.tendencies = {
-    passBias: clamp(rand(-0.3, 0.35), -0.4, 0.4),
-    runBias: clamp(rand(-0.25, 0.3), -0.35, 0.35),
-    aggression: clamp(rand(-0.2, 0.35), -0.35, 0.45),
+    passBias: clamp(rand(-0.45, 0.5), -0.5, 0.5),
+    runBias: clamp(rand(-0.4, 0.45), -0.45, 0.45),
+    aggression: clamp(tieredRandom([-0.35, -0.05], [-0.05, 0.28], [0.28, 0.5], { lowChance: 0.28, highChance: 0.2 }), -0.4, 0.5),
   };
-  const offenseTeamBoost = { [randomBoostAttribute()]: rand(0.02, 0.05) };
-  const defenseTeamBoost = { [randomBoostAttribute()]: rand(0.02, 0.05) };
+  const boostMagnitude = Math.random() < 0.2 ? [0.03, 0.09] : [0.015, 0.07];
+  const offenseTeamBoost = { [randomBoostAttribute()]: rand(boostMagnitude[0], boostMagnitude[1]) };
+  const defenseTeamBoost = { [randomBoostAttribute()]: rand(boostMagnitude[0], boostMagnitude[1]) };
   coach.playerBoosts = {
-    offense: { team: offenseTeamBoost, positions: buildBoostMap(ROLES_OFF, 2) },
-    defense: { team: defenseTeamBoost, positions: buildBoostMap(ROLES_DEF, 2) },
+    offense: { team: offenseTeamBoost, positions: buildBoostMap(ROLES_OFF, 2, boostMagnitude) },
+    defense: { team: defenseTeamBoost, positions: buildBoostMap(ROLES_DEF, 2, boostMagnitude) },
   };
+  const offenseDev = tieredRandom([0.12, 0.22], [0.22, 0.36], [0.36, 0.48], { lowChance: 0.26, highChance: 0.22 });
+  const defenseDev = tieredRandom([0.12, 0.22], [0.22, 0.36], [0.36, 0.48], { lowChance: 0.26, highChance: 0.22 });
+  const qbDev = tieredRandom([0.14, 0.26], [0.26, 0.4], [0.4, 0.5], { lowChance: 0.2, highChance: 0.22 });
+  const skillDev = tieredRandom([0.14, 0.24], [0.24, 0.36], [0.36, 0.46], { lowChance: 0.24, highChance: 0.2 });
+  const runDev = tieredRandom([0.12, 0.24], [0.24, 0.34], [0.34, 0.44], { lowChance: 0.24, highChance: 0.18 });
   coach.development = {
-    offense: clamp(rand(0.2, 0.32), 0.18, 0.36),
-    defense: clamp(rand(0.2, 0.32), 0.18, 0.36),
-    qb: clamp(rand(0.2, 0.35), 0.18, 0.38),
-    skill: clamp(rand(0.2, 0.32), 0.18, 0.36),
-    run: clamp(rand(0.18, 0.32), 0.16, 0.34),
+    offense: clamp(offenseDev, 0.1, 0.5),
+    defense: clamp(defenseDev, 0.1, 0.5),
+    qb: clamp(qbDev, 0.12, 0.52),
+    skill: clamp(skillDev, 0.12, 0.48),
+    run: clamp(runDev, 0.1, 0.46),
   };
   const aggression = clamp(coach.tendencies.aggression ?? 0, -0.4, 0.45);
   const supportBase = ((coach.development.offense ?? 0.22) + (coach.development.defense ?? 0.22)) / 2;
-  const support = clamp(supportBase - 0.25, -0.35, 0.4);
-  const composure = clamp((coach.tacticalIQ ?? 1) - 1, -0.25, 0.35);
+  const support = clamp(supportBase - 0.25, -0.4, 0.45);
+  const composure = clamp((coach.tacticalIQ ?? 1) - 1, -0.3, 0.4);
   coach.temperamentProfile = { aggression, support, composure };
   coach.origin = 'staff-free-agent';
-  coach.resume ||= { experience: Math.round(rand(3, 12)) };
+  coach.resume ||= { experience: Math.round(tieredRandom([1, 4], [5, 13], [14, 20], { lowChance: 0.25, highChance: 0.2 })) };
   delete coach.teamId;
   delete coach.identity;
   return updateCoachOverall(coach);
@@ -510,14 +705,19 @@ function generateCoachCandidate() {
 function generateScoutCandidate() {
   const idSuffix = String(scoutFreeAgentCounter).padStart(3, '0');
   scoutFreeAgentCounter += 1;
+  const evaluation = clamp(tieredRandom([0.2, 0.45], [0.45, 0.82], [0.82, 0.97], { lowChance: 0.22, highChance: 0.2 }), 0.15, 0.98);
+  const development = clamp(tieredRandom([0.18, 0.4], [0.4, 0.75], [0.75, 0.95], { lowChance: 0.26, highChance: 0.2 }), 0.16, 0.98);
+  const trade = clamp(tieredRandom([0.2, 0.45], [0.45, 0.8], [0.8, 0.96], { lowChance: 0.24, highChance: 0.18 }), 0.16, 0.98);
+  const aggression = clamp(tieredRandom([0.15, 0.4], [0.4, 0.75], [0.75, 0.95], { lowChance: 0.28, highChance: 0.22 }), 0.1, 0.98);
+  const temperamentSense = clamp(tieredRandom([0.18, 0.4], [0.4, 0.78], [0.78, 0.96], { lowChance: 0.24, highChance: 0.2 }), 0.16, 0.98);
   const scout = {
     id: `SCOUT-FA-${idSuffix}`,
     name: randomScoutName(),
-    evaluation: clamp(rand(0.45, 0.9), 0.35, 0.95),
-    development: clamp(rand(0.35, 0.85), 0.3, 0.95),
-    trade: clamp(rand(0.35, 0.88), 0.28, 0.95),
-    aggression: clamp(rand(0.2, 0.85), 0.15, 0.95),
-    temperamentSense: clamp(rand(0.3, 0.85), 0.2, 0.95),
+    evaluation,
+    development,
+    trade,
+    aggression,
+    temperamentSense,
     origin: 'staff-free-agent',
   };
   return updateScoutOverall(scout);
@@ -526,11 +726,11 @@ function generateScoutCandidate() {
 function generateGmCandidate({ teamId = null } = {}) {
   const id = teamId ? `GM-${teamId}` : `GM-FA-${String(gmFreeAgentCounter).padStart(3, '0')}`;
   if (!teamId) gmFreeAgentCounter += 1;
-  const patience = clamp(rand(0.35, 0.9), 0.25, 0.95);
-  const discipline = clamp(rand(0.45, 0.92), 0.3, 0.98);
-  const evaluation = clamp(rand(0.45, 0.92), 0.35, 0.98);
-  const vision = clamp(rand(0.4, 0.92), 0.3, 0.98);
-  const culture = clamp(rand(0.4, 0.9), 0.3, 0.96);
+  const patience = clamp(tieredRandom([0.18, 0.45], [0.45, 0.82], [0.82, 0.98], { lowChance: 0.25, highChance: 0.2 }), 0.12, 0.99);
+  const discipline = clamp(tieredRandom([0.2, 0.48], [0.48, 0.85], [0.85, 0.98], { lowChance: 0.24, highChance: 0.2 }), 0.18, 0.99);
+  const evaluation = clamp(tieredRandom([0.22, 0.48], [0.48, 0.86], [0.86, 0.99], { lowChance: 0.24, highChance: 0.2 }), 0.2, 0.99);
+  const vision = clamp(tieredRandom([0.2, 0.46], [0.46, 0.84], [0.84, 0.98], { lowChance: 0.24, highChance: 0.2 }), 0.18, 0.99);
+  const culture = clamp(tieredRandom([0.2, 0.45], [0.45, 0.82], [0.82, 0.97], { lowChance: 0.24, highChance: 0.2 }), 0.18, 0.98);
   const gm = {
     id,
     teamId,
@@ -540,7 +740,7 @@ function generateGmCandidate({ teamId = null } = {}) {
     discipline,
     patience,
     vision,
-    charisma: clamp(rand(0.3, 0.85), 0.2, 0.95),
+    charisma: clamp(tieredRandom([0.15, 0.4], [0.4, 0.75], [0.75, 0.95], { lowChance: 0.26, highChance: 0.18 }), 0.12, 0.96),
     tenure: 0,
     frustration: 0,
     origin: teamId ? 'franchise' : 'staff-free-agent',
@@ -1199,25 +1399,34 @@ function ensureNewsFeed(league) {
   if (!Array.isArray(league.newsFeed)) league.newsFeed = [];
 }
 
-function coachCandidateScore(candidate = {}, gm = null) {
-  const tactical = candidate.tacticalIQ ?? 1;
-  const play = candidate.playcallingIQ ?? tactical;
-  const dev = (candidate.development?.offense ?? 0.2) + (candidate.development?.defense ?? 0.2);
-  const aggression = candidate.tendencies?.aggression ?? 0;
-  const gmVision = gm?.vision ?? 0.5;
-  const fit = 1 - Math.min(1, Math.abs(gmVision - (aggression + 0.5)));
-  const experience = candidate.resume?.experience ?? 6;
-  return tactical * 0.4 + play * 0.35 + dev * 0.18 + fit * 0.05 + experience * 0.02;
+function coachCandidateScore(candidate = {}, context = {}) {
+  const growthNeed = clamp(Math.max(0, context.growthGap ?? 0) / 20, 0, 1);
+  const resultNeed = clamp((0.55 - (context.winPct ?? 0.5)) * 1.4 + Math.max(0, -(context.trend ?? 0)) * 6, 0, 1.2);
+  const resilience = clamp(-(context.pointDiff ?? 0) / 120, 0, 0.6);
+  const experience = clamp((candidate.resume?.experience ?? 6) / 20, 0, 1);
+  const development = clamp(
+    ((candidate.development?.offense ?? 0.2) + (candidate.development?.defense ?? 0.2)) / 0.85,
+    0,
+    1,
+  );
+  const qbGrowth = clamp((candidate.development?.qb ?? 0.2) / 0.52, 0, 1);
+  const randomSwing = Math.random() * 0.05;
+  return (
+    development * (0.45 + growthNeed * 0.45)
+    + experience * (0.4 + resultNeed * 0.45 + resilience * 0.2)
+    + qbGrowth * (0.08 + growthNeed * 0.12)
+    + randomSwing
+  );
 }
 
-function takeCoachCandidate(league, gm) {
+function takeCoachCandidate(league, context = {}) {
   ensureStaffFreeAgents(league);
   const pool = league.staffFreeAgents.coaches;
   if (!pool.length) pool.push(generateCoachCandidate());
   let bestIndex = 0;
   let bestScore = -Infinity;
   pool.forEach((candidate, index) => {
-    const score = coachCandidateScore(candidate, gm);
+    const score = coachCandidateScore(candidate, context);
     if (score > bestScore) {
       bestScore = score;
       bestIndex = index;
@@ -1227,26 +1436,31 @@ function takeCoachCandidate(league, gm) {
   return updateCoachOverall(candidate || generateCoachCandidate());
 }
 
-function scoutCandidateScore(candidate = {}, gm = null) {
-  const evaluation = candidate.evaluation ?? 0.5;
-  const development = candidate.development ?? 0.5;
-  const trade = candidate.trade ?? 0.5;
-  const temperament = candidate.temperamentSense ?? 0.5;
-  const aggression = candidate.aggression ?? 0.5;
-  const culture = gm?.culture ?? 0.5;
-  const discipline = gm?.discipline ?? 0.5;
-  const aggressionFit = 1 - Math.min(1, Math.abs(aggression - culture));
-  return evaluation * 0.35 + development * 0.25 + trade * 0.2 + temperament * 0.1 + aggressionFit * 0.1 + discipline * 0.02;
+function scoutCandidateScore(candidate = {}, context = {}) {
+  const growthNeed = clamp(Math.max(0, context.growthGap ?? 0) / 16, 0, 1);
+  const resultNeed = clamp((0.55 - (context.winPct ?? 0.5)) * 1.2 + Math.max(0, -(context.trend ?? 0)) * 5, 0, 1);
+  const evaluation = clamp(candidate.evaluation ?? 0.5, 0, 1);
+  const development = clamp(candidate.development ?? 0.5, 0, 1);
+  const trade = clamp(candidate.trade ?? 0.5, 0, 1);
+  const temperament = clamp(candidate.temperamentSense ?? 0.5, 0, 1);
+  const randomSwing = Math.random() * 0.05;
+  return (
+    evaluation * (0.4 + resultNeed * 0.4)
+    + development * (0.4 + growthNeed * 0.45)
+    + trade * 0.08
+    + temperament * 0.1
+    + randomSwing
+  );
 }
 
-function takeScoutCandidate(league, gm) {
+function takeScoutCandidate(league, context = {}) {
   ensureStaffFreeAgents(league);
   const pool = league.staffFreeAgents.scouts;
   if (!pool.length) pool.push(generateScoutCandidate());
   let bestIndex = 0;
   let bestScore = -Infinity;
   pool.forEach((candidate, index) => {
-    const score = scoutCandidateScore(candidate, gm);
+    const score = scoutCandidateScore(candidate, context);
     if (score > bestScore) {
       bestScore = score;
       bestIndex = index;
@@ -1256,7 +1470,7 @@ function takeScoutCandidate(league, gm) {
   return updateScoutOverall(candidate || generateScoutCandidate());
 }
 
-function replaceCoach(league, teamId, coach, gm, seasonNumber, { reason } = {}) {
+function replaceCoach(league, teamId, coach, seasonNumber, { reason, context } = {}) {
   if (!league || !teamId || !coach) return false;
   ensureStaffFreeAgents(league);
   const identity = getTeamIdentity(teamId) || { id: teamId, abbr: teamId, displayName: teamId };
@@ -1274,7 +1488,8 @@ function replaceCoach(league, teamId, coach, gm, seasonNumber, { reason } = {}) 
     detail: reason || 'Organizational pivot',
     seasonNumber,
   });
-  const candidate = takeCoachCandidate(league, gm);
+  const decisionContext = context || buildTeamDecisionContext(league, teamId, league?.season || league?.seasonSnapshot || null);
+  const candidate = takeCoachCandidate(league, decisionContext);
   const assigned = updateCoachOverall({ ...candidate, teamId, identity });
   assigned.resume = { ...(candidate.resume || {}), lastTeam: teamId };
   assigned.tendencies ||= { aggression: 0, passBias: 0, runBias: 0 };
@@ -1289,7 +1504,7 @@ function replaceCoach(league, teamId, coach, gm, seasonNumber, { reason } = {}) 
   return true;
 }
 
-function replaceScout(league, teamId, scout, gm, seasonNumber, { reason } = {}) {
+function replaceScout(league, teamId, scout, seasonNumber, { reason, context } = {}) {
   if (!league || !teamId) return false;
   ensureStaffFreeAgents(league);
   const identity = getTeamIdentity(teamId) || { id: teamId, abbr: teamId, displayName: teamId };
@@ -1309,7 +1524,8 @@ function replaceScout(league, teamId, scout, gm, seasonNumber, { reason } = {}) 
       seasonNumber,
     });
   }
-  const candidate = takeScoutCandidate(league, gm);
+  const decisionContext = context || buildTeamDecisionContext(league, teamId, league?.season || league?.seasonSnapshot || null);
+  const candidate = takeScoutCandidate(league, decisionContext);
   const assigned = updateScoutOverall({ ...candidate, teamId });
   league.teamScouts[teamId] = assigned;
   recordNewsInternal(league, {
@@ -1331,49 +1547,52 @@ function evaluateStaffChanges(league, season) {
   TEAM_IDS.forEach((teamId) => {
     const gm = league.teamGms?.[teamId] || null;
     if (!gm) return;
-    const teamEntry = season.teams?.[teamId] || null;
-    const record = teamEntry?.record || { wins: 0, losses: 0, ties: 0 };
-    const games = (record.wins || 0) + (record.losses || 0) + (record.ties || 0);
-    const winPct = games > 0 ? ((record.wins || 0) + (record.ties || 0) * 0.5) / games : 0.5;
-    const history = Array.isArray(league.teamSeasonHistory?.[teamId]) ? league.teamSeasonHistory[teamId] : [];
-    const prevEntry = history.length >= 2 ? history[history.length - 2] : null;
-    const prevRecord = prevEntry?.record || null;
-    const prevGames = prevRecord ? (prevRecord.wins || 0) + (prevRecord.losses || 0) + (prevRecord.ties || 0) : 0;
-    const prevWinPct = prevGames > 0
-      ? ((prevRecord.wins || 0) + (prevRecord.ties || 0) * 0.5) / prevGames
-      : winPct;
-    const trend = winPct - prevWinPct;
-    const pointDiff = (teamEntry?.pointsFor ?? 0) - (teamEntry?.pointsAgainst ?? 0);
-    let frustration = (gm.frustration || 0) * 0.45;
-    if (winPct < 0.5) frustration += (0.55 - winPct) * (0.9 + (gm.discipline || 0.5) * 0.4);
-    if (trend < -0.06) frustration += Math.abs(trend) * (0.9 + (gm.vision || 0.5) * 0.4);
-    if (pointDiff < -40) frustration += 0.25;
-    else if (pointDiff < -20) frustration += 0.12;
-    frustration -= (gm.patience || 0.5) * 0.35;
+    const decisionContext = buildTeamDecisionContext(league, teamId, season);
+    const winPct = decisionContext.winPct ?? 0.5;
+    const trend = decisionContext.trend ?? 0;
+    const pointDiff = decisionContext.pointDiff ?? 0;
+    const growthGap = Math.max(0, decisionContext.growthGap ?? 0);
+    const resultPressure = clamp(
+      (0.55 - winPct) * 1.8
+        + Math.max(0, -trend) * 6
+        + (pointDiff < -40 ? 0.2 : pointDiff < -20 ? 0.12 : 0),
+      0,
+      1.6,
+    );
+    let frustration = (gm.frustration || 0) * 0.35
+      + resultPressure * 0.85
+      + clamp(growthGap / 24, 0, 0.6);
+    frustration -= clamp((winPct - 0.55) * 1.2, 0, 0.6);
+    frustration -= clamp(trend * 6, 0, 0.5);
     frustration = clamp(frustration, 0, 4);
     gm.frustration = frustration;
     gm.tenure = (gm.tenure || 0) + 1;
+    gm.lastDecisionContext = decisionContext;
 
     const coach = league.teamCoaches?.[teamId] || null;
     const scout = league.teamScouts?.[teamId] || null;
 
     const coachStruggle = winPct < 0.45 || trend < -0.08;
+    const coachPressure = clamp(resultPressure * 0.6 + (growthGap / 18) * 0.4 + (frustration - 1) * 0.25, 0, 1);
     const fireCoachChance = coachStruggle
-      ? clamp(frustration * 0.35 + (gm.discipline || 0.5) * 0.25, 0, 0.75)
-      : clamp((frustration - 1.25) * 0.22, 0, 0.45);
+      ? clamp(coachPressure, 0, 0.85)
+      : clamp((coachPressure - 0.45) * 0.55, 0, 0.45);
     if (coach && Math.random() < fireCoachChance) {
-      replaceCoach(league, teamId, coach, gm, season.seasonNumber || league.seasonNumber || 1, {
+      replaceCoach(league, teamId, coach, season.seasonNumber || league.seasonNumber || 1, {
         reason: coachStruggle ? 'Performance evaluation' : 'Strategic refresh',
+        context: decisionContext,
       });
     }
 
-    const scoutStruggle = (scout?.evaluation ?? 0.55) < 0.58 && winPct < 0.5;
+    const scoutStruggle = growthGap > 8 && winPct < 0.55;
+    const scoutPressure = clamp((growthGap / 16) * 0.7 + resultPressure * 0.35 + (frustration - 1.2) * 0.15, 0, 1);
     const fireScoutChance = scoutStruggle
-      ? clamp(frustration * 0.25 + (gm.discipline || 0.4) * 0.18, 0, 0.45)
-      : clamp((frustration - 1.6) * 0.15, 0, 0.28);
+      ? clamp(scoutPressure, 0, 0.5)
+      : clamp((scoutPressure - 0.5) * 0.4, 0, 0.32);
     if (Math.random() < fireScoutChance) {
-      replaceScout(league, teamId, scout, gm, season.seasonNumber || league.seasonNumber || 1, {
+      replaceScout(league, teamId, scout, season.seasonNumber || league.seasonNumber || 1, {
         reason: scoutStruggle ? 'Need sharper evaluations' : 'Shuffling scouting approach',
+        context: decisionContext,
       });
     }
   });

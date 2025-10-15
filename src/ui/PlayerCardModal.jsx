@@ -153,6 +153,36 @@ export default function PlayerCardModal({ open, onClose, entry, team }) {
     entry.height != null ? formatHeight(entry.height) : null,
     entry.weight != null ? formatWeight(entry.weight) : null,
   ].filter(Boolean);
+  const ratingBadges = [];
+  if (entry.overall != null) {
+    ratingBadges.push({
+      label: 'Overall',
+      value: Math.round(entry.overall),
+      description: 'Current overall rating on a 0-99 scale.',
+    });
+  }
+  if (entry.potentialRating != null) {
+    ratingBadges.push({
+      label: 'Potential',
+      value: Math.round(entry.potentialRating),
+      description: 'Projected development headroom on a 0-99 scale.',
+    });
+  }
+  if (entry.ceilingRating != null) {
+    ratingBadges.push({
+      label: 'Ceiling',
+      value: Math.round(entry.ceilingRating),
+      description: 'Estimated maximum peak rating on a 0-99 scale.',
+    });
+  }
+  if (entry.growthGap != null) {
+    const deltaValue = entry.growthGap > 0 ? `+${entry.growthGap}` : `${entry.growthGap}`;
+    ratingBadges.push({
+      label: 'Growth Delta',
+      value: deltaValue,
+      description: 'Difference between potential and current overall rating.',
+    });
+  }
 
   const attrRows = entry.kicker
     ? [
@@ -176,6 +206,25 @@ export default function PlayerCardModal({ open, onClose, entry, team }) {
           {secondaryMeta.length ? (
             <div style={{ color: '#cde8cd', fontSize: 12, marginTop: 2 }}>
               {secondaryMeta.join(' • ')}
+            </div>
+          ) : null}
+          {ratingBadges.length ? (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 10 }}>
+              {ratingBadges.map(({ label, value, description }) => (
+                <HoverTooltip key={label} content={description}>
+                  <div
+                    style={{
+                      background: 'rgba(7,45,7,0.7)',
+                      borderRadius: 8,
+                      padding: '6px 10px',
+                      minWidth: 90,
+                    }}
+                  >
+                    <div style={{ fontSize: 11, color: '#8fce8f', textTransform: 'uppercase', letterSpacing: 0.5 }}>{label}</div>
+                    <div style={{ fontSize: 20, fontWeight: 700, color: '#f2fff2' }}>{value}</div>
+                  </div>
+                </HoverTooltip>
+              ))}
             </div>
           ) : null}
         </div>
