@@ -25,6 +25,16 @@ const SCOUT_BADGE_DESCRIPTIONS = {
   'Temperament Eye': 'Represents how effectively the scout reads locker room fit and personality.',
 };
 
+const GM_BADGE_DESCRIPTIONS = {
+  Evaluation: 'Measures how sharply the GM identifies core roster strengths and weaknesses.',
+  Vision: 'Influences long-term planning, roster balance, and contract strategy.',
+  Culture: 'Captures how well the GM maintains a healthy locker room and organizational identity.',
+  Discipline: 'Reflects willingness to enforce standards and make tough decisions.',
+  Patience: 'Indicates how much time the GM affords coaches and scouts before making changes.',
+  Charisma: 'Represents relationship building with players, staff, and the media.',
+  Frustration: 'Tracks the current pressure level the GM is feeling internally.',
+};
+
 function formatNewsTimestamp(value) {
   if (!value) return '';
   try {
@@ -127,7 +137,7 @@ function RosterSection({ title, players, onPlayerSelect }) {
                                 textTransform: 'uppercase',
                               }}
                             >
-                              IR
+                              {player.injury?.status === 'suspension' ? 'SUS' : 'IR'}
                             </span>
                           ) : null}
                         </span>
@@ -136,7 +146,7 @@ function RosterSection({ title, players, onPlayerSelect }) {
                         </span>
                         {player.onInjuredReserve && (player.injury?.description || player.injury?.gamesRemaining != null) ? (
                           <span style={{ fontSize: 11, color: '#ff9f9f' }}>
-                            {player.injury?.description || 'Injured'}
+                            {player.injury?.status === 'suspension' ? 'Suspended' : player.injury?.description || 'Injured'}
                             {player.injury?.gamesRemaining != null
                               ? ` • ${player.injury.gamesRemaining} game${player.injury.gamesRemaining === 1 ? '' : 's'} remaining`
                               : ''}
@@ -373,11 +383,53 @@ function ScoutCardModal({ open, onClose, scout, team }) {
   );
 }
 
+function GMCardModal({ open, onClose, gm, team }) {
+  if (!open || !gm) return null;
+  const teamName = team?.displayName || team?.name || team?.id || 'Team';
+  const tenureText = gm.tenure ? `${gm.tenure} season${gm.tenure === 1 ? '' : 's'} on the job` : 'New hire';
+  const frustration = gm.frustration != null ? Math.max(0, Math.min(4, gm.frustration)) : null;
+
+  return (
+    <Modal open={open} onClose={onClose} title={`GM Card • ${gm.name}`} width="min(90vw, 560px)">
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+        <div>
+          <div style={{ fontSize: 18, fontWeight: 700 }}>{gm.name}</div>
+          <div style={{ color: '#a5e0a5', fontSize: 14 }}>
+            {teamName} • General Manager
+          </div>
+          <div style={{ color: '#cde8cd', fontSize: 12, marginTop: 4 }}>{tenureText}</div>
+        </div>
+
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, fontSize: 13 }}>
+          <InfoBadge label="Evaluation" value={gm.evaluation ?? 0.5} description={GM_BADGE_DESCRIPTIONS.Evaluation} />
+          <InfoBadge label="Vision" value={gm.vision ?? 0.5} description={GM_BADGE_DESCRIPTIONS.Vision} />
+          <InfoBadge label="Culture" value={gm.culture ?? 0.5} description={GM_BADGE_DESCRIPTIONS.Culture} />
+          <InfoBadge label="Discipline" value={gm.discipline ?? 0.5} description={GM_BADGE_DESCRIPTIONS.Discipline} />
+          <InfoBadge label="Patience" value={gm.patience ?? 0.5} description={GM_BADGE_DESCRIPTIONS.Patience} />
+          <InfoBadge label="Charisma" value={gm.charisma ?? 0.5} description={GM_BADGE_DESCRIPTIONS.Charisma} />
+          {frustration != null ? (
+            <InfoBadge label="Frustration" value={frustration / 4} description={GM_BADGE_DESCRIPTIONS.Frustration} />
+          ) : null}
+        </div>
+
+        <div style={{ border: '1px solid rgba(26,92,26,0.35)', borderRadius: 10, padding: '10px 12px', background: 'rgba(5,32,5,0.92)' }}>
+          <div style={{ fontWeight: 600, marginBottom: 6 }}>Front Office Notes</div>
+          <p style={{ margin: 0, fontSize: 13, lineHeight: 1.5, color: '#cde8cd' }}>
+            This GM oversees both the coaching staff and scouting department. Higher discipline scores make abrupt changes more
+            likely when the team struggles, while patience grants coaches extra breathing room to execute a long-term plan.
+          </p>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
 export default function TeamDirectoryModal({ open, onClose, season, league = null }) {
   const teams = useMemo(() => buildTeamDirectoryData(season, league), [season, league]);
   const [selectedTeamId, setSelectedTeamId] = useState(null);
   const [coachFocus, setCoachFocus] = useState(null);
   const [scoutFocus, setScoutFocus] = useState(null);
+  const [gmFocus, setGmFocus] = useState(null);
   const [teamNewsOpen, setTeamNewsOpen] = useState(false);
   const { openPlayerCard } = usePlayerCard();
 
@@ -404,6 +456,7 @@ export default function TeamDirectoryModal({ open, onClose, season, league = nul
     if (!open) {
       setCoachFocus(null);
       setScoutFocus(null);
+      setGmFocus(null);
       setTeamNewsOpen(false);
       return;
     }
@@ -419,6 +472,7 @@ export default function TeamDirectoryModal({ open, onClose, season, league = nul
 
   useEffect(() => {
     setTeamNewsOpen(false);
+    setGmFocus(null);
   }, [selectedTeamId]);
 
   const selectedTeam = teams.find((team) => team.id === selectedTeamId) || null;
@@ -436,6 +490,11 @@ export default function TeamDirectoryModal({ open, onClose, season, league = nul
   const handleScoutOpen = () => {
     if (!selectedTeam?.scout) return;
     setScoutFocus({ scout: selectedTeam.scout, team: selectedTeam.identity });
+  };
+
+  const handleGmOpen = () => {
+    if (!selectedTeam?.gm) return;
+    setGmFocus({ gm: selectedTeam.gm, team: selectedTeam.identity });
   };
 
   return (
@@ -594,6 +653,44 @@ export default function TeamDirectoryModal({ open, onClose, season, league = nul
                 </div>
               </div>
 
+              {selectedTeam.gm ? (
+                <div
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    background: 'rgba(8,59,8,0.8)',
+                    border: '1px solid rgba(26,92,26,0.35)',
+                    borderRadius: 12,
+                    padding: '10px 14px',
+                  }}
+                >
+                  <div>
+                    <div style={{ fontSize: 13, color: '#a5e0a5', textTransform: 'uppercase', letterSpacing: 0.4 }}>
+                      General Manager
+                    </div>
+                    <div style={{ fontSize: 16, fontWeight: 600 }}>
+                      {selectedTeam.gm?.name || 'Unknown GM'}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleGmOpen}
+                    style={{
+                      padding: '6px 12px',
+                      borderRadius: 8,
+                      border: '1px solid rgba(198,255,198,0.4)',
+                      background: 'transparent',
+                      color: '#f2fff2',
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    View GM Card
+                  </button>
+                </div>
+              ) : null}
+
               <div
                 style={{
                   display: 'flex',
@@ -684,6 +781,12 @@ export default function TeamDirectoryModal({ open, onClose, season, league = nul
         onClose={() => setScoutFocus(null)}
         scout={scoutFocus?.scout || null}
         team={scoutFocus?.team || null}
+      />
+      <GMCardModal
+        open={!!gmFocus}
+        onClose={() => setGmFocus(null)}
+        gm={gmFocus?.gm || null}
+        team={gmFocus?.team || null}
       />
       <Modal
         open={teamNewsOpen}

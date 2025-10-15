@@ -8,6 +8,7 @@ import TeamDirectoryModal from './ui/TeamDirectoryModal';
 import LeaderboardsModal from './ui/LeaderboardsModal';
 import NewsModal from './ui/NewsModal';
 import SeasonScheduleModal from './ui/SeasonScheduleModal';
+import FreeAgentModal from './ui/FreeAgentModal';
 import './AppLayout.css';
 import { PlayerCardProvider } from './ui/PlayerCardProvider';
 
@@ -476,6 +477,19 @@ function cloneLeague(league) {
     acc[teamId] = { ...scout };
     return acc;
   }, {});
+  const teamCoaches = Object.entries(league.teamCoaches || {}).reduce((acc, [teamId, coach]) => {
+    acc[teamId] = coach
+      ? {
+        ...coach,
+        identity: coach.identity ? { ...coach.identity } : null,
+      }
+      : null;
+    return acc;
+  }, {});
+  const teamGms = Object.entries(league.teamGms || {}).reduce((acc, [teamId, gm]) => {
+    acc[teamId] = gm ? { ...gm } : null;
+    return acc;
+  }, {});
   const teamMoods = Object.entries(league.teamMoods || {}).reduce((acc, [teamId, mood]) => {
     acc[teamId] = mood ? { ...mood } : null;
     return acc;
@@ -487,6 +501,17 @@ function cloneLeague(league) {
   const freeAgents = Array.isArray(league.freeAgents)
     ? league.freeAgents.map((player) => clonePlayerRecordForLeague(player))
     : [];
+  const staffFreeAgents = {
+    coaches: Array.isArray(league.staffFreeAgents?.coaches)
+      ? league.staffFreeAgents.coaches.map((entry) => ({ ...entry, identity: entry.identity ? { ...entry.identity } : null }))
+      : [],
+    scouts: Array.isArray(league.staffFreeAgents?.scouts)
+      ? league.staffFreeAgents.scouts.map((entry) => ({ ...entry }))
+      : [],
+    gms: Array.isArray(league.staffFreeAgents?.gms)
+      ? league.staffFreeAgents.gms.map((entry) => ({ ...entry }))
+      : [],
+  };
   const newsFeed = cloneNewsFeed(league.newsFeed || []);
   const injuredReserve = cloneInjuredReserve(league.injuredReserve || {});
   const injuryLog = cloneInjuryLog(league.injuryLog || {});
@@ -512,10 +537,13 @@ function cloneLeague(league) {
     finalizedSeasonNumber: league.finalizedSeasonNumber ?? null,
     seasonNumber: league.seasonNumber ?? 1,
     playerDirectory,
+    teamCoaches,
     teamScouts,
+    teamGms,
     teamMoods,
     teamRosters,
     freeAgents,
+    staffFreeAgents,
     newsFeed,
     injuredReserve,
     injuryLog,
@@ -612,6 +640,23 @@ function mergeLeagueData(target, source) {
       target.teamScouts[teamId] = { ...scout };
     }
   });
+  target.teamCoaches ||= {};
+  Object.entries(source.teamCoaches || {}).forEach(([teamId, coach]) => {
+    if (!target.teamCoaches[teamId]) {
+      target.teamCoaches[teamId] = coach
+        ? {
+          ...coach,
+          identity: coach.identity ? { ...coach.identity } : null,
+        }
+        : null;
+    }
+  });
+  target.teamGms ||= {};
+  Object.entries(source.teamGms || {}).forEach(([teamId, gm]) => {
+    if (!target.teamGms[teamId]) {
+      target.teamGms[teamId] = gm ? { ...gm } : null;
+    }
+  });
   const mergedMoods = { ...(target.teamMoods || {}) };
   Object.entries(source.teamMoods || {}).forEach(([teamId, mood]) => {
     mergedMoods[teamId] = mood ? { ...mood } : null;
@@ -628,6 +673,25 @@ function mergeLeagueData(target, source) {
   if (!target.freeAgents && Array.isArray(source.freeAgents)) {
     target.freeAgents = source.freeAgents.map((player) => clonePlayerRecordForLeague(player));
   }
+
+  target.staffFreeAgents ||= { coaches: [], scouts: [], gms: [] };
+  ['coaches', 'scouts', 'gms'].forEach((key) => {
+    const existing = Array.isArray(target.staffFreeAgents[key])
+      ? target.staffFreeAgents[key]
+      : [];
+    const seen = new Set(existing.map((entry) => entry?.id).filter(Boolean));
+    (source.staffFreeAgents?.[key] || []).forEach((entry, index) => {
+      if (!entry) return;
+      const id = entry.id || `${key}-import-${index}-${existing.length}`;
+      if (seen.has(id)) return;
+      const clone = { ...entry };
+      if (clone.identity) clone.identity = { ...clone.identity };
+      clone.id = id;
+      existing.push(clone);
+      seen.add(id);
+    });
+    target.staffFreeAgents[key] = existing;
+  });
 
   const newsSeed = new Map((target.newsFeed || []).map((entry) => [entry.id || `${entry.type}-${entry.text}`, entry]));
   (source.newsFeed || []).forEach((entry) => {
@@ -865,6 +929,7 @@ export default function App() {
   const [leaderboardsOpen, setLeaderboardsOpen] = useState(false);
   const [newsOpen, setNewsOpen] = useState(false);
   const [scheduleOpen, setScheduleOpen] = useState(false);
+  const [freeAgentsOpen, setFreeAgentsOpen] = useState(false);
   const [lastSeenNewsTimestamp, setLastSeenNewsTimestamp] = useState(0);
   const [seasonSnapshots, setSeasonSnapshots] = useState(() => []);
   const gameRefs = useRef([]);
@@ -960,6 +1025,11 @@ export default function App() {
     setTeamDirectoryOpen(true);
   }, [collectSeasonSnapshots]);
 
+  const handleOpenFreeAgents = useCallback(() => {
+    collectSeasonSnapshots();
+    setFreeAgentsOpen(true);
+  }, [collectSeasonSnapshots]);
+
   const handleOpenLeaderboards = useCallback(() => {
     collectSeasonSnapshots();
     setLeaderboardsOpen(true);
@@ -1028,6 +1098,7 @@ export default function App() {
         onShowSchedule={handleOpenSchedule}
         onShowLeaderboards={handleOpenLeaderboards}
         onShowNews={handleOpenNews}
+        onShowFreeAgents={handleOpenFreeAgents}
         seasonProgressLabel={seasonProgress.label}
         hasUnseenNews={hasUnseenNews}
       />
@@ -1082,6 +1153,11 @@ export default function App() {
         open={leaderboardsOpen}
         onClose={() => setLeaderboardsOpen(false)}
         season={aggregatedSeasonStats?.season || null}
+        league={aggregatedSeasonStats?.league || null}
+      />
+      <FreeAgentModal
+        open={freeAgentsOpen}
+        onClose={() => setFreeAgentsOpen(false)}
         league={aggregatedSeasonStats?.league || null}
       />
       <NewsModal
