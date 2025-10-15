@@ -210,6 +210,8 @@ const CFG = {
     COVER_SWITCH_DIST: 26,      // when crossers get closer to another DB, switch
     PURSUIT_LEAD_T: 0.28,       // seconds to lead the carrier
     PURSUIT_SPEED: 1.12,        // defenders run a bit hotter in pursuit
+    PURSUIT_TRIGGER_R: 180,     // defenders rally when carrier within this radius
+    PURSUIT_RECENT_TIME: 1.0,   // after a catch/possession change, rally quickly
 };
 
 const SHOTGUN_HINTS = ['gun', 'shotgun', 'empty'];
@@ -1860,23 +1862,34 @@ function _findZoneHelpAim(ctx, defender, key) {
 }
 
 function _pursueCarrierIfNeeded(ctx, key, defender, assignedTarget) {
-    const { carrierPos, carrierRole, carrier, ball } = ctx;
+    const { carrierPos, carrierRole, carrier, ball, lastCarrierChange } = ctx;
     if (!carrierPos || !carrier || ball.inAir) return false;
 
     const release = _coverageReleaseDepthFor(ctx.cover, key);
     const distToCarrier = dist(defender.pos, carrierPos);
     const assigned = assignedTarget && carrierRole && assignedTarget === carrierRole;
 
+    const releaseY = carrierRole === 'QB' ? release.qb : release.run;
+    const clearedRelease = carrierPos.y >= releaseY - PX_PER_YARD * 0.5;
+    const recentPossession = (ctx.s.play.elapsed - (lastCarrierChange ?? 0)) <= CFG.PURSUIT_RECENT_TIME;
+    const closeEnough = distToCarrier <= CFG.PURSUIT_TRIGGER_R;
+    const sameSide = Math.abs(defender.pos.x - carrierPos.x) <= 120;
+
     if (!assigned) {
-        const releaseY = carrierRole === 'QB' ? release.qb : release.run;
-        if (carrierPos.y < releaseY && distToCarrier > 110) return false;
-        if (carrierRole === 'QB' && carrierPos.y < release.qb && distToCarrier > 80) return false;
-        if (distToCarrier > 240) return false;
+        const rally = recentPossession && (closeEnough || sameSide);
+        const qbBehindRelease = carrierRole === 'QB' && carrierPos.y < release.qb - PX_PER_YARD * 0.5;
+        if (!clearedRelease && !closeEnough && !rally && !qbBehindRelease) return false;
+        if (distToCarrier > CFG.PURSUIT_TRIGGER_R * 1.4) return false;
     }
 
-    const lead = _leadPoint(carrier, assigned ? 0.34 : 0.26, ctx.dt);
-    const speedMul = CFG.PURSUIT_SPEED * (assigned ? 1.1 : 1.0);
-    moveToward(defender, lead, ctx.dt, speedMul);
+    const leadT = assigned ? CFG.PURSUIT_LEAD_T * 1.2 : CFG.PURSUIT_LEAD_T * 0.9;
+    const lead = _leadPoint(carrier, leadT, ctx.dt);
+    const aim = {
+        x: lead.x,
+        y: Math.min(lead.y, carrierPos.y + PX_PER_YARD * 0.2),
+    };
+    const speedMul = CFG.PURSUIT_SPEED * (assigned ? 1.18 : recentPossession ? 1.08 : 1.0);
+    moveToward(defender, aim, ctx.dt, speedMul);
     return true;
 }
 
@@ -2262,6 +2275,16 @@ export function defenseLogic(s, dt) {
     const carrier = carrierInfo.player;
     const carrierRole = carrierInfo.role;
     const carrierPos = carrier?.pos || null;
+
+    if (carrierInfo.id) {
+        if (s.play.__lastCarrierId !== carrierInfo.id) {
+            s.play.__lastCarrierId = carrierInfo.id;
+            s.play.__lastCarrierChange = s.play.elapsed;
+        } else if (s.play.__lastCarrierChange == null) {
+            s.play.__lastCarrierChange = s.play.elapsed;
+        }
+    }
+    const lastCarrierChange = s.play.__lastCarrierChange ?? 0;
     // 1) DL rush with shedding and lane offsets to avoid piling behind a teammate
     const rushKeys = ['LE', 'DT', 'RTk', 'RE'];
     const qbPos = _ensureVec(off.QB);
@@ -2324,6 +2347,7 @@ export function defenseLogic(s, dt) {
         carrier,
         carrierRole,
         carrierPos,
+        lastCarrierChange,
     };
 
     MAN_KEYS.forEach(key => _updateManCoverageForKey(coverageCtx, key));
