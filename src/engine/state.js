@@ -154,6 +154,14 @@ function buildPlayDetails(state, entry = {}) {
         if (name) details.fumbledBy = name;
     }
 
+    if (ctx?.fumbleRecoveredBy) {
+        const meta = lookupPlayerMeta(state, ctx.fumbleRecoveredBy);
+        const name = lastNameFromMeta(meta);
+        if (name) details.fumbleRecoveredBy = name;
+    } else if (ctx?.fumbleRecoveredTeam) {
+        details.fumbleRecoveredTeam = ctx.fumbleRecoveredTeam;
+    }
+
     if (Object.keys(details).length === 0) return null;
     return details;
 }
@@ -2311,7 +2319,7 @@ export function stepGame(state, dt) {
             const activePlayers = gatherActivePlayers(s.play);
             beginFrame(activePlayers);
 
-            moveOL(s.play.formation.off, s.play.formation.def, dt);
+            moveOL(s.play.formation.off, s.play.formation.def, dt, s);
             moveReceivers(s.play.formation.off, dt, s);
             moveTE(s.play.formation.off, dt, s);
             qbLogic(s, dt);
