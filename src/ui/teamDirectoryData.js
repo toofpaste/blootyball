@@ -178,6 +178,23 @@ function buildSpecialGroup(special = {}, statsMap, league, teamId) {
   return list;
 }
 
+function computeGroupRating(players = []) {
+  if (!Array.isArray(players) || !players.length) return null;
+  const totals = players.reduce(
+    (acc, player) => {
+      if (player?.overall == null || Number.isNaN(player.overall)) {
+        return acc;
+      }
+      acc.count += 1;
+      acc.sum += player.overall;
+      return acc;
+    },
+    { sum: 0, count: 0 },
+  );
+  if (!totals.count) return null;
+  return Math.round(totals.sum / totals.count);
+}
+
 function pickFallbackTeamId(teamId, availableIds = []) {
   if (!availableIds.length) return teamId;
   const idx = availableIds.indexOf(teamId);
@@ -234,6 +251,8 @@ export function buildTeamDirectoryData(season, league) {
     const offense = buildRosterGroup(group.off, ROLES_OFF, 'Offense', statsMap, league, teamId, 'offense');
     const defense = buildRosterGroup(group.def, ROLES_DEF, 'Defense', statsMap, league, teamId, 'defense');
     const special = buildSpecialGroup(group.special, statsMap, league, teamId);
+    const offenseRating = computeGroupRating(offense);
+    const defenseRating = computeGroupRating(defense);
 
     return {
       id: teamId,
@@ -254,6 +273,8 @@ export function buildTeamDirectoryData(season, league) {
         defense,
         special,
       },
+      offenseRating,
+      defenseRating,
     };
   });
 }
@@ -271,5 +292,19 @@ export function buildPlayerLookup(season, league) {
     team.roster.special.forEach(register);
   });
   return { teams, directory };
+}
+
+export function buildTeamRatingMap(season, league) {
+  if (!season) return {};
+  const teams = buildTeamDirectoryData(season, league);
+  return teams.reduce((acc, team) => {
+    if (!team?.id) return acc;
+    acc[team.id] = {
+      offense: team.offenseRating ?? null,
+      defense: team.defenseRating ?? null,
+      name: team.identity?.displayName || team.identity?.name || team.id,
+    };
+    return acc;
+  }, {});
 }
 
