@@ -8,20 +8,52 @@ function buildAngles(seasonProgress = {}, coverageWeek = null) {
   const recapWeek = coverageWeek || Math.max(1, upcomingWeek - 1);
   const storylinesWeek = Math.min(totalWeeks, Math.max(1, upcomingWeek));
   const nextWeek = Math.min(totalWeeks, storylinesWeek + 1);
+
   return [
     {
       id: `week-${recapWeek}-recap`,
       label: `Week ${recapWeek} Heat Check`,
       description: 'Recap last week\'s results, streaks, and highlight-reel plays with colorful commentary.',
       focus: 'recap',
+      prompt: 'Lead with the biggest swings, standout players, and coaching calls from the completed week. Cite specific scores or stats where possible.',
+      toneHint: 'realistic with a dash of hype',
       nextWeek: storylinesWeek,
       recapWeek,
     },
     {
-      id: `week-${storylinesWeek}-storylines`,
-      label: `Storylines Heading Into Week ${storylinesWeek}`,
-      description: 'Dig into standings pressure, playoff stakes, and front office moves shaping the league narrative.',
-      focus: 'storylines',
+      id: `week-${storylinesWeek}-stakes`,
+      label: `Race for Week ${storylinesWeek}`,
+      description: 'Dig into standings pressure, playoff math, and what every contender needs right now.',
+      focus: 'stakes',
+      prompt: 'Explain what is at stake in the standings, referencing point differentials, streaks, and executive decisions shaping the playoff race.',
+      toneHint: 'intense and analytical',
+      nextWeek,
+    },
+    {
+      id: `week-${storylinesWeek}-streakwatch`,
+      label: `Streak Watch & Power Pulse`,
+      description: 'Detail hot streaks, slumps, and point swings redefining the league hierarchy.',
+      focus: 'streaks',
+      prompt: 'Spotlight the hottest and coldest teams using streak data and recent scores. Work in colourful flair while staying grounded in numbers.',
+      toneHint: 'energetic and quirky',
+      nextWeek,
+    },
+    {
+      id: `week-${nextWeek}-matchups`,
+      label: `Marquee Matchups for Week ${nextWeek}`,
+      description: 'Preview pivotal games, revenge narratives, and tactical battles on tap for the next slate.',
+      focus: 'matchups',
+      prompt: 'Preview one or two compelling upcoming games by referencing the involved teams, their coaches or GMs, and how recent trends set the stage.',
+      toneHint: 'dramatic and anticipatory',
+      nextWeek,
+    },
+    {
+      id: `week-${storylinesWeek}-clubhouse`,
+      label: `Clubhouse Chatter & Front Office Buzz`,
+      description: 'Report on trades, signings, locker-room energy, and delightful oddities sweeping the league.',
+      focus: 'buzz',
+      prompt: 'Blend notable headlines with staff personalities and fan reaction. Keep it funny or wholesome while highlighting concrete developments.',
+      toneHint: 'whimsical and heartfelt',
       nextWeek,
     },
   ];

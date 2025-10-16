@@ -275,9 +275,30 @@ function collectNotableNews(league, limit = 6) {
 }
 
 function fallbackPressArticle(context) {
-  const { angleLabel, standings, recentResults, currentWeek, seasonNumber } = context;
+  const {
+    angle,
+    angleLabel,
+    standings,
+    recentResults,
+    currentWeek,
+    seasonNumber,
+  } = context;
   const sentences = [];
-  sentences.push(`${angleLabel} for Week ${currentWeek} of Season ${seasonNumber}.`);
+  const label = angleLabel || angle?.label || 'Press Coverage Spotlight';
+  sentences.push(`${label} for Week ${currentWeek} of Season ${seasonNumber}.`);
+  if (angle?.description) {
+    sentences.push(angle.description);
+  }
+  const focusNotes = {
+    recap: 'Expect a detailed retelling of the previous week with plenty of stats and sideline drama.',
+    stakes: 'The column zeroes in on the playoff math and who is feeling the heat in the standings.',
+    streaks: 'Watch for chatter about streaks, skids, and shifting power rankings.',
+    matchups: 'Preview pieces spotlight tactical battles and coaching adjustments for the next slate.',
+    buzz: 'Locker-room vibes, transactions, and quirky headlines take center stage this time.',
+  };
+  if (angle?.focus && focusNotes[angle.focus]) {
+    sentences.push(focusNotes[angle.focus]);
+  }
   if (standings.length) {
     const leaders = standings.slice(0, 3).map((team) => `${team.name} (${team.record.wins}-${team.record.losses}${team.record.ties ? `-${team.record.ties}` : ''})`).join(', ');
     sentences.push(`Top of the standings: ${leaders}.`);
@@ -326,12 +347,21 @@ async function generatePressArticle({ league, season, seasonProgress, coverageWe
 
   const fallback = fallbackPressArticle(context);
 
-  const userPrompt = `Generate an 8-10 sentence sports column for a weekly press article. `
-    + `Use the JSON context to reference team records, streaks, and recent headlines. `
-    + `The writing should feel like insider coverage, touching on coaches, executives, roster moves, and what is at stake. `
-    + `Use only the teams listed in validTeams and the players listed in validPlayers—do not invent new franchises or personas. `
-    + `Provide JSON with headline, preview, and article. Preview should be 1-2 sentences summarizing the hook.`;
+  const angleFocus = [
+    angle?.description ? `Angle description: ${angle.description}` : null,
+    angle?.prompt ? `Angle instructions: ${angle.prompt}` : null,
+    angle?.focus ? `Angle focus: ${angle.focus}.` : null,
+    angle?.toneHint ? `Lean into a ${angle.toneHint} tone.` : null,
+  ].filter(Boolean).join(' ');
 
+  const focusDirective = angleFocus ? `${angleFocus} ` : '';
+
+  const userPrompt = `Generate an 8-10 sentence sports column for a weekly press article. `
+    + `Use the JSON context to reference team records, streaks, staff members, and recent headlines. `
+    + `Touch on coaches, executives, roster moves, and what is at stake in the season. `
+    + `Use only the teams listed in validTeams and the players listed in validPlayers—do not invent new franchises or personas. `
+    + focusDirective
+    + `Provide JSON with headline, preview, and article. Preview should be 1-2 sentences summarizing the hook.`;
   const response = await callChatCompletion({
     messages: [
       { role: 'system', content: 'You are a veteran sports journalist covering a dramatic football league.' },
