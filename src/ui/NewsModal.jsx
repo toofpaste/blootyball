@@ -38,7 +38,9 @@ export default function NewsModal({ open, onClose, league, season }) {
 
   const items = useMemo(() => {
     if (!league?.newsFeed) return [];
-    return league.newsFeed.map((entry) => {
+    return league.newsFeed
+      .filter((entry) => entry?.type !== 'press')
+      .map((entry) => {
       const seasonNumber = entry.seasonNumber ?? season?.seasonNumber ?? league?.seasonNumber ?? null;
       const type = headlineType(entry.type);
       const teamName = resolveTeamName(entry.teamId);
@@ -57,7 +59,7 @@ export default function NewsModal({ open, onClose, league, season }) {
         createdAt: formatTimestamp(entry.createdAt),
         raw: entry,
       };
-    });
+      });
   }, [league, season]);
 
   useEffect(() => {
