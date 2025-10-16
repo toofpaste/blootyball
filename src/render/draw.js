@@ -8,7 +8,7 @@ import {
 
 import { yardsToPixY, clamp } from '../engine/helpers';
 import { getBallPix } from '../engine/ball';
-import { resolveTeamColor, resolveSlotColors } from '../engine/colors';
+import { resolveTeamColor, resolveSlotColors, blendTeamColors } from '../engine/colors';
 
 const QB_VISION_COLORS = {
     PRIMARY: '#ffd54f',
@@ -381,6 +381,7 @@ function drawRouteBreaks(ctx, points, color, alpha = 1) {
 /* ------------ Field rendering with hashes & numbers ------------ */
 function drawField(ctx, state) {
     const homeIdentity = getTeamVisualIdentity(state, TEAM_RED);
+    const awayIdentity = getTeamVisualIdentity(state, TEAM_BLK);
 
     ctx.fillStyle = COLORS.fieldGreen;
     ctx.fillRect(0, 0, FIELD_PIX_W, FIELD_PIX_H);
@@ -431,7 +432,12 @@ function drawField(ctx, state) {
     const rightNumX = FIELD_PIX_W - 24;
 
     const seq = [10, 20, 30, 40, 50, 40, 30, 20, 10];
-    const numbersColor = homeIdentity?.color || COLORS.lineWhite;
+    const numbersColor = blendTeamColors(
+        homeIdentity?.color,
+        awayIdentity?.color,
+        0.5,
+        COLORS.lineWhite,
+    );
     const numberOutline = 'rgba(0,0,0,0.55)';
     for (let i = 0; i < seq.length; i++) {
         const ydsFromTopGL = ENDZONE_YARDS + (i + 1) * 10;
@@ -442,13 +448,24 @@ function drawField(ctx, state) {
 
     const activeTag = state?.matchup?.tag || state?.lastCompletedGame?.matchup?.tag || null;
     if (activeTag === 'playoff-championship') {
-        drawBluperBowlCenterpiece(ctx);
+        const centerpieceColor = blendTeamColors(
+            homeIdentity?.color,
+            awayIdentity?.color,
+            0.5,
+            '#d7b957',
+        );
+        drawBluperBowlCenterpiece(ctx, centerpieceColor);
     }
 
-    if (homeIdentity?.shortName) {
-        const labelColor = homeIdentity?.color;
-        drawEndzoneLabel(ctx, ezPix / 2, homeIdentity.shortName, labelColor, true);
-        drawEndzoneLabel(ctx, FIELD_PIX_H - ezPix / 2, homeIdentity.shortName, labelColor, false);
+    const topLabel = awayIdentity?.shortName || homeIdentity?.shortName;
+    const bottomLabel = homeIdentity?.shortName || awayIdentity?.shortName;
+    const topColor = awayIdentity?.color || numbersColor;
+    const bottomColor = homeIdentity?.color || numbersColor;
+    if (topLabel) {
+        drawEndzoneLabel(ctx, ezPix / 2, topLabel, topColor, true);
+    }
+    if (bottomLabel) {
+        drawEndzoneLabel(ctx, FIELD_PIX_H - ezPix / 2, bottomLabel, bottomColor, false);
     }
 
     drawGoalPost(ctx, yardsToPixY(ENDZONE_YARDS), -1);
@@ -655,16 +672,18 @@ function drawEndzoneLabel(ctx, centerY, text, color, rotate180 = false) {
     ctx.restore();
 }
 
-function drawBluperBowlCenterpiece(ctx) {
+function drawBluperBowlCenterpiece(ctx, fillColor = '#d7b957') {
     ctx.save();
     ctx.translate(FIELD_PIX_W / 2, FIELD_PIX_H / 2);
+    ctx.rotate(-Math.PI / 2);
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.font = '700 52px "Arial Black", "Oswald", sans-serif';
-    ctx.lineWidth = 7;
-    ctx.strokeStyle = 'rgba(0, 0, 0, 0.55)';
+    ctx.font = '800 58px "Arial Black", "Oswald", sans-serif';
+    ctx.lineWidth = 6;
+    ctx.globalAlpha = 0.72;
+    ctx.strokeStyle = 'rgba(0, 0, 0, 0.35)';
     ctx.strokeText('BLUPERBOWL', 0, 0);
-    ctx.fillStyle = '#d7b957';
+    ctx.fillStyle = fillColor || '#d7b957';
     ctx.fillText('BLUPERBOWL', 0, 0);
     ctx.restore();
 }

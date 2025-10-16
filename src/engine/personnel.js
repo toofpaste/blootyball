@@ -4,6 +4,7 @@ import { clamp, choice, rand } from './helpers';
 import { buildCoachForTeam } from './coaches';
 import {
   ensurePlayerTemperament,
+  ensurePlayerLoyalty,
   cloneTemperament,
   computeTeamMood,
   updateTeamTemperament,
@@ -1746,6 +1747,8 @@ function pushPlayerToFreeAgency(league, player, role, reason) {
   const released = { ...player, role, releasedReason: reason || 'released', temperament: cloneTemperament(player.temperament) };
   decoratePlayerMetrics(released, role);
   ensurePlayerTemperament(released);
+  ensurePlayerLoyalty(released);
+  released.currentTeamId = null;
   league.freeAgents.push(released);
 }
 
@@ -1754,6 +1757,12 @@ function assignPlayerToRoster(league, teamId, role, player) {
   const rosters = ensureTeamRosterShell(league);
   const side = roleSide(role);
   player.role = role;
+  if (!player.originalTeamId) {
+    player.originalTeamId = player.originalTeamId || teamId;
+  }
+  player.currentTeamId = teamId;
+  ensurePlayerTemperament(player);
+  ensurePlayerLoyalty(player);
   if (!rosters[teamId]) {
     rosters[teamId] = { offense: {}, defense: {}, special: {} };
   }
@@ -1779,6 +1788,7 @@ function removePlayerFromRoster(league, teamId, role) {
     delete rosters[teamId].special.K;
   }
   if (removed?.id) removeDirectoryEntry(league, removed.id);
+  if (removed) removed.currentTeamId = null;
   return removed;
 }
 
@@ -2443,13 +2453,201 @@ function processOffseasonInjuries(league) {
   });
 }
 
-export function advanceLeagueOffseason(league, season) {
+function computeTeamWinPct(record = {}) {
+  const wins = record.wins ?? 0;
+  const losses = record.losses ?? 0;
+  const ties = record.ties ?? 0;
+  const total = wins + losses + ties;
+  if (total <= 0) return 0.5;
+  return clamp((wins + ties * 0.5) / total, 0, 1);
+}
+
+function collectRosterEntries(roster) {
+  const entries = [];
+  if (!roster) return entries;
+  Object.entries(roster.offense || {}).forEach(([role, player]) => { if (player) entries.push({ role, player }); });
+  Object.entries(roster.defense || {}).forEach(([role, player]) => { if (player) entries.push({ role, player }); });
+  if (roster.special?.K) entries.push({ role: 'K', player: roster.special.K });
+  return entries;
+}
+
+function handleFreeAgencyDepartures(league, season, context) {
   if (!league) return;
-  ensureSeasonPersonnel(league, (season?.seasonNumber || league.seasonNumber || 1) + 1);
+  const departures = [];
+  const totalDays = context.totalDays || 5;
+  const dayNumber = context.dayNumber || 1;
+  TEAM_IDS.forEach((teamId) => {
+    const roster = ensureTeamRosterShell(league)[teamId];
+    if (!roster) return;
+    const record = season?.teams?.[teamId]?.record || {};
+    const winPct = computeTeamWinPct(record);
+    collectRosterEntries(roster).forEach(({ role, player }) => {
+      if (!player) return;
+      const temperament = ensurePlayerTemperament(player);
+      const loyalty = ensurePlayerLoyalty(player);
+      const mood = temperament?.mood ?? 0;
+      const rating = player.overall ?? 60;
+      let desire = 0.12 + (1 - loyalty) * 0.8;
+      if (rating >= 84) desire += 0.12;
+      else if (rating >= 78) desire += 0.07;
+      else if (rating >= 72) desire += 0.04;
+      if (mood < 0) desire += Math.min(0.45, -mood * 0.35);
+      if (winPct < 0.45) desire += Math.min(0.4, (0.45 - winPct) * 0.7);
+      if (player.currentTeamId && player.originalTeamId && player.currentTeamId !== player.originalTeamId) {
+        desire -= 0.05;
+      }
+      if (dayNumber === totalDays) desire += 0.05;
+      desire = clamp(desire, 0, 0.85);
+      if (Math.random() < desire) {
+        departures.push({ teamId, role, player });
+      }
+    });
+  });
+
+  if (!departures.length) return;
+
+  context.events ||= [];
+  departures.forEach(({ teamId, role, player }) => {
+    const removed = removePlayerFromRoster(league, teamId, role) || player;
+    if (!removed) return;
+    adjustPlayerMood(removed, -0.25);
+    removed.loyalty = clamp((removed.loyalty ?? 0.5) * 0.88, 0, 1);
+    pushPlayerToFreeAgency(league, removed, role, 'requested release');
+    const teamIdentity = getTeamIdentity(teamId)?.abbr || teamId;
+    recordNewsInternal(league, {
+      type: 'free-agent',
+      teamId,
+      text: `${removed.firstName} ${removed.lastName} (${role}) enters free agency`,
+      detail: `${teamIdentity} respect the player\'s request to test the market`,
+      seasonNumber: league.seasonNumber || null,
+    });
+    context.events.push(`${removed.firstName} ${removed.lastName} is exploring the market after leaving ${teamIdentity}.`);
+    refreshTeamMood(league, teamId);
+  });
+}
+
+function evaluateTeamInterestForPlayer(league, season, teamId, role, player) {
+  const roster = ensureTeamRosterShell(league)[teamId];
+  const side = roleSide(role);
+  const occupant = side === 'offense'
+    ? roster?.offense?.[role] || null
+    : side === 'defense'
+      ? roster?.defense?.[role] || null
+      : roster?.special?.K || null;
+  const strategy = teamStrategyFromRecord(season?.teams?.[teamId]);
+  const playerValue = evaluatePlayerTrueValue(player, strategy);
+  const incumbentValue = occupant ? evaluatePlayerTrueValue(occupant, strategy) : 40;
+  let interest = playerValue - incumbentValue;
+  if (!occupant) interest += 8;
+  else if (occupant.overall < 60) interest += 3.5;
+  const mood = league.teamMoods?.[teamId]?.score ?? 0;
+  interest += mood * 1.4;
+  const winPct = computeTeamWinPct(season?.teams?.[teamId]?.record || {});
+  interest += (winPct - 0.5) * 3.5;
+  interest += rand(-1.5, 1.5);
+  return interest;
+}
+
+function signFreeAgentToTeam(league, player, teamId, role, context, reason) {
+  if (!league || !player || !teamId || !role) return;
+  const index = league.freeAgents.findIndex((entry) => entry?.id === player.id);
+  const [chosen] = index >= 0 ? league.freeAgents.splice(index, 1) : [player];
+  const assigned = { ...chosen, role, origin: 'free-agent' };
+  assigned.loyalty = clamp((assigned.loyalty ?? 0.5) * 0.6 + rand(0.22, 0.4), 0.12, 0.96);
+  assignPlayerToRoster(league, teamId, role, assigned);
+  const identity = getTeamIdentity(teamId)?.abbr || teamId;
+  recordNewsInternal(league, {
+    type: 'signing',
+    teamId,
+    text: `${identity} sign ${assigned.firstName} ${assigned.lastName} (${role})`,
+    detail: reason || 'Offseason acquisition',
+    seasonNumber: league.seasonNumber || null,
+  });
+  context.events ||= [];
+  context.events.push(`${assigned.firstName} ${assigned.lastName} chooses ${identity}, stirring hot-stove debate.`);
+  refreshTeamMood(league, teamId);
+}
+
+function attemptFreeAgentSignings(league, season, context) {
+  if (!league?.freeAgents?.length) return;
+  const candidates = league.freeAgents
+    .map((player) => ({
+      player,
+      rating: player.overall ?? evaluatePlayerTrueValue(player, 'balanced'),
+      role: player.role || 'WR1',
+    }))
+    .sort((a, b) => (b.rating ?? 0) - (a.rating ?? 0));
+
+  candidates.forEach(({ player, rating, role }) => {
+    const interestBoard = TEAM_IDS.map((teamId) => ({
+      teamId,
+      interest: evaluateTeamInterestForPlayer(league, season, teamId, role, player),
+    })).sort((a, b) => (b.interest ?? 0) - (a.interest ?? 0));
+    const best = interestBoard[0];
+    if (!best) return;
+    const threshold = rating >= 85 ? -0.5 : rating >= 80 ? 0 : rating >= 75 ? 0.35 : rating >= 70 ? 0.6 : 1.05;
+    if (best.interest > threshold) {
+      signFreeAgentToTeam(league, player, best.teamId, role, context, 'Free agent market splash');
+    }
+  });
+}
+
+function recordOffseasonPress(league, season, context, newEntries = []) {
+  if (!league) return;
+  const dayNumber = context.dayNumber || 1;
+  const totalDays = context.totalDays || 5;
+  const completedSeason = season?.seasonNumber || league.offseason?.completedSeasonNumber || league.seasonNumber || 1;
+  const upcomingSeason = league.offseason?.upcomingSeasonNumber || league.seasonNumber || (completedSeason + 1);
+  const championTeamId = context.championTeamId || league.offseason?.championTeamId || season?.championTeamId || null;
+  const championName = championTeamId ? (getTeamIdentity(championTeamId)?.displayName || championTeamId) : 'the league';
+  const highlightMoves = newEntries.filter((entry) => ['trade', 'signing', 'free-agent', 'release'].includes(entry?.type));
+  const moveSummary = highlightMoves.slice(0, 3).map((entry) => entry.text).join('; ');
+
+  const story = [];
+  story.push(`Day ${dayNumber} of the ${completedSeason} offseason is underway as front offices work the phones.`);
+  if (dayNumber === 1) {
+    story.push(`${championName} just hoisted the BluperBowl trophy, and columnists are filing season recaps while breaking down what comes next.`);
+  } else {
+    story.push(`Predictions for Season ${upcomingSeason} are already flying, with analysts debating who can unseat ${championName}.`);
+  }
+  if (context.events?.length) {
+    story.push(context.events.slice(0, 3).join(' '));
+  } else if (moveSummary) {
+    story.push(moveSummary);
+  } else {
+    story.push('The rumor mill is quiet, but scouts insist roster boards are shifting beneath the surface.');
+  }
+  story.push('Press row will publish fresh opinions every day of the offseason, grading trades, signings, and locker-room gambles.');
+
+  recordNewsInternal(league, {
+    type: 'press',
+    text: `Press Desk: Offseason Day ${dayNumber} notebook`,
+    detail: story.join(' '),
+    seasonNumber: league.seasonNumber || null,
+    context: { dayNumber, totalDays },
+  });
+}
+
+function ensureOffseasonState(league, totalDays = 5) {
+  if (!league) return null;
+  league.offseason ||= {};
+  const state = league.offseason;
+  state.totalDays = totalDays;
+  state.dayDurationMs = state.dayDurationMs || 60000;
+  return state;
+}
+
+export function advanceLeagueOffseason(league, season, context = {}) {
+  if (!league) return;
   processOffseasonInjuries(league);
   TEAM_IDS.forEach((teamId) => {
     const strategy = teamStrategyFromRecord(season?.teams?.[teamId]);
     simulateRosterCuts(league, teamId, strategy);
+  });
+  handleFreeAgencyDepartures(league, season, context);
+  attemptFreeAgentSignings(league, season, context);
+  TEAM_IDS.forEach((teamId) => {
+    const strategy = teamStrategyFromRecord(season?.teams?.[teamId]);
     const needs = evaluateRosterNeeds(league, teamId);
     if (needs.length) {
       fillRosterNeeds(league, teamId, needs, { reason: 'offseason adjustments', mode: strategy });
@@ -2458,6 +2656,106 @@ export function advanceLeagueOffseason(league, season) {
   runTradeMarket(league, season);
   evaluateStaffChanges(league, season);
   TEAM_IDS.forEach((teamId) => refreshTeamMood(league, teamId));
+}
+
+function completeLeagueOffseason(league) {
+  const state = ensureOffseasonState(league);
+  if (!state) return;
+  state.active = false;
+  state.nextDayAt = null;
+  state.completedAt = Date.now();
+  state.nextSeasonReady = true;
+  recordNewsInternal(league, {
+    type: 'league',
+    text: 'Offseason complete — training camp opens',
+    detail: 'Teams report for camp after five days of moves, trades, and press speculation.',
+    seasonNumber: league.seasonNumber || null,
+  });
+}
+
+function advanceLeagueOffseasonDay(league, season) {
+  const state = ensureOffseasonState(league);
+  if (!state?.active) return;
+  const dayNumber = (state.currentDay || 0) + 1;
+  const context = {
+    dayNumber,
+    totalDays: state.totalDays || 5,
+    championTeamId: state.championTeamId || season?.championTeamId || null,
+    events: [],
+  };
+  const beforeCount = Array.isArray(league.newsFeed) ? league.newsFeed.length : 0;
+  advanceLeagueOffseason(league, season, context);
+  const afterCount = Array.isArray(league.newsFeed) ? league.newsFeed.length : 0;
+  const newEntries = Array.isArray(league.newsFeed) && afterCount > beforeCount
+    ? league.newsFeed.slice(0, afterCount - beforeCount)
+    : [];
+  recordOffseasonPress(league, season, context, newEntries);
+  state.currentDay = dayNumber;
+  state.lastAdvancedAt = Date.now();
+  state.log = Array.isArray(state.log) ? state.log : [];
+  state.log.unshift({
+    dayNumber,
+    timestamp: new Date().toISOString(),
+    headlines: newEntries.map((entry) => entry.text),
+  });
+  if (state.currentDay >= (state.totalDays || 5)) {
+    completeLeagueOffseason(league);
+  } else {
+    state.nextDayAt = Date.now() + (state.dayDurationMs || 60000);
+  }
+}
+
+export function beginLeagueOffseason(league, season, summary = {}) {
+  if (!league) return null;
+  const totalDays = 5;
+  const state = ensureOffseasonState(league, totalDays);
+  const now = Date.now();
+  const completedSeasonNumber = season?.seasonNumber || league.seasonNumber || 1;
+  const upcomingSeasonNumber = Math.max(league.seasonNumber || completedSeasonNumber, completedSeasonNumber) + 1;
+  state.active = true;
+  state.currentDay = 0;
+  state.startedAt = now;
+  state.lastAdvancedAt = now;
+  state.nextDayAt = now + (state.dayDurationMs || 60000);
+  state.totalDays = totalDays;
+  state.completedSeasonNumber = completedSeasonNumber;
+  state.upcomingSeasonNumber = upcomingSeasonNumber;
+  state.championTeamId = summary.championTeamId || season?.championTeamId || null;
+  state.championResult = summary.championResult || season?.championResult || null;
+  state.nextSeasonReady = false;
+  state.nextSeasonStarted = false;
+  state.log = [];
+  league.seasonNumber = upcomingSeasonNumber;
+  ensureSeasonPersonnel(league, upcomingSeasonNumber);
+  recordNewsInternal(league, {
+    type: 'league',
+    text: 'Offseason begins',
+    detail: `Teams embark on a ${totalDays}-day offseason following Season ${completedSeasonNumber}.`,
+    seasonNumber: completedSeasonNumber,
+  });
+  return state;
+}
+
+export function progressLeagueOffseason(league, season, now = Date.now()) {
+  if (!league?.offseason) {
+    return { progressed: false, readyForNextSeason: false };
+  }
+  const state = league.offseason;
+  if (!state.active) {
+    const ready = !!state.nextSeasonReady && !state.nextSeasonStarted;
+    return { progressed: false, readyForNextSeason: ready };
+  }
+  const duration = state.dayDurationMs || 60000;
+  if (!state.nextDayAt) {
+    state.nextDayAt = (state.lastAdvancedAt || now) + duration;
+  }
+  let progressed = false;
+  while (state.active && now >= state.nextDayAt) {
+    advanceLeagueOffseasonDay(league, season);
+    progressed = true;
+  }
+  const ready = !state.active && state.nextSeasonReady && !state.nextSeasonStarted;
+  return { progressed, readyForNextSeason: ready };
 }
 
 export function getRosterSnapshot(league, teamId) {

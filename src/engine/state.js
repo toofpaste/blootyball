@@ -42,7 +42,8 @@ import {
     ensureSeasonPersonnel,
     registerPlayerInjury,
     decrementInjuryTimers,
-    advanceLeagueOffseason,
+    beginLeagueOffseason,
+    progressLeagueOffseason,
     applyPostGameMoodAdjustments,
     assignReplacementForAbsence,
     maybeGenerateLeagueHeadlines,
@@ -599,9 +600,10 @@ function finalizeLeagueForSeason(state, result) {
     league.finalizedSeasonNumber = season.seasonNumber;
     incrementPlayerAges(league);
     applyOffseasonDevelopment(league);
-    advanceLeagueOffseason(league, season);
-    league.seasonNumber = Math.max(league.seasonNumber || season.seasonNumber, season.seasonNumber) + 1;
-    ensureSeasonPersonnel(league, league.seasonNumber);
+    beginLeagueOffseason(league, season, {
+        championTeamId: season.championTeamId || result?.winner,
+        championResult: season.championResult || result || null,
+    });
 }
 
 function prepareGameForMatchup(state, matchup) {
@@ -2241,10 +2243,43 @@ export function resumeAssignedMatchup(state) {
 }
 
 
+export function progressOffseason(state, now = Date.now()) {
+    if (!state?.league) return state;
+    const { progressed, readyForNextSeason } = progressLeagueOffseason(state.league, state.season, now);
+    if (!progressed && !readyForNextSeason) {
+        return state;
+    }
+
+    if (readyForNextSeason) {
+        state.league.offseason.nextSeasonStarted = true;
+        const stride = state.season?.assignmentStride || state.season?.assignment?.stride || 1;
+        const offset = state.season?.assignmentOffset ?? state.season?.assignment?.offset ?? 0;
+        const restart = createInitialGameState({
+            assignmentOffset: offset,
+            assignmentStride: stride,
+            league: state.league,
+            lockstepAssignments: state.lockstepAssignments,
+        });
+        restart.debug = state.debug;
+        restart.lockstepAssignments = state.lockstepAssignments;
+        if (restart.league?.offseason) {
+            restart.league.offseason.nextSeasonStarted = true;
+        }
+        return restart;
+    }
+
+    return { ...state, league: { ...state.league } };
+}
+
+
 /* =========================================================
    Main step
    ========================================================= */
 export function stepGame(state, dt) {
+    const updated = progressOffseason(state);
+    if (updated !== state) {
+        state = updated;
+    }
     if (state?.gameComplete) {
         return state;
     }
