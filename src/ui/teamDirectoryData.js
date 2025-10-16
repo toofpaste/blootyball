@@ -2,6 +2,7 @@ import { formatRecord } from '../engine/league';
 import { TEAM_RED, TEAM_BLK, ROLES_OFF, ROLES_DEF } from '../engine/constants';
 import { getTeamIdentity, TEAM_IDS } from '../engine/data/teamLibrary';
 import { createTeams } from '../engine/rosters';
+import { computeOverallFromRatings } from '../engine/personnel';
 import { applyLongTermAdjustments, prepareCoachesForMatchup } from '../engine/progression';
 import { describeTemperament, describeMood } from '../engine/temperament';
 import { clamp } from '../engine/helpers';
@@ -55,14 +56,25 @@ export function createPlayerEntry(player, role, sideLabel, statsMap = {}, league
   const fullName = profile.fullName || player.fullName || nameFromParts || role;
   const height = player.height ?? player.body?.height ?? player.phys?.height ?? null;
   const weight = player.weight ?? player.body?.weight ?? player.phys?.weight ?? null;
-  const overall = player.overall != null ? Math.round(player.overall) : null;
+  const resolvedOverall = (() => {
+    const rawOverall = player.overall ?? player.rating ?? null;
+    const numericOverall = typeof rawOverall === 'string' ? Number.parseFloat(rawOverall) : rawOverall;
+    if (numericOverall != null && !Number.isNaN(numericOverall)) {
+      return Math.round(numericOverall);
+    }
+    const ratingSource = attrs || player.ratings || player.attrs || null;
+    if (!ratingSource) return null;
+    const computed = computeOverallFromRatings(ratingSource, role);
+    if (computed == null || Number.isNaN(computed)) return null;
+    return Math.round(computed);
+  })();
   const potentialRating = player.potential != null
     ? clamp(Math.round((player.potential || 0) * 100), 0, 130)
     : null;
   const ceilingRating = player.ceiling != null
     ? clamp(Math.round((player.ceiling || player.potential || 0) * 100), 0, 135)
     : potentialRating;
-  const growthGap = overall != null && potentialRating != null ? potentialRating - overall : null;
+  const growthGap = resolvedOverall != null && potentialRating != null ? potentialRating - resolvedOverall : null;
   const entry = {
     id: player.id,
     role,
@@ -78,7 +90,7 @@ export function createPlayerEntry(player, role, sideLabel, statsMap = {}, league
     kicker: role === 'K',
     age: league?.playerAges?.[player.id] ?? null,
     awards: Array.isArray(league?.playerAwards?.[player.id]) ? [...league.playerAwards[player.id]] : [],
-    overall,
+    overall: resolvedOverall,
     potentialRating,
     ceilingRating,
     growthGap,
