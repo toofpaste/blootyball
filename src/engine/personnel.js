@@ -161,6 +161,23 @@ function finalizeContract({
   };
 }
 
+function summarizeContractForNews(contract) {
+  if (!contract) return null;
+  const summary = {
+    salary: Number.isFinite(contract.salary) ? contract.salary : null,
+    years: Number.isFinite(contract.years) ? contract.years : null,
+    totalValue: Number.isFinite(contract.totalValue) ? contract.totalValue : null,
+    temporary: !!contract.temporary,
+    temporaryGames: Number.isFinite(contract.temporaryGames) ? contract.temporaryGames : null,
+  };
+  if (contract.basis) summary.basis = contract.basis;
+  if (contract.teamId) summary.teamId = contract.teamId;
+  if (contract.startSeason != null) summary.startSeason = contract.startSeason;
+  if (Number.isFinite(contract.capHit)) summary.capHit = contract.capHit;
+  if (contract.temporaryForPlayerId) summary.temporaryForPlayerId = contract.temporaryForPlayerId;
+  return summary;
+}
+
 function applyContractToPlayer(player, contract) {
   if (!player) return;
   if (!contract) {
@@ -2456,6 +2473,10 @@ export function signBestFreeAgentForRole(league, teamId, role, {
     text: `${getTeamIdentity(teamId)?.abbr || teamId} sign ${assigned.firstName} ${assigned.lastName} (${role})`,
     detail: reason,
     seasonNumber: league.seasonNumber || null,
+    playerId: assigned.id,
+    playerName: `${assigned.firstName} ${assigned.lastName}`.trim(),
+    role,
+    contractSummary: summarizeContractForNews(negotiation.contract),
   });
   refreshTeamMood(league, teamId);
   return assigned;
@@ -2563,6 +2584,10 @@ export function registerPlayerInjury(league, {
     severity,
     status,
     seasonNumber: season,
+    playerId: removed?.id || player.id,
+    playerName: fullName,
+    role,
+    gamesMissed: Number.isFinite(gamesMissed) ? Math.max(0, Math.round(gamesMissed)) : null,
   });
   refreshTeamMood(league, teamId);
   return irEntry;
@@ -3473,6 +3498,10 @@ function signFreeAgentToTeam(league, player, teamId, role, context, reason, nego
     text: `${identity} sign ${assigned.firstName} ${assigned.lastName} (${role})`,
     detail: reason || 'Offseason acquisition',
     seasonNumber: league.seasonNumber || null,
+    playerId: assigned.id,
+    playerName: `${assigned.firstName} ${assigned.lastName}`.trim(),
+    role,
+    contractSummary: summarizeContractForNews(negotiation.contract),
   });
   context.events ||= [];
   context.events.push(`${assigned.firstName} ${assigned.lastName} chooses ${identity}, stirring hot-stove debate.`);
