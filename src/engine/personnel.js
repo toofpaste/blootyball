@@ -316,7 +316,7 @@ function ensureTeamRosterShell(league) {
   return league.teamRosters;
 }
 
-function computeOverallFromRatings(ratings = {}, role = 'QB') {
+export function computeOverallFromRatings(ratings = {}, role = 'QB') {
   const focuses = ROLE_FOCUS[role] || {};
   let total = 0;
   let weightSum = 0;
