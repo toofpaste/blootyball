@@ -46,6 +46,7 @@ import {
     progressLeagueOffseason,
     applyPostGameMoodAdjustments,
     assignReplacementForAbsence,
+    ensureTeamRosterComplete,
     maybeGenerateLeagueHeadlines,
 } from './personnel';
 import { applyTeamMoodToMatchup } from './temperament';
@@ -633,6 +634,12 @@ function prepareGameForMatchup(state, matchup) {
     if (state.league && state.season) {
         state.league.seasonSnapshot = state.season;
         ensureSeasonPersonnel(state.league, state.season.seasonNumber || state.league.seasonNumber || 1);
+    }
+    if (state.league && matchup?.slotToTeam) {
+        const uniqueTeams = uniqueNonEmpty(Object.values(matchup.slotToTeam));
+        uniqueTeams.forEach((teamId) => {
+            ensureTeamRosterComplete(state.league, teamId, { reason: 'pre-game roster fill' });
+        });
     }
     ensureSeasonProgression(state.season);
     state.coaches = prepareCoachesForMatchup(matchup, state.league);
