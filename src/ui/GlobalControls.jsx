@@ -14,6 +14,7 @@ export default function GlobalControls({
   onShowFreeAgents,
   seasonProgressLabel,
   hasUnseenNews,
+  hasUnseenPressArticles,
 }) {
   const handleSpeedChange = (event) => {
     const value = parseFloat(event.target.value);
@@ -51,6 +52,7 @@ export default function GlobalControls({
         onClick={onShowPressArticles}
       >
         Articles From The Press
+        {hasUnseenPressArticles ? <span className="global-controls__news-indicator" aria-hidden="true" /> : null}
       </button>
       <button
         type="button"

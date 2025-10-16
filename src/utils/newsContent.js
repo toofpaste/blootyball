@@ -269,6 +269,7 @@ function fallbackPressArticle(context) {
     headline: angleLabel,
     preview,
     article,
+    source: 'fallback',
   };
 }
 
@@ -320,6 +321,7 @@ async function generatePressArticle({ league, season, seasonProgress, angle }) {
     headline: parsed.headline || fallback.headline,
     preview: parsed.preview || fallback.preview,
     article: parsed.article || fallback.article,
+    source: 'chatgpt',
   };
 }
 

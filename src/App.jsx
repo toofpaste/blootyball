@@ -940,6 +940,7 @@ export default function App() {
   const [scheduleOpen, setScheduleOpen] = useState(false);
   const [freeAgentsOpen, setFreeAgentsOpen] = useState(false);
   const [lastSeenNewsTimestamp, setLastSeenNewsTimestamp] = useState(0);
+  const [lastSeenPressWeekKey, setLastSeenPressWeekKey] = useState('');
   const [seasonSnapshots, setSeasonSnapshots] = useState(() => []);
   const gameRefs = useRef([]);
 
@@ -1064,6 +1065,19 @@ export default function App() {
     [aggregatedSeasonStats],
   );
 
+  const pressWeekKey = useMemo(() => {
+    const seasonNumber = aggregatedSeasonStats?.season?.seasonNumber
+      || aggregatedSeasonStats?.league?.seasonNumber
+      || null;
+    const currentWeek = seasonProgress?.currentWeek || null;
+    if (!seasonNumber || !currentWeek) return null;
+    return `S${seasonNumber}-W${currentWeek}`;
+  }, [
+    aggregatedSeasonStats?.season?.seasonNumber,
+    aggregatedSeasonStats?.league?.seasonNumber,
+    seasonProgress?.currentWeek,
+  ]);
+
   const leagueNewsMeta = useMemo(() => {
     const feed = aggregatedSeasonStats?.league?.newsFeed;
     if (!Array.isArray(feed) || feed.length === 0) return { latest: 0, count: 0 };
@@ -1093,7 +1107,31 @@ export default function App() {
     setLastSeenNewsTimestamp(latest);
   }, [newsOpen, leagueNewsMeta]);
 
+  useEffect(() => {
+    if (!pressOpen) return;
+    if (!pressWeekKey) return;
+    setLastSeenPressWeekKey(pressWeekKey);
+  }, [pressOpen, pressWeekKey]);
+
+  useEffect(() => {
+    if (pressWeekKey) return;
+    setLastSeenPressWeekKey('');
+  }, [pressWeekKey]);
+
   const hasUnseenNews = leagueNewsMeta.count > 0 && leagueNewsMeta.latest > (lastSeenNewsTimestamp || 0);
+
+  const pressCoverageAvailable = useMemo(() => {
+    if (!seasonProgress) return false;
+    if (seasonProgress.phase && seasonProgress.phase !== 'regular') return true;
+    const currentWeek = seasonProgress.currentWeek || 1;
+    return currentWeek > 1;
+  }, [seasonProgress]);
+
+  const hasUnseenPressArticles = Boolean(
+    pressCoverageAvailable
+    && pressWeekKey
+    && pressWeekKey !== (lastSeenPressWeekKey || ''),
+  );
 
   const modalTitle = aggregatedSeasonStats?.label
     ? `Season Overview • ${aggregatedSeasonStats.label}`
@@ -1116,6 +1154,7 @@ export default function App() {
         onShowFreeAgents={handleOpenFreeAgents}
         seasonProgressLabel={seasonProgress.label}
         hasUnseenNews={hasUnseenNews}
+        hasUnseenPressArticles={hasUnseenPressArticles}
       />
       <div className="games-stack">
         {Array.from({ length: GAME_COUNT }).map((_, index) => (
