@@ -31,6 +31,18 @@ function resolveTeamName(teamId) {
   return identity.displayName || identity.name || teamId;
 }
 
+function resolveHeadlineColor(entry) {
+  const type = String(entry?.type || '').toLowerCase();
+  if (type === 'injury' || type === 'suspension') return '#ff6b6b';
+  if (type === 'signing') return '#6fb6ff';
+  if (type === 'spotlight' || type === 'headline') return '#ffe27a';
+  const detail = String(entry?.detail || '');
+  if (/\bout\s+\d+\s+game/i.test(detail) || /\bsuspended\b/i.test(detail)) {
+    return '#ff6b6b';
+  }
+  return '#f0fff0';
+}
+
 export default function NewsModal({ open, onClose, league, season }) {
   const [selectedId, setSelectedId] = useState(null);
   const [articleMap, setArticleMap] = useState({});
@@ -102,6 +114,7 @@ export default function NewsModal({ open, onClose, league, season }) {
         ...item,
         aiContent,
         generating,
+        headlineColor: resolveHeadlineColor(item.raw),
       };
     });
   }, [items, articleMap]);
@@ -191,7 +204,14 @@ export default function NewsModal({ open, onClose, league, season }) {
                   {item.context && (
                     <div style={{ fontSize: 12, color: 'rgba(205,232,205,0.75)' }}>{item.context}</div>
                   )}
-                  <div style={{ fontSize: 15, color: '#f0fff0', fontWeight: 700, letterSpacing: 0.2 }}>
+                  <div
+                    style={{
+                      fontSize: 15,
+                      color: item.headlineColor || '#f0fff0',
+                      fontWeight: 700,
+                      letterSpacing: 0.2,
+                    }}
+                  >
                     {headline}
                   </div>
                   <div style={{ fontSize: 13, color: 'rgba(205,232,205,0.85)', lineHeight: 1.45 }}>
