@@ -2675,12 +2675,14 @@ function determineOffseasonFocusTeams(dayNumber = 1, totalDays = 5) {
   return [...new Set(focus)];
 }
 
+export const DEFAULT_OFFSEASON_DAY_DURATION_MS = 300000;
+
 function ensureOffseasonState(league, totalDays = 5) {
   if (!league) return null;
   league.offseason ||= {};
   const state = league.offseason;
   state.totalDays = totalDays;
-  state.dayDurationMs = state.dayDurationMs || 60000;
+  state.dayDurationMs = state.dayDurationMs || DEFAULT_OFFSEASON_DAY_DURATION_MS;
   return state;
 }
 
@@ -2760,7 +2762,7 @@ function advanceLeagueOffseasonDay(league, season) {
   if (state.currentDay >= (state.totalDays || 5)) {
     completeLeagueOffseason(league);
   } else {
-    state.nextDayAt = Date.now() + (state.dayDurationMs || 60000);
+    state.nextDayAt = Date.now() + (state.dayDurationMs || DEFAULT_OFFSEASON_DAY_DURATION_MS);
   }
 }
 
@@ -2778,7 +2780,7 @@ export function beginLeagueOffseason(league, season, summary = {}) {
   state.currentDay = 0;
   state.startedAt = now;
   state.lastAdvancedAt = now;
-  state.nextDayAt = now + (state.dayDurationMs || 60000);
+  state.nextDayAt = now + (state.dayDurationMs || DEFAULT_OFFSEASON_DAY_DURATION_MS);
   state.totalDays = totalDays;
   state.completedSeasonNumber = completedSeasonNumber;
   state.upcomingSeasonNumber = upcomingSeasonNumber;
@@ -2809,7 +2811,7 @@ export function progressLeagueOffseason(league, season, now = Date.now()) {
     const ready = !!state.nextSeasonReady && !state.nextSeasonStarted;
     return { progressed: false, readyForNextSeason: ready };
   }
-  const duration = state.dayDurationMs || 60000;
+  const duration = state.dayDurationMs || DEFAULT_OFFSEASON_DAY_DURATION_MS;
   if (!state.nextDayAt) {
     state.nextDayAt = (state.lastAdvancedAt || now) + duration;
   }
