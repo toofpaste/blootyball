@@ -1022,13 +1022,19 @@ export function applyGameResultToSeason(season, game, scores, directory, playerS
     playerTeams,
   };
 
+  const nextSeasonTeams = {};
+  Object.entries(season.teams || {}).forEach(([teamId, team]) => {
+    nextSeasonTeams[teamId] = cloneTeamSeasonEntry(team);
+  });
+
   const nextSeason = {
     ...season,
-    teams: { ...(season.teams || {}) },
+    teams: nextSeasonTeams,
     schedule: [...(season.schedule || [])],
     results: Array.isArray(season.results) ? season.results.filter(Boolean) : [],
     playerStats: {},
-    assignmentTotals: { ...(season.assignmentTotals || {}) },
+    assignmentTotals: cloneAssignmentTotalsMap(season.assignmentTotals, nextSeasonTeams),
+    playoffBracket: clonePlayoffBracket(season.playoffBracket),
   };
 
   const existingIndex = nextSeason.results.findIndex((entry) => entry && entry.index === game.index);
