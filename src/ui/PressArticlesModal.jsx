@@ -148,6 +148,11 @@ export default function PressArticlesModal({ open, onClose, league, season, seas
                     </div>
                   )}
                 </header>
+                {data?.source && (
+                  <div style={{ fontSize: 11, color: 'rgba(205,232,205,0.7)', fontStyle: 'italic' }}>
+                    {data.source === 'chatgpt' ? 'Generated via ChatGPT API' : 'Generated with local fallback'}
+                  </div>
+                )}
                 <div style={{ fontSize: 12, color: 'rgba(205,232,205,0.7)' }}>{angle.description}</div>
                 <div style={{ fontSize: 13, color: 'rgba(205,232,205,0.85)', lineHeight: 1.45 }}>
                   {data?.preview || 'Click to open the full column from the press box.'}
@@ -175,6 +180,13 @@ export default function PressArticlesModal({ open, onClose, league, season, seas
           </div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            {activeArticle.data?.source && (
+              <div style={{ fontSize: 11, color: 'rgba(205,232,205,0.7)', fontStyle: 'italic' }}>
+                {activeArticle.data.source === 'chatgpt'
+                  ? 'Generated via ChatGPT API'
+                  : 'Generated with local fallback'}
+              </div>
+            )}
             {activeArticle.angle?.description && (
               <div style={{ fontSize: 12, color: 'rgba(205,232,205,0.7)' }}>
                 {activeArticle.angle.description}
