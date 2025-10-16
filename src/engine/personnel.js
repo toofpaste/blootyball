@@ -2316,7 +2316,7 @@ function runTradeMarket(league, season, { focusTeams, activityDial } = {}) {
   if (!contenders.length || !rebuilders.length) return;
   const dial = Math.min(1, Math.max(0.2, activityDial ?? (activeTeams.length / Math.max(1, TEAM_IDS.length))));
   const baseAttempts = Math.min(3, Math.floor((contenders.length + rebuilders.length) / 4));
-  const attempts = Math.max(0, Math.round(baseAttempts * dial));
+  const attempts = Math.max(0, Math.round(baseAttempts * dial * 0.6));
   for (let i = 0; i < attempts; i += 1) {
     const teamA = choice(contenders);
     const teamB = choice(rebuilders);
@@ -2347,9 +2347,9 @@ function evaluateRosterNeeds(league, teamId) {
 function fillRosterNeeds(league, teamId, needs, { reason, mode, limitFraction } = {}) {
   if (!Array.isArray(needs) || !needs.length) return;
   const fraction = Number.isFinite(limitFraction)
-    ? Math.min(1, Math.max(0.2, limitFraction))
+    ? Math.min(1, Math.max(0.1, limitFraction))
     : 1;
-  const limit = Math.max(1, Math.round(needs.length * fraction));
+  const limit = Math.max(1, Math.min(Math.round(needs.length * fraction), Math.ceil(2 + needs.length * 0.25)));
   needs.slice(0, limit).forEach((role) => {
     signBestFreeAgentForRole(league, teamId, role, { reason, mode });
   });
@@ -2503,17 +2503,24 @@ function handleFreeAgencyDepartures(league, season, context) {
       const loyalty = ensurePlayerLoyalty(player);
       const mood = temperament?.mood ?? 0;
       const rating = player.overall ?? 60;
-      let desire = 0.12 + (1 - loyalty) * 0.8;
-      if (rating >= 84) desire += 0.12;
-      else if (rating >= 78) desire += 0.07;
-      else if (rating >= 72) desire += 0.04;
-      if (mood < 0) desire += Math.min(0.45, -mood * 0.35);
-      if (winPct < 0.45) desire += Math.min(0.4, (0.45 - winPct) * 0.7);
+      let desire = 0.05 + (1 - loyalty) * 0.45;
+      if (rating >= 84) desire += 0.08;
+      else if (rating >= 78) desire += 0.05;
+      else if (rating >= 72) desire += 0.03;
+      if (mood < -0.15) desire += Math.min(0.25, (-0.15 - mood) * 0.3);
+      if (winPct < 0.45) {
+        desire += Math.min(0.28, (0.45 - winPct) * 0.5);
+      } else if (winPct > 0.65) {
+        desire -= 0.04;
+      }
       if (player.currentTeamId && player.originalTeamId && player.currentTeamId !== player.originalTeamId) {
         desire -= 0.05;
       }
       if (dayNumber === totalDays) desire += 0.05;
-      desire = clamp(desire * (0.45 + dial * 0.55), 0, 0.85);
+      if (dayNumber === 1) {
+        desire *= 0.7;
+      }
+      desire = clamp(desire * (0.3 + dial * 0.35), 0, 0.6);
       if (Math.random() < desire) {
         departures.push({ teamId, role, player });
       }
@@ -2599,7 +2606,7 @@ function attemptFreeAgentSignings(league, season, context) {
     }))
     .sort((a, b) => (b.rating ?? 0) - (a.rating ?? 0));
 
-  const limitFraction = 0.25 + dial * 0.5;
+  const limitFraction = 0.1 + dial * 0.25;
   const maxCandidates = Math.max(1, Math.round(candidates.length * limitFraction));
 
   candidates.slice(0, maxCandidates).forEach(({ player, rating, role }) => {
@@ -2610,7 +2617,7 @@ function attemptFreeAgentSignings(league, season, context) {
     const best = interestBoard[0];
     if (!best) return;
     const threshold = rating >= 85 ? -0.5 : rating >= 80 ? 0 : rating >= 75 ? 0.35 : rating >= 70 ? 0.6 : 1.05;
-    const patiencePenalty = (1 - dial) * 0.35;
+    const patiencePenalty = (1 - dial) * 0.45;
     if (best.interest > threshold + patiencePenalty) {
       signFreeAgentToTeam(league, player, best.teamId, role, context, 'Free agent market splash');
     }
