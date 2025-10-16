@@ -79,6 +79,143 @@ const ROLE_BODY_PROFILES = {
   DEFAULT: { height: [71, 76], weight: [198, 228] },
 };
 
+const DEFAULT_SALARY_CAP = 100_000_000;
+const MIN_CONTRACT_SALARY = 750_000;
+const MAX_CONTRACT_LENGTH = 6;
+const CONTRACT_ROUNDING = 50_000;
+const LONG_TERM_DISCOUNT = 0.06;
+const SHORT_TERM_PREMIUM = 0.08;
+
+function ensureSalaryStructures(league) {
+  if (!league) return;
+  if (!Number.isFinite(league.salaryCap)) {
+    league.salaryCap = DEFAULT_SALARY_CAP;
+  }
+  if (!league.teamPayroll) {
+    league.teamPayroll = {};
+  }
+}
+
+function resolvePlayerAge(league, player) {
+  if (!player) return null;
+  if (Number.isFinite(player.age)) return player.age;
+  if (player.id && Number.isFinite(league?.playerAges?.[player.id])) {
+    return league.playerAges[player.id];
+  }
+  return null;
+}
+
+function determinePreferredContractLength(age, player = {}) {
+  const resolvedAge = Number.isFinite(age) ? age : (Number.isFinite(player.age) ? player.age : null);
+  if (!Number.isFinite(resolvedAge)) {
+    return 3;
+  }
+  if (resolvedAge <= 23) return 5;
+  if (resolvedAge <= 26) return 4;
+  if (resolvedAge <= 29) return 4;
+  if (resolvedAge <= 31) return 3;
+  if (resolvedAge <= 34) return 2;
+  return 1;
+}
+
+function adjustSalaryForTerm(baseSalary, preferredYears, offeredYears) {
+  if (!Number.isFinite(baseSalary)) return baseSalary;
+  const delta = offeredYears - preferredYears;
+  if (delta > 0) {
+    return baseSalary * Math.pow(1 - LONG_TERM_DISCOUNT, delta);
+  }
+  if (delta < 0) {
+    return baseSalary * Math.pow(1 + SHORT_TERM_PREMIUM, Math.abs(delta));
+  }
+  return baseSalary;
+}
+
+function finalizeContract({
+  teamId,
+  salary,
+  years,
+  startSeason,
+  basis = 'free-agent',
+  loyaltyAdjustment = 0,
+  demandSnapshot = null,
+}) {
+  const normalizedYears = Math.max(1, Math.min(MAX_CONTRACT_LENGTH, Math.round(years || 1)));
+  const roundedSalary = Math.max(
+    MIN_CONTRACT_SALARY,
+    Math.round((salary || MIN_CONTRACT_SALARY) / CONTRACT_ROUNDING) * CONTRACT_ROUNDING,
+  );
+  return {
+    teamId,
+    salary: roundedSalary,
+    years: normalizedYears,
+    yearsRemaining: normalizedYears,
+    startSeason: Number.isFinite(startSeason) ? startSeason : null,
+    totalValue: roundedSalary * normalizedYears,
+    basis,
+    loyaltyAdjustment,
+    demand: demandSnapshot,
+  };
+}
+
+function applyContractToPlayer(player, contract) {
+  if (!player) return;
+  if (!contract) {
+    player.contract = null;
+    delete player.salary;
+    delete player.capHit;
+    delete player.contractYears;
+    delete player.contractYearsRemaining;
+    return;
+  }
+  player.contract = { ...contract };
+  player.salary = contract.salary;
+  player.capHit = contract.salary;
+  player.contractYears = contract.years;
+  player.contractYearsRemaining = contract.yearsRemaining;
+}
+
+function clearPlayerContract(player) {
+  if (!player) return;
+  applyContractToPlayer(player, null);
+}
+
+function recalculateTeamPayroll(league, teamId) {
+  ensureSalaryStructures(league);
+  if (!teamId) return 0;
+  const roster = league?.teamRosters?.[teamId];
+  let total = 0;
+  const add = (player) => {
+    if (!player?.contract) return;
+    const remaining = player.contract.yearsRemaining ?? player.contract.years ?? 0;
+    if (remaining <= 0) return;
+    const hit = Number.isFinite(player.contract.salary) ? player.contract.salary : 0;
+    if (hit > 0) total += hit;
+  };
+  if (roster) {
+    Object.values(roster.offense || {}).forEach(add);
+    Object.values(roster.defense || {}).forEach(add);
+    if (roster.special?.K) add(roster.special.K);
+  }
+  league.teamPayroll[teamId] = Math.round(total);
+  return league.teamPayroll[teamId];
+}
+
+function getCapSpace(league, teamId) {
+  ensureSalaryStructures(league);
+  if (!teamId) return 0;
+  const cap = Number.isFinite(league.salaryCap) ? league.salaryCap : DEFAULT_SALARY_CAP;
+  const payroll = recalculateTeamPayroll(league, teamId);
+  return Math.max(0, cap - payroll);
+}
+
+function computeTeamNeedScore(incumbentValue, candidateValue) {
+  if (!Number.isFinite(candidateValue)) return 0;
+  if (!Number.isFinite(incumbentValue)) return 1;
+  const delta = candidateValue - incumbentValue;
+  if (delta <= 0) return 0;
+  return clamp(delta / 10, 0.05, 1.1);
+}
+
 const ATTRIBUTE_SPREAD_POWER = 0.82;
 
 function amplifyNormalized(value, power = ATTRIBUTE_SPREAD_POWER) {
@@ -334,6 +471,39 @@ export function computeOverallFromRatings(ratings = {}, role = 'QB') {
   return clampRating(40 + normalizedScore * 55);
 }
 
+function computeBaseSalary(player, league = null) {
+  if (!player) return MIN_CONTRACT_SALARY;
+  const role = player.role || player.preferredRole || 'WR1';
+  let overall = Number.isFinite(player.overall) ? player.overall : null;
+  if (!Number.isFinite(overall)) {
+    const ratingSource = player.ratings || player.attrs || null;
+    if (ratingSource) {
+      overall = computeOverallFromRatings(ratingSource, role);
+    }
+  }
+  if (!Number.isFinite(overall)) {
+    overall = 60;
+  }
+  const potentialRaw = player.ceiling != null
+    ? player.ceiling * 100
+    : player.potential != null
+      ? player.potential * 100
+      : overall + 8;
+  const normalized = clamp(((overall * 0.7) + (potentialRaw * 0.3)) / 100, 0.3, 1.05);
+  let salary = 800_000 + Math.pow(Math.max(0.32, normalized), 1.85) * 9_500_000;
+  const age = resolvePlayerAge(league, player);
+  if (Number.isFinite(age)) {
+    if (age <= 23) salary *= 1.18;
+    else if (age <= 26) salary *= 1.1;
+    else if (age >= 31 && age <= 33) salary *= 0.94;
+    else if (age >= 34) salary *= 0.88;
+  }
+  if (role === 'K') {
+    salary *= 0.55;
+  }
+  return Math.max(MIN_CONTRACT_SALARY, salary);
+}
+
 function decoratePlayerMetrics(player, role) {
   if (!player) return player;
   const updated = player;
@@ -394,18 +564,50 @@ function decoratePlayerMetrics(player, role) {
 function initialiseRosterMetrics(league) {
   const rosters = ensureTeamRosterShell(league);
   Object.entries(rosters).forEach(([teamId, roster]) => {
+    league.playerAges ||= {};
     Object.entries(roster.offense || {}).forEach(([role, player]) => {
-      roster.offense[role] = decoratePlayerMetrics(player, role);
-      ensurePlayerDirectoryEntry(league, teamId, role, roster.offense[role]);
+      const decorated = decoratePlayerMetrics(player, role);
+      decorated.currentTeamId = decorated.currentTeamId || teamId;
+      if (!decorated.contract) {
+        decorated.contract = generateInitialContract(league, teamId, decorated);
+      }
+      applyContractToPlayer(decorated, decorated.contract);
+      const age = resolvePlayerAge(league, decorated);
+      if (decorated.id && Number.isFinite(age)) {
+        league.playerAges[decorated.id] = age;
+      }
+      roster.offense[role] = decorated;
+      ensurePlayerDirectoryEntry(league, teamId, role, decorated);
     });
     Object.entries(roster.defense || {}).forEach(([role, player]) => {
-      roster.defense[role] = decoratePlayerMetrics(player, role);
-      ensurePlayerDirectoryEntry(league, teamId, role, roster.defense[role]);
+      const decorated = decoratePlayerMetrics(player, role);
+      decorated.currentTeamId = decorated.currentTeamId || teamId;
+      if (!decorated.contract) {
+        decorated.contract = generateInitialContract(league, teamId, decorated);
+      }
+      applyContractToPlayer(decorated, decorated.contract);
+      const age = resolvePlayerAge(league, decorated);
+      if (decorated.id && Number.isFinite(age)) {
+        league.playerAges[decorated.id] = age;
+      }
+      roster.defense[role] = decorated;
+      ensurePlayerDirectoryEntry(league, teamId, role, decorated);
     });
     if (roster.special?.K) {
-      roster.special.K = decoratePlayerMetrics(roster.special.K, 'K');
-      ensurePlayerDirectoryEntry(league, teamId, 'K', roster.special.K);
+      const decorated = decoratePlayerMetrics(roster.special.K, 'K');
+      decorated.currentTeamId = decorated.currentTeamId || teamId;
+      if (!decorated.contract) {
+        decorated.contract = generateInitialContract(league, teamId, decorated);
+      }
+      applyContractToPlayer(decorated, decorated.contract);
+      const age = resolvePlayerAge(league, decorated);
+      if (decorated.id && Number.isFinite(age)) {
+        league.playerAges[decorated.id] = age;
+      }
+      roster.special.K = decorated;
+      ensurePlayerDirectoryEntry(league, teamId, 'K', decorated);
     }
+    recalculateTeamPayroll(league, teamId);
   });
 }
 
@@ -1651,6 +1853,7 @@ function findPlayerRole(roster, playerId) {
 export function initializeLeaguePersonnel(league) {
   if (!league) return;
   ensureTeamRosterShell(league);
+  ensureSalaryStructures(league);
   initialiseRosterMetrics(league);
   ensureTeamCoaches(league);
   ensureTeamGms(league);
@@ -1753,6 +1956,7 @@ function pushPlayerToFreeAgency(league, player, role, reason) {
   ensurePlayerTemperament(released);
   ensurePlayerLoyalty(released);
   released.currentTeamId = null;
+  clearPlayerContract(released);
   league.freeAgents.push(released);
 }
 
@@ -1767,13 +1971,31 @@ function assignPlayerToRoster(league, teamId, role, player) {
   player.currentTeamId = teamId;
   ensurePlayerTemperament(player);
   ensurePlayerLoyalty(player);
+  ensureSalaryStructures(league);
+  league.playerAges ||= {};
+  const resolvedAge = resolvePlayerAge(league, player);
+  if (Number.isFinite(resolvedAge)) {
+    league.playerAges[player.id] = resolvedAge;
+    player.age = resolvedAge;
+  }
   if (!rosters[teamId]) {
     rosters[teamId] = { offense: {}, defense: {}, special: {} };
   }
-  if (side === 'offense') rosters[teamId].offense[role] = decoratePlayerMetrics(player, role);
-  else if (side === 'defense') rosters[teamId].defense[role] = decoratePlayerMetrics(player, role);
-  else rosters[teamId].special.K = decoratePlayerMetrics(player, role);
-  ensurePlayerDirectoryEntry(league, teamId, role, player);
+  const decorated = decoratePlayerMetrics(player, role);
+  if (decorated.contract) {
+    decorated.contract.teamId = teamId;
+    if (!Number.isFinite(decorated.contract.yearsRemaining)) {
+      decorated.contract.yearsRemaining = decorated.contract.years ?? 1;
+    }
+    applyContractToPlayer(decorated, decorated.contract);
+  } else {
+    clearPlayerContract(decorated);
+  }
+  if (side === 'offense') rosters[teamId].offense[role] = decorated;
+  else if (side === 'defense') rosters[teamId].defense[role] = decorated;
+  else rosters[teamId].special.K = decorated;
+  ensurePlayerDirectoryEntry(league, teamId, role, decorated);
+  recalculateTeamPayroll(league, teamId);
 }
 
 function removePlayerFromRoster(league, teamId, role) {
@@ -1793,6 +2015,7 @@ function removePlayerFromRoster(league, teamId, role) {
   }
   if (removed?.id) removeDirectoryEntry(league, removed.id);
   if (removed) removed.currentTeamId = null;
+  recalculateTeamPayroll(league, teamId);
   return removed;
 }
 
@@ -1852,14 +2075,30 @@ export function signBestFreeAgentForRole(league, teamId, role, {
   if (!best) return null;
   const roster = ensureTeamRosterShell(league)[teamId];
   const current = side === 'offense' ? roster.offense[role] : side === 'defense' ? roster.defense[role] : roster.special.K;
-  if (current && best.trueValue < evaluatePlayerTrueValue(current, strategy) + minImprovement) {
+  const incumbentValue = current ? evaluatePlayerTrueValue(current, strategy) : null;
+  if (current && best.trueValue < (incumbentValue ?? 0) + minImprovement) {
     return null;
   }
   if (context && !consumeOffseasonMove(context, teamId)) {
     return null;
   }
+  const candidate = league.freeAgents[best.index];
+  const teamNeedScore = computeTeamNeedScore(incumbentValue, best.trueValue);
+  const negotiation = negotiateContractForTeam(league, teamId, candidate, {
+    teamNeedScore: Math.max(teamNeedScore, current ? 0 : 1),
+    seasonNumber: league.seasonNumber || 1,
+    basis: reason || 'need-signing',
+    replacingSalary: current?.contract?.salary ?? 0,
+  });
+  if (!negotiation) {
+    if (context) refundOffseasonMove(context, teamId);
+    return null;
+  }
   const [chosen] = league.freeAgents.splice(best.index, 1);
   const assigned = { ...chosen, role, origin: 'free-agent' };
+  assigned.loyalty = clamp((assigned.loyalty ?? 0.5) * 0.6 + rand(0.22, 0.4), 0.12, 0.96);
+  assigned.contract = negotiation.contract;
+  applyContractToPlayer(assigned, assigned.contract);
   assignPlayerToRoster(league, teamId, role, assigned);
   recordNewsInternal(league, {
     type: 'signing',
@@ -2285,6 +2524,15 @@ function performTrade(league, season, teamA, teamB, role, modeA, modeB, context)
   const aggressionCheckB = Math.random() < (scoutB?.aggression ?? 0.5);
   if (!aggressionCheckA || !aggressionCheckB) return false;
   if (deltaA < -8 || deltaB < -8) return false;
+  ensureSalaryStructures(league);
+  const cap = Number.isFinite(league.salaryCap) ? league.salaryCap : DEFAULT_SALARY_CAP;
+  const payrollA = recalculateTeamPayroll(league, teamA);
+  const payrollB = recalculateTeamPayroll(league, teamB);
+  const salaryA = playerA?.contract?.salary ?? 0;
+  const salaryB = playerB?.contract?.salary ?? 0;
+  if (payrollA - salaryA + salaryB > cap || payrollB - salaryB + salaryA > cap) {
+    return false;
+  }
   if (context) {
     if (!consumeOffseasonMove(context, teamA)) return false;
     if (!consumeOffseasonMove(context, teamB)) {
@@ -2400,6 +2648,15 @@ function attemptTradeForUnhappyPlayer(league, teamId, role, player) {
     }
   });
   if (!best || best.interest < 0.5) return false;
+  ensureSalaryStructures(league);
+  const cap = Number.isFinite(league.salaryCap) ? league.salaryCap : DEFAULT_SALARY_CAP;
+  const payrollTeam = recalculateTeamPayroll(league, teamId);
+  const payrollOther = recalculateTeamPayroll(league, best.otherId);
+  const outgoingSalary = player?.contract?.salary ?? 0;
+  const incomingSalary = best.otherPlayer?.contract?.salary ?? 0;
+  if (payrollTeam - outgoingSalary + incomingSalary > cap || payrollOther - incomingSalary + outgoingSalary > cap) {
+    return false;
+  }
   const outgoing = removePlayerFromRoster(league, teamId, role) || player;
   const incoming = removePlayerFromRoster(league, best.otherId, role) || best.otherPlayer;
   const incomingClone = { ...incoming, origin: 'trade-request' };
@@ -2499,6 +2756,23 @@ function computeTeamWinPct(record = {}) {
   const total = wins + losses + ties;
   if (total <= 0) return 0.5;
   return clamp((wins + ties * 0.5) / total, 0, 1);
+}
+
+function computeTeamPrestige(league, teamId) {
+  if (!league || !teamId) return 0.5;
+  const seasonEntry = league.seasonSnapshot?.teams?.[teamId]
+    || league.season?.teams?.[teamId]
+    || null;
+  const record = seasonEntry?.record || {};
+  const winPct = computeTeamWinPct(record);
+  const mood = clamp(league.teamMoods?.[teamId]?.score ?? 0, -1, 1);
+  const titles = Number.isFinite(league.teamChampionships?.[teamId]?.count)
+    ? league.teamChampionships[teamId].count
+    : Array.isArray(league.teamChampionships?.[teamId]?.seasons)
+      ? league.teamChampionships[teamId].seasons.length
+      : 0;
+  const prestige = 0.45 + (winPct - 0.5) * 0.5 + mood * 0.25 + Math.min(0.08, titles * 0.02);
+  return clamp(prestige, 0.2, 0.95);
 }
 
 function collectRosterEntries(roster) {
@@ -2602,8 +2876,169 @@ function evaluateTeamInterestForPlayer(league, season, teamId, role, player) {
   return interest;
 }
 
-function signFreeAgentToTeam(league, player, teamId, role, context, reason) {
+function computePlayerContractPreference(player, contract, {
+  prestige = 0.5,
+  loyalty = 0.5,
+  teamNeed = 0,
+  returning = false,
+  multiOfferBonus = 0,
+} = {}) {
+  const totalMillions = (contract.totalValue || 0) / 1_000_000;
+  const stability = (contract.years ?? 1) * 0.6 + (contract.yearsRemaining ?? contract.years ?? 1) * 0.2;
+  let score = totalMillions;
+  score += stability * (0.4 + loyalty * 0.25);
+  score += prestige * 2.4;
+  if (returning) score += loyalty * 1.6;
+  score += Math.max(0, teamNeed) * 1.2;
+  score += multiOfferBonus;
+  return score;
+}
+
+function computeContractDemand(league, teamId, player, { teamNeedScore = 0, prestige = 0.5, returning = false } = {}) {
+  const baseSalary = computeBaseSalary(player, league);
+  const loyalty = ensurePlayerLoyalty(player);
+  const temperament = ensurePlayerTemperament(player);
+  const mood = temperament?.mood ?? 0;
+  const role = player.role || player.preferredRole || 'WR1';
+  let overall = Number.isFinite(player.overall) ? player.overall : null;
+  if (!Number.isFinite(overall)) {
+    const ratingSource = player.ratings || player.attrs || null;
+    if (ratingSource) overall = computeOverallFromRatings(ratingSource, role);
+  }
+  if (!Number.isFinite(overall)) overall = 65;
+  let ask = baseSalary;
+  if (overall >= 88) ask *= 1.28;
+  else if (overall >= 82) ask *= 1.18;
+  else if (overall >= 76) ask *= 1.1;
+  if (player.type === 'prospect' || (player.potential ?? 0) > (overall / 100 + 0.12)) {
+    ask *= 1.08;
+  }
+  ask *= 1 + (1 - loyalty) * 0.28;
+  if (returning) {
+    ask *= 1 - loyalty * 0.08;
+  }
+  ask *= 1 + Math.max(0, -mood) * 0.12;
+  const preferredYears = determinePreferredContractLength(resolvePlayerAge(league, player), player);
+  let floor = baseSalary * (0.74 + loyalty * 0.18);
+  floor *= 1 - Math.min(0.12, prestige * 0.08);
+  floor *= 1 - Math.min(0.08, teamNeedScore * 0.05);
+  floor = Math.max(MIN_CONTRACT_SALARY, Math.min(floor, ask * 0.95));
+  return { baseSalary, ask, floor, preferredYears, loyalty, mood };
+}
+
+function negotiateContractForTeam(league, teamId, player, {
+  teamNeedScore = 0,
+  seasonNumber,
+  basis = 'free-agent',
+  multiOfferBonus = 0,
+  replacingSalary = 0,
+} = {}) {
+  ensureSalaryStructures(league);
+  if (!teamId || !player) return null;
+  const cap = Number.isFinite(league.salaryCap) ? league.salaryCap : DEFAULT_SALARY_CAP;
+  const outgoingRelief = Math.max(0, replacingSalary);
+  const payroll = Math.max(0, recalculateTeamPayroll(league, teamId) - outgoingRelief);
+  const capSpace = Math.max(0, cap - payroll);
+  if (capSpace < MIN_CONTRACT_SALARY) return null;
+  const prestige = computeTeamPrestige(league, teamId);
+  const returning = player.currentTeamId === teamId || player.originalTeamId === teamId;
+  const demand = computeContractDemand(league, teamId, player, { teamNeedScore, prestige, returning });
+  const maxAnnual = Math.min(capSpace, cap * Math.min(0.35, 0.18 + Math.min(teamNeedScore, 1) * 0.22));
+  if (maxAnnual < demand.floor - 1) return null;
+  let target = demand.ask;
+  const negotiationTilt = 0.35 + prestige * 0.18 + demand.loyalty * 0.22 + Math.min(teamNeedScore, 1) * 0.15;
+  target -= (demand.ask - demand.floor) * negotiationTilt;
+  target += demand.ask * Math.min(0.12, teamNeedScore * 0.18);
+  target = clamp(target, demand.floor, demand.ask);
+  target = Math.min(target, maxAnnual);
+  if (target < demand.floor - 1) return null;
+  let years = demand.preferredYears;
+  if (teamNeedScore > 0.65 && years < MAX_CONTRACT_LENGTH) {
+    years += 1;
+  } else if (teamNeedScore < 0.2 && years > 1 && resolvePlayerAge(league, player) >= 31) {
+    years -= 1;
+  }
+  years = Math.max(1, Math.min(MAX_CONTRACT_LENGTH, Math.round(years)));
+  let salary = adjustSalaryForTerm(target, demand.preferredYears, years);
+  salary = clamp(salary, demand.floor, demand.ask);
+  salary = Math.min(salary, maxAnnual);
+  if (salary < demand.floor - 1 && years > 1) {
+    years = Math.max(1, years - 1);
+    salary = adjustSalaryForTerm(target, demand.preferredYears, years);
+    salary = clamp(salary, demand.floor, demand.ask);
+    salary = Math.min(salary, maxAnnual);
+  }
+  if (salary < demand.floor - 1) return null;
+  const contract = finalizeContract({
+    teamId,
+    salary,
+    years,
+    startSeason: seasonNumber,
+    basis,
+    loyaltyAdjustment: demand.loyalty,
+    demandSnapshot: {
+      ask: Math.round(demand.ask),
+      floor: Math.round(demand.floor),
+      preferredYears: demand.preferredYears,
+    },
+  });
+  const preference = computePlayerContractPreference(player, contract, {
+    prestige,
+    loyalty: demand.loyalty,
+    teamNeed: teamNeedScore,
+    returning,
+    multiOfferBonus,
+  });
+  return {
+    contract,
+    preference,
+    capSpace: Math.max(0, capSpace - contract.salary),
+    demand,
+  };
+}
+
+function generateInitialContract(league, teamId, player) {
+  ensureSalaryStructures(league);
+  const baseSalary = computeBaseSalary(player, league);
+  const loyalty = ensurePlayerLoyalty(player);
+  const preferredYears = determinePreferredContractLength(resolvePlayerAge(league, player), player);
+  let years = Math.round(preferredYears + rand(-0.5, 1.2));
+  years = Math.max(1, Math.min(MAX_CONTRACT_LENGTH, years));
+  let salary = baseSalary * (0.9 + rand(-0.08, 0.08));
+  salary *= 1 - loyalty * 0.05;
+  return finalizeContract({
+    teamId,
+    salary,
+    years,
+    startSeason: league.seasonNumber || 1,
+    basis: 'franchise',
+    loyaltyAdjustment: loyalty,
+    demandSnapshot: {
+      ask: Math.round(baseSalary),
+      floor: Math.round(baseSalary * 0.85),
+      preferredYears,
+    },
+  });
+}
+
+function signFreeAgentToTeam(league, player, teamId, role, context, reason, negotiationOverride = null) {
   if (!league || !player || !teamId || !role) return;
+  const strategy = teamStrategyFromRecord(league?.seasonSnapshot?.teams?.[teamId]);
+  const roster = ensureTeamRosterShell(league)[teamId];
+  const side = roleSide(role);
+  const incumbent = side === 'offense' ? roster.offense[role] : side === 'defense' ? roster.defense[role] : roster.special.K;
+  const incumbentValue = incumbent ? evaluatePlayerTrueValue(incumbent, strategy) : null;
+  const candidateValue = evaluatePlayerTrueValue(player, strategy);
+  const teamNeedScore = computeTeamNeedScore(incumbentValue, candidateValue);
+  const negotiation = negotiationOverride || negotiateContractForTeam(league, teamId, player, {
+    teamNeedScore: Math.max(teamNeedScore, incumbent ? 0 : 1),
+    seasonNumber: league.seasonNumber || 1,
+    basis: reason || 'free-agent',
+    replacingSalary: incumbent?.contract?.salary ?? 0,
+  });
+  if (!negotiation) {
+    return;
+  }
   if (context && !canTeamMakeOffseasonMove(context, teamId)) return;
   const index = league.freeAgents.findIndex((entry) => entry?.id === player.id);
   const [chosen] = index >= 0 ? league.freeAgents.splice(index, 1) : [player];
@@ -2615,6 +3050,8 @@ function signFreeAgentToTeam(league, player, teamId, role, context, reason) {
   }
   const assigned = { ...chosen, role, origin: 'free-agent' };
   assigned.loyalty = clamp((assigned.loyalty ?? 0.5) * 0.6 + rand(0.22, 0.4), 0.12, 0.96);
+  assigned.contract = negotiation.contract;
+  applyContractToPlayer(assigned, assigned.contract);
   assignPlayerToRoster(league, teamId, role, assigned);
   const identity = getTeamIdentity(teamId)?.abbr || teamId;
   recordNewsInternal(league, {
@@ -2656,9 +3093,109 @@ function attemptFreeAgentSignings(league, season, context) {
     if (!best) return;
     const threshold = rating >= 85 ? -0.5 : rating >= 80 ? 0 : rating >= 75 ? 0.35 : rating >= 70 ? 0.6 : 1.05;
     const patiencePenalty = (1 - dial) * 0.45;
-    if (best.interest > threshold + patiencePenalty) {
-      signFreeAgentToTeam(league, player, best.teamId, role, context, 'Free agent market splash');
+    if (best.interest <= threshold + patiencePenalty) return;
+    const contenders = interestBoard
+      .filter((entry, index) => {
+        if (index === 0) return true;
+        return (entry.interest ?? -Infinity) >= (best.interest ?? 0) - 0.6;
+      })
+      .slice(0, 4);
+    const offers = contenders
+      .map(({ teamId, interest }, index) => {
+        if (context && !canTeamMakeOffseasonMove(context, teamId)) return null;
+        const strategy = teamStrategyFromRecord(league?.seasonSnapshot?.teams?.[teamId]);
+        const roster = ensureTeamRosterShell(league)[teamId];
+        const side = roleSide(role);
+        const incumbent = side === 'offense'
+          ? roster.offense[role]
+          : side === 'defense'
+            ? roster.defense[role]
+            : roster.special.K;
+        const incumbentValue = incumbent ? evaluatePlayerTrueValue(incumbent, strategy) : null;
+        const candidateValue = evaluatePlayerTrueValue(player, strategy);
+        const needScore = computeTeamNeedScore(incumbentValue, candidateValue);
+        const negotiation = negotiateContractForTeam(league, teamId, player, {
+          teamNeedScore: Math.max(needScore, incumbent ? 0 : 1),
+          seasonNumber: league.seasonNumber || 1,
+          basis: 'free-agent',
+          multiOfferBonus: index === 0 ? 0.6 : 0,
+          replacingSalary: incumbent?.contract?.salary ?? 0,
+        });
+        if (!negotiation) return null;
+        return { teamId, negotiation, interest };
+      })
+      .filter(Boolean)
+      .sort((a, b) => (b.negotiation.preference ?? 0) - (a.negotiation.preference ?? 0));
+    const chosen = offers[0];
+    if (!chosen) return;
+    signFreeAgentToTeam(league, player, chosen.teamId, role, context, 'Free agent market splash', chosen.negotiation);
+  });
+}
+
+export function advanceContractsForNewSeason(league) {
+  if (!league) return;
+  ensureSalaryStructures(league);
+  const expirations = [];
+  Object.entries(league.teamRosters || {}).forEach(([teamId, roster]) => {
+    const handle = (role, player) => {
+      if (!player?.contract) return;
+      const contract = player.contract;
+      if (!Number.isFinite(contract.yearsRemaining)) {
+        contract.yearsRemaining = contract.years ?? 1;
+      }
+      if (contract.yearsRemaining <= 0) return;
+      contract.yearsRemaining -= 1;
+      if (contract.yearsRemaining <= 0) {
+        expirations.push({ teamId, role, player });
+      } else {
+        applyContractToPlayer(player, contract);
+      }
+    };
+    Object.entries(roster?.offense || {}).forEach(([role, player]) => handle(role, player));
+    Object.entries(roster?.defense || {}).forEach(([role, player]) => handle(role, player));
+    if (roster?.special?.K) handle('K', roster.special.K);
+  });
+
+  const irExpirations = [];
+  Object.entries(league.injuredReserve || {}).forEach(([playerId, entry]) => {
+    if (!entry?.player?.contract) return;
+    const contract = entry.player.contract;
+    if (!Number.isFinite(contract.yearsRemaining)) {
+      contract.yearsRemaining = contract.years ?? 1;
     }
+    if (contract.yearsRemaining <= 0) return;
+    contract.yearsRemaining -= 1;
+    if (contract.yearsRemaining <= 0) {
+      irExpirations.push({ playerId, entry });
+    } else {
+      applyContractToPlayer(entry.player, contract);
+    }
+  });
+
+  expirations.forEach(({ teamId, role, player }) => {
+    const removed = removePlayerFromRoster(league, teamId, role) || player;
+    if (!removed) return;
+    clearPlayerContract(removed);
+    pushPlayerToFreeAgency(league, removed, role, 'contract expired');
+    recordNewsInternal(league, {
+      type: 'free-agent',
+      teamId,
+      text: `${getTeamIdentity(teamId)?.abbr || teamId} let ${removed.firstName} ${removed.lastName} (${role}) hit the market`,
+      detail: 'Contract expired without a new agreement',
+      seasonNumber: league.seasonNumber || null,
+    });
+  });
+
+  irExpirations.forEach(({ playerId, entry }) => {
+    const role = entry.role || findPlayerRole(ensureTeamRosterShell(league)[entry.teamId], playerId) || entry.player?.role || 'WR1';
+    const injuredPlayer = entry.player;
+    clearPlayerContract(injuredPlayer);
+    delete league.injuredReserve[playerId];
+    pushPlayerToFreeAgency(league, injuredPlayer, role, 'contract expired');
+  });
+
+  Object.keys(league.teamRosters || {}).forEach((teamId) => {
+    recalculateTeamPayroll(league, teamId);
   });
 }
 
