@@ -31,7 +31,53 @@ function resolveTeamName(teamId) {
   return identity.displayName || identity.name || teamId;
 }
 
+function clamp01(value) {
+  if (!Number.isFinite(value)) return 0;
+  if (value <= 0) return 0;
+  if (value >= 1) return 1;
+  return value;
+}
+
+function blendWithWhite(color, amount = 0.35) {
+  if (!color || typeof color !== 'string') return null;
+  const normalized = color.trim().replace(/^#/, '');
+  if (!/^[0-9a-fA-F]{6}$/.test(normalized)) return null;
+  const ratio = clamp01(amount);
+  const r = parseInt(normalized.slice(0, 2), 16);
+  const g = parseInt(normalized.slice(2, 4), 16);
+  const b = parseInt(normalized.slice(4, 6), 16);
+  const mix = (value) => Math.round(value + (255 - value) * ratio);
+  const toHex = (value) => mix(value).toString(16).padStart(2, '0');
+  return `#${toHex(r)}${toHex(g)}${toHex(b)}`.toUpperCase();
+}
+
+function resolveTeamAccentColor(entry) {
+  if (!entry) return null;
+  const teamIds = [entry.teamId, entry.partnerTeam, entry.otherTeam, entry.otherId, entry.opponentId];
+  const colorCandidates = [];
+  teamIds.filter(Boolean).forEach((teamId) => {
+    const identity = getTeamIdentity(teamId);
+    if (!identity?.colors) return;
+    if (identity.colors.primary) colorCandidates.push(identity.colors.primary);
+    if (identity.colors.secondary) colorCandidates.push(identity.colors.secondary);
+  });
+  if (typeof entry.primaryColor === 'string') colorCandidates.push(entry.primaryColor);
+  if (Array.isArray(entry.colors)) {
+    entry.colors.forEach((value) => {
+      if (typeof value === 'string') colorCandidates.push(value);
+    });
+  }
+  // Avoid duplicate heavy loops by returning first valid softened color.
+  for (let index = 0; index < colorCandidates.length; index += 1) {
+    const softened = blendWithWhite(colorCandidates[index], 0.32);
+    if (softened) return softened;
+  }
+  return null;
+}
+
 function resolveHeadlineColor(entry) {
+  const accent = resolveTeamAccentColor(entry);
+  if (accent) return accent;
   const type = String(entry?.type || '').toLowerCase();
   if (type === 'injury' || type === 'suspension') return '#ff6b6b';
   if (type === 'signing') return '#6fb6ff';

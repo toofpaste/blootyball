@@ -390,7 +390,16 @@ function computeGmOverall(gm = {}) {
   const discipline = clamp(gm.discipline ?? 0.5, 0, 1);
   const patience = clamp(gm.patience ?? 0.5, 0, 1);
   const charisma = clamp(gm.charisma ?? 0.5, 0, 1);
-  const total = evaluation * 0.24 + vision * 0.2 + culture * 0.16 + discipline * 0.16 + patience * 0.14 + charisma * 0.1;
+  const capFocus = clamp(gm.capFocus ?? 0.5, 0, 1);
+  const capStewardship = clamp(1 - clamp(gm.capTolerance ?? 0.2, 0, 0.6) / 0.6, 0, 1);
+  const total = evaluation * 0.22
+    + vision * 0.18
+    + culture * 0.14
+    + discipline * 0.15
+    + patience * 0.12
+    + charisma * 0.09
+    + capFocus * 0.06
+    + capStewardship * 0.04;
   return clampRating(35 + total * 60);
 }
 
@@ -594,6 +603,24 @@ function computeBaseSalary(player, league = null) {
   return Math.max(MIN_CONTRACT_SALARY, salary);
 }
 
+function computeContractValueBonus(player, league = null) {
+  if (!player) return 0;
+  const contract = player.contract || null;
+  if (!contract || contract.temporary) return 0;
+  const salary = Number.isFinite(contract.salary)
+    ? contract.salary
+    : Number.isFinite(contract.capHit)
+      ? contract.capHit
+      : Number.isFinite(player.salary)
+        ? player.salary
+        : null;
+  if (!Number.isFinite(salary) || salary <= 0) return 0;
+  const expected = computeBaseSalary(player, league);
+  if (!Number.isFinite(expected) || expected <= 0) return 0;
+  const deltaRatio = clamp((expected - salary) / expected, -0.7, 0.8);
+  return deltaRatio * 18;
+}
+
 function decoratePlayerMetrics(player, role) {
   if (!player) return player;
   const updated = player;
@@ -697,7 +724,63 @@ function initialiseRosterMetrics(league) {
       roster.special.K = decorated;
       ensurePlayerDirectoryEntry(league, teamId, 'K', decorated);
     }
+    enforceInitialCapDiscipline(league, teamId);
     recalculateTeamPayroll(league, teamId);
+  });
+}
+
+function enforceInitialCapDiscipline(league, teamId) {
+  ensureSalaryStructures(league);
+  if (!league || !teamId) return;
+  const roster = league.teamRosters?.[teamId] || null;
+  if (!roster) return;
+  const players = gatherRosterPlayers(roster);
+  if (!players.length) return;
+  const cap = Number.isFinite(league.salaryCap) ? league.salaryCap : DEFAULT_SALARY_CAP;
+  const totalSalary = players.reduce((sum, { player }) => {
+    const contract = player?.contract || null;
+    if (!contract || contract.temporary) return sum;
+    const hit = Number.isFinite(contract.salary)
+      ? contract.salary
+      : Number.isFinite(contract.capHit)
+        ? contract.capHit
+        : 0;
+    return sum + Math.max(0, hit);
+  }, 0);
+  const alreadyDiscounted = players.every(({ player }) => player?.contract?.initialDiscounted);
+  if (alreadyDiscounted) return;
+  if (totalSalary <= cap) {
+    players.forEach(({ player }) => {
+      if (player?.contract) player.contract.initialDiscounted = true;
+    });
+    return;
+  }
+  const targetTotal = Math.min(cap * 0.88, totalSalary * 0.92);
+  const scale = targetTotal / Math.max(totalSalary, 1);
+  const appliedScale = clamp(scale, 0.35, 0.95);
+  players.forEach(({ player }) => {
+    const contract = player?.contract || null;
+    if (!contract || contract.temporary) return;
+    const baseSalary = Number.isFinite(contract.salary) ? contract.salary : 0;
+    if (baseSalary <= 0) return;
+    const adjustedSalary = Math.max(
+      MIN_CONTRACT_SALARY,
+      Math.round((baseSalary * appliedScale) / CONTRACT_ROUNDING) * CONTRACT_ROUNDING,
+    );
+    const years = Number.isFinite(contract.years) ? contract.years : 1;
+    const yearsRemaining = Number.isFinite(contract.yearsRemaining)
+      ? Math.min(contract.yearsRemaining, years)
+      : years;
+    const updated = {
+      ...contract,
+      salary: adjustedSalary,
+      capHit: adjustedSalary,
+      totalValue: adjustedSalary * years,
+      years,
+      yearsRemaining,
+      initialDiscounted: true,
+    };
+    applyContractToPlayer(player, updated);
   });
 }
 
@@ -791,6 +874,11 @@ function resolveTeamResultsProfile(league, season, teamId) {
 function buildTeamDecisionContext(league, teamId, season = null) {
   const growth = computeTeamGrowthProfile(league, teamId);
   const results = resolveTeamResultsProfile(league, season, teamId);
+  ensureSalaryStructures(league);
+  const payroll = recalculateTeamPayroll(league, teamId);
+  const cap = Number.isFinite(league?.salaryCap) ? league.salaryCap : DEFAULT_SALARY_CAP;
+  const capRatio = cap > 0 ? payroll / cap : 1;
+  const capSpace = Math.max(0, cap - payroll);
   return {
     teamId,
     winPct: results.winPct,
@@ -802,6 +890,10 @@ function buildTeamDecisionContext(league, teamId, season = null) {
     averageCeiling: growth.averageCeiling,
     growthGap: growth.growthGap,
     playerCount: growth.playerCount,
+    payroll,
+    salaryCap: cap,
+    capRatio,
+    capSpace,
   };
 }
 
@@ -988,6 +1080,7 @@ function generateCoachCandidate() {
   const support = clamp(supportBase - 0.25, -0.4, 0.45);
   const composure = clamp((coach.tacticalIQ ?? 1) - 1, -0.3, 0.4);
   coach.temperamentProfile = { aggression, support, composure };
+  coach.capFocus = clamp(rand(0.25, 0.72), 0.15, 0.95);
   coach.origin = 'staff-free-agent';
   coach.resume ||= { experience: Math.round(tieredRandom([1, 4], [5, 13], [14, 20], { lowChance: 0.25, highChance: 0.2 })) };
   delete coach.teamId;
@@ -1013,6 +1106,7 @@ function generateScoutCandidate() {
     temperamentSense,
     origin: 'staff-free-agent',
   };
+  scout.capFocus = clamp(tieredRandom([0.22, 0.45], [0.45, 0.78], [0.78, 0.96], { lowChance: 0.24, highChance: 0.18 }), 0.2, 0.95);
   return updateScoutOverall(scout);
 }
 
@@ -1024,6 +1118,9 @@ function generateGmCandidate({ teamId = null } = {}) {
   const evaluation = clamp(tieredRandom([0.22, 0.48], [0.48, 0.86], [0.86, 0.99], { lowChance: 0.24, highChance: 0.2 }), 0.2, 0.99);
   const vision = clamp(tieredRandom([0.2, 0.46], [0.46, 0.84], [0.84, 0.98], { lowChance: 0.24, highChance: 0.2 }), 0.18, 0.99);
   const culture = clamp(tieredRandom([0.2, 0.45], [0.45, 0.82], [0.82, 0.97], { lowChance: 0.24, highChance: 0.2 }), 0.18, 0.98);
+  const capTolerance = clamp(tieredRandom([0.08, 0.18], [0.18, 0.32], [0.32, 0.42], { lowChance: 0.24, highChance: 0.18 }), 0.06, 0.45);
+  const capFocus = clamp(tieredRandom([0.28, 0.52], [0.52, 0.82], [0.82, 0.98], { lowChance: 0.24, highChance: 0.18 }), 0.3, 0.98);
+  const capFlashpoint = clamp(tieredRandom([0.35, 0.55], [0.55, 0.78], [0.78, 0.9], { lowChance: 0.26, highChance: 0.18 }), 0.3, 0.95);
   const gm = {
     id,
     teamId,
@@ -1036,6 +1133,9 @@ function generateGmCandidate({ teamId = null } = {}) {
     charisma: clamp(tieredRandom([0.15, 0.4], [0.4, 0.75], [0.75, 0.95], { lowChance: 0.26, highChance: 0.18 }), 0.12, 0.96),
     tenure: 0,
     frustration: 0,
+    capTolerance,
+    capFocus,
+    capFlashpoint,
     origin: teamId ? 'franchise' : 'staff-free-agent',
   };
   return updateGmOverall(gm);
@@ -1047,9 +1147,14 @@ function ensureTeamCoaches(league) {
     if (!league.teamCoaches[teamId]) {
       const identity = getTeamIdentity(teamId) || null;
       const coach = buildCoachForTeam(teamId, { identity });
-      league.teamCoaches[teamId] = updateCoachOverall({ ...coach, teamId });
+      const capFocus = clamp(rand(0.25, 0.7), 0.15, 0.95);
+      league.teamCoaches[teamId] = updateCoachOverall({ ...coach, teamId, capFocus });
     } else {
-      updateCoachOverall(league.teamCoaches[teamId]);
+      const existing = league.teamCoaches[teamId];
+      if (existing.capFocus == null) {
+        existing.capFocus = clamp(rand(0.25, 0.7), 0.15, 0.95);
+      }
+      updateCoachOverall(existing);
     }
   });
 }
@@ -1060,7 +1165,17 @@ function ensureTeamGms(league) {
     if (!league.teamGms[teamId]) {
       league.teamGms[teamId] = generateGmCandidate({ teamId });
     } else {
-      updateGmOverall(league.teamGms[teamId]);
+      const gmEntry = league.teamGms[teamId];
+      if (gmEntry.capTolerance == null) {
+        gmEntry.capTolerance = clamp(rand(0.1, 0.3), 0.06, 0.45);
+      }
+      if (gmEntry.capFocus == null) {
+        gmEntry.capFocus = clamp(rand(0.35, 0.85), 0.3, 0.98);
+      }
+      if (gmEntry.capFlashpoint == null) {
+        gmEntry.capFlashpoint = clamp(rand(0.45, 0.8), 0.3, 0.95);
+      }
+      updateGmOverall(gmEntry);
     }
   });
 }
@@ -1681,9 +1796,14 @@ function ensureScouts(league) {
         development: clamp(primary + rand(-0.2, 0.15), 0.3, 0.95),
         trade: clamp(primary + rand(-0.15, 0.2), 0.35, 0.96),
         aggression: clamp(rand(0.3, 0.9), 0.2, 0.95),
+        capFocus: clamp(rand(0.28, 0.75), 0.2, 0.95),
       });
     } else {
-      updateScoutOverall(league.teamScouts[teamId]);
+      const scout = league.teamScouts[teamId];
+      if (scout.capFocus == null) {
+        scout.capFocus = clamp(rand(0.28, 0.75), 0.2, 0.95);
+      }
+      updateScoutOverall(scout);
     }
   });
 }
@@ -1703,11 +1823,14 @@ function coachCandidateScore(candidate = {}, context = {}) {
     1,
   );
   const qbGrowth = clamp((candidate.development?.qb ?? 0.2) / 0.52, 0, 1);
+  const capNeed = clamp(context.capFocusNeed ?? Math.max(0, (context.capRatio ?? 1) - 1) * 1.2, 0, 1);
+  const capDiscipline = clamp(candidate.capFocus ?? 0.45, 0, 1);
   const randomSwing = Math.random() * 0.05;
   return (
     development * (0.45 + growthNeed * 0.45)
     + experience * (0.4 + resultNeed * 0.45 + resilience * 0.2)
     + qbGrowth * (0.08 + growthNeed * 0.12)
+    + capDiscipline * capNeed * (context.capEmergency ? 0.18 : 0.12)
     + randomSwing
   );
 }
@@ -1736,12 +1859,15 @@ function scoutCandidateScore(candidate = {}, context = {}) {
   const development = clamp(candidate.development ?? 0.5, 0, 1);
   const trade = clamp(candidate.trade ?? 0.5, 0, 1);
   const temperament = clamp(candidate.temperamentSense ?? 0.5, 0, 1);
+  const capNeed = clamp(context.capFocusNeed ?? Math.max(0, (context.capRatio ?? 1) - 1) * 1.4, 0, 1);
+  const capDiscipline = clamp(candidate.capFocus ?? 0.5, 0, 1);
   const randomSwing = Math.random() * 0.05;
   return (
     evaluation * (0.4 + resultNeed * 0.4)
     + development * (0.4 + growthNeed * 0.45)
     + trade * 0.08
     + temperament * 0.1
+    + capDiscipline * capNeed * (context.capEmergency ? 0.24 : 0.15)
     + randomSwing
   );
 }
@@ -1786,6 +1912,10 @@ function replaceCoach(league, teamId, coach, seasonNumber, { reason, context } =
   const assigned = updateCoachOverall({ ...candidate, teamId, identity });
   assigned.resume = { ...(candidate.resume || {}), lastTeam: teamId };
   assigned.tendencies ||= { aggression: 0, passBias: 0, runBias: 0 };
+  const targetCapFocus = context?.capEmergency
+    ? Math.max(assigned.capFocus ?? 0.62, 0.68)
+    : clamp(assigned.capFocus ?? rand(0.25, 0.72), 0.15, 0.95);
+  assigned.capFocus = clamp(targetCapFocus, 0.15, 0.98);
   league.teamCoaches[teamId] = assigned;
   recordNewsInternal(league, {
     type: 'staff_move',
@@ -1820,6 +1950,10 @@ function replaceScout(league, teamId, scout, seasonNumber, { reason, context } =
   const decisionContext = context || buildTeamDecisionContext(league, teamId, league?.season || league?.seasonSnapshot || null);
   const candidate = takeScoutCandidate(league, decisionContext);
   const assigned = updateScoutOverall({ ...candidate, teamId });
+  const targetCapFocus = context?.capEmergency
+    ? Math.max(assigned.capFocus ?? 0.6, 0.72)
+    : clamp(assigned.capFocus ?? rand(0.3, 0.75), 0.2, 0.95);
+  assigned.capFocus = clamp(targetCapFocus, 0.2, 0.98);
   league.teamScouts[teamId] = assigned;
   recordNewsInternal(league, {
     type: 'staff_move',
@@ -1843,6 +1977,7 @@ function evaluateStaffChanges(league, season, { focusTeams, activityDial } = {})
     const gm = league.teamGms?.[teamId] || null;
     if (!gm) return;
     const decisionContext = buildTeamDecisionContext(league, teamId, season);
+    const capProfile = computeTeamCapProfile(league, teamId, gm, decisionContext);
     const winPct = decisionContext.winPct ?? 0.5;
     const trend = decisionContext.trend ?? 0;
     const pointDiff = decisionContext.pointDiff ?? 0;
@@ -1856,43 +1991,123 @@ function evaluateStaffChanges(league, season, { focusTeams, activityDial } = {})
     );
     let frustration = (gm.frustration || 0) * 0.35
       + resultPressure * 0.85
-      + clamp(growthGap / 24, 0, 0.6);
+      + clamp(growthGap / 24, 0, 0.6)
+      + capProfile.stressScore;
     frustration -= clamp((winPct - 0.55) * 1.2, 0, 0.6);
     frustration -= clamp(trend * 6, 0, 0.5);
+    frustration -= capProfile.relief * 0.5;
     frustration = clamp(frustration, 0, 4);
     gm.frustration = frustration;
     gm.tenure = (gm.tenure || 0) + 1;
     gm.lastDecisionContext = decisionContext;
+    gm.capSituation = { ratio: capProfile.capRatio, stress: capProfile.stress };
 
-    const coach = league.teamCoaches?.[teamId] || null;
-    const scout = league.teamScouts?.[teamId] || null;
+    let coach = league.teamCoaches?.[teamId] || null;
+    let scout = league.teamScouts?.[teamId] || null;
+
+    const seasonNumber = season.seasonNumber || league.seasonNumber || 1;
+    const capEmergency = capProfile.stress > Math.max(0.08, (gm.capFlashpoint ?? 0.5) - 0.15)
+      && capProfile.capRatio > 1.01;
+    const staffContext = {
+      ...decisionContext,
+      capFocusNeed: Math.max(
+        decisionContext.capFocusNeed ?? 0,
+        capProfile.focusNeed * (0.8 + (gm.capFocus ?? 0.5) * 0.4),
+      ),
+      capEmergency,
+    };
+    let replacedCoachForCap = false;
+    let replacedScoutForCap = false;
+    if (capEmergency && gm.lastCapCrisisSeason !== seasonNumber) {
+      const preferScout = !scout || (scout.capFocus ?? 0.35) < (coach?.capFocus ?? 0.35);
+      if (preferScout) {
+        replaceScout(league, teamId, scout, seasonNumber, {
+          reason: 'Cap discipline crackdown',
+          context: staffContext,
+        });
+        scout = league.teamScouts?.[teamId] || scout;
+        replacedScoutForCap = true;
+      } else if (coach) {
+        replaceCoach(league, teamId, coach, seasonNumber, {
+          reason: 'Cap discipline crackdown',
+          context: staffContext,
+        });
+        coach = league.teamCoaches?.[teamId] || coach;
+        replacedCoachForCap = true;
+      }
+      gm.lastCapCrisisSeason = seasonNumber;
+      frustration = clamp((gm.frustration || 0) - 0.35, 0, 4);
+      gm.frustration = frustration;
+    }
 
     const coachStruggle = winPct < 0.45 || trend < -0.08;
-    const coachPressure = clamp(resultPressure * 0.6 + (growthGap / 18) * 0.4 + (frustration - 1) * 0.25, 0, 1);
-    let fireCoachChance = coachStruggle
-      ? clamp(coachPressure, 0, 0.85)
-      : clamp((coachPressure - 0.45) * 0.55, 0, 0.45);
-    fireCoachChance = clamp(fireCoachChance * dial, 0, 0.85);
+    const capCoachPressure = capProfile.stress * (0.35 + (gm.capFocus ?? 0.5) * 0.25);
+    const coachPressure = clamp(
+      resultPressure * 0.6 + (growthGap / 18) * 0.4 + (frustration - 1) * 0.25 + capCoachPressure,
+      0,
+      1.2,
+    );
+    let fireCoachChance = replacedCoachForCap
+      ? 0
+      : (coachStruggle || capProfile.capRatio > 1.05)
+        ? clamp(coachPressure, 0, 0.9)
+        : clamp((coachPressure - 0.45) * 0.55, 0, 0.45);
+    fireCoachChance = clamp(fireCoachChance * dial, 0, 0.9);
     if (coach && Math.random() < fireCoachChance) {
-      replaceCoach(league, teamId, coach, season.seasonNumber || league.seasonNumber || 1, {
-        reason: coachStruggle ? 'Performance evaluation' : 'Strategic refresh',
-        context: decisionContext,
-      });
+      const reason = coachStruggle
+        ? 'Performance evaluation'
+        : capProfile.capRatio > 1.05
+          ? 'Cap discipline reset'
+          : 'Strategic refresh';
+      replaceCoach(league, teamId, coach, seasonNumber, { reason, context: staffContext });
+      coach = league.teamCoaches?.[teamId] || coach;
     }
 
-    const scoutStruggle = growthGap > 8 && winPct < 0.55;
-    const scoutPressure = clamp((growthGap / 16) * 0.7 + resultPressure * 0.35 + (frustration - 1.2) * 0.15, 0, 1);
-    let fireScoutChance = scoutStruggle
-      ? clamp(scoutPressure, 0, 0.5)
-      : clamp((scoutPressure - 0.5) * 0.4, 0, 0.32);
-    fireScoutChance = clamp(fireScoutChance * dial, 0, 0.5);
+    const scoutStruggle = (growthGap > 8 && winPct < 0.55) || capProfile.capRatio > 1.02;
+    const capScoutPressure = capProfile.stress * (0.5 + (gm.capFocus ?? 0.5) * 0.35);
+    const scoutPressure = clamp(
+      (growthGap / 16) * 0.7 + resultPressure * 0.35 + (frustration - 1.2) * 0.15 + capScoutPressure,
+      0,
+      1.2,
+    );
+    let fireScoutChance = replacedScoutForCap
+      ? 0
+      : scoutStruggle
+        ? clamp(scoutPressure, 0, 0.65)
+        : clamp((scoutPressure - 0.5) * 0.4, 0, 0.32);
+    fireScoutChance = clamp(fireScoutChance * dial, 0, 0.65);
     if (Math.random() < fireScoutChance) {
-      replaceScout(league, teamId, scout, season.seasonNumber || league.seasonNumber || 1, {
-        reason: scoutStruggle ? 'Need sharper evaluations' : 'Shuffling scouting approach',
-        context: decisionContext,
-      });
+      const reason = scoutStruggle && capProfile.capRatio > 1.02
+        ? 'Cap discipline crackdown'
+        : scoutStruggle
+          ? 'Need sharper evaluations'
+          : 'Shuffling scouting approach';
+      replaceScout(league, teamId, scout, seasonNumber, { reason, context: staffContext });
+      scout = league.teamScouts?.[teamId] || scout;
     }
   });
+}
+
+function computeTeamCapProfile(league, teamId, gm, decisionContext = null) {
+  ensureSalaryStructures(league);
+  const cap = Number.isFinite(league.salaryCap) ? league.salaryCap : DEFAULT_SALARY_CAP;
+  const payroll = recalculateTeamPayroll(league, teamId);
+  const capRatio = cap > 0 ? payroll / cap : 1;
+  const capSpace = Math.max(0, cap - payroll);
+  const tolerance = clamp(gm?.capTolerance ?? 0.2, 0.05, 0.6);
+  const focus = clamp(gm?.capFocus ?? 0.5, 0, 1);
+  const overage = Math.max(0, capRatio - 1);
+  const stress = Math.max(0, overage - tolerance);
+  const discipline = clamp(gm?.discipline ?? 0.5, 0, 1);
+  const stressScore = stress * (1.1 + focus * 0.6 + discipline * 0.3);
+  const relief = capRatio < 1 ? Math.min((1 - capRatio) * (0.4 + focus * 0.2), 0.6) : 0;
+  const focusNeed = capRatio > 1 ? clamp(overage * (0.8 + focus * 0.6), 0, 1.2) : 0;
+  if (decisionContext) {
+    decisionContext.capRatio = capRatio;
+    decisionContext.capSpace = capSpace;
+    decisionContext.capFocusNeed = Math.max(decisionContext.capFocusNeed ?? 0, focusNeed);
+  }
+  return { cap, payroll, capRatio, capSpace, tolerance, focus, overage, stress, stressScore, relief, focusNeed };
 }
 
 function ensureInjuryTracking(league) {
@@ -1988,13 +2203,18 @@ export function ensureSeasonPersonnel(league, seasonNumber) {
 function evaluatePlayerTrueValue(player, mode = 'balanced') {
   const current = player.overall ?? 60;
   const potential = (player.ceiling ?? player.potential ?? current / 99) * 100;
+  let score;
   if (mode === 'win-now') {
-    return current * 0.7 + potential * 0.3;
+    score = current * 0.7 + potential * 0.3;
+  } else if (mode === 'future') {
+    score = current * 0.4 + potential * 0.6;
+  } else {
+    score = current * 0.55 + potential * 0.45;
   }
-  if (mode === 'future') {
-    return current * 0.4 + potential * 0.6;
-  }
-  return current * 0.55 + potential * 0.45;
+  const loyalty = clamp(player.loyalty ?? 0.5, 0, 1);
+  const contractBonus = computeContractValueBonus(player);
+  const salaryWeight = 0.55 + Math.max(0, loyalty - 0.4) * 0.25;
+  return score + contractBonus * salaryWeight;
 }
 
 function applyScoutVariance(value, scoutSkill) {
@@ -2131,9 +2351,12 @@ function scoutEvaluationForPlayer(league, teamId, role, player, modeOverride) {
   ensureScouts(league);
   const scout = league.teamScouts?.[teamId] || { evaluation: 0.6 };
   const mode = modeOverride || 'balanced';
-  const trueValue = evaluatePlayerTrueValue(player, mode);
-  const evaluation = applyScoutVariance(trueValue, scout.evaluation);
-  return { scout, evaluation, trueValue };
+  const baseValue = evaluatePlayerTrueValue(player, mode);
+  const capFocus = clamp(scout.capFocus ?? 0.4, 0, 1);
+  const contractBonus = computeContractValueBonus(player, league);
+  const capAwareValue = baseValue + contractBonus * capFocus * 0.35;
+  const evaluation = applyScoutVariance(capAwareValue, scout.evaluation);
+  return { scout, evaluation, trueValue: capAwareValue };
 }
 
 export function signBestFreeAgentForRole(league, teamId, role, {
