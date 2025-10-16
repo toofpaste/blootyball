@@ -5,6 +5,7 @@ import {
   initializeLeaguePersonnel,
   ensureSeasonPersonnel,
 } from './personnel';
+import { createInitialTeamWiki, cloneTeamWikiMap } from '../data/teamWikiTemplates';
 
 const ATTRIBUTE_KEYS = ['speed', 'accel', 'agility', 'strength', 'awareness', 'catch', 'throwPow', 'throwAcc', 'tackle'];
 const TEAM_STAT_KEYS = [
@@ -18,6 +19,462 @@ const TEAM_STAT_KEYS = [
   'sacks',
   'interceptions',
 ];
+
+const PLAYER_RECORD_DEFINITIONS = [
+  { key: 'mostPassingTouchdownsSeason', label: 'Most Passing TDs (Season)', type: 'player', unit: 'TDs', path: ['passing', 'touchdowns'] },
+  { key: 'mostPassingYardsSeason', label: 'Most Passing Yards (Season)', type: 'player', unit: 'Yards', path: ['passing', 'yards'] },
+  { key: 'mostReceptionsSeason', label: 'Most Receptions (Season)', type: 'player', unit: 'Receptions', path: ['receiving', 'receptions'] },
+  { key: 'mostReceivingYardsSeason', label: 'Most Receiving Yards (Season)', type: 'player', unit: 'Yards', path: ['receiving', 'yards'] },
+  { key: 'mostRushingYardsSeason', label: 'Most Rushing Yards (Season)', type: 'player', unit: 'Yards', path: ['rushing', 'yards'] },
+  { key: 'mostRushingTouchdownsSeason', label: 'Most Rushing TDs (Season)', type: 'player', unit: 'TDs', path: ['rushing', 'touchdowns'] },
+  { key: 'mostSacksSeason', label: 'Most Sacks (Season)', type: 'player', unit: 'Sacks', path: ['defense', 'sacks'] },
+  { key: 'mostTacklesSeason', label: 'Most Tackles (Season)', type: 'player', unit: 'Tackles', path: ['defense', 'tackles'] },
+  { key: 'mostInterceptionsSeason', label: 'Most Interceptions (Season)', type: 'player', unit: 'INT', path: ['defense', 'interceptions'] },
+];
+
+const TEAM_RECORD_DEFINITIONS = [
+  { key: 'bestTeamRecordSeason', label: 'Best Team Record (Season)', type: 'team', unit: 'Wins' },
+  { key: 'bestPointDifferentialSeason', label: 'Best Point Differential (Season)', type: 'team', unit: 'Points' },
+];
+
+const COACH_RECORD_DEFINITIONS = [
+  { key: 'coachMostWinsSeason', label: 'Most Wins By A Coach (Season)', type: 'coach', unit: 'Wins' },
+];
+
+const RECORD_DEFINITIONS = [
+  ...PLAYER_RECORD_DEFINITIONS,
+  ...TEAM_RECORD_DEFINITIONS,
+  ...COACH_RECORD_DEFINITIONS,
+];
+
+function createBlankRecordEntry(definition = {}) {
+  return {
+    key: definition.key || '',
+    label: definition.label || definition.key || '',
+    type: definition.type || 'player',
+    unit: definition.unit || null,
+    value: 0,
+    holderId: null,
+    holderName: null,
+    teamId: null,
+    teamName: null,
+    seasonNumber: null,
+    extra: {},
+    updatedSeason: null,
+  };
+}
+
+export function createInitialRecordBook() {
+  const categories = {};
+  RECORD_DEFINITIONS.forEach((definition) => {
+    categories[definition.key] = createBlankRecordEntry(definition);
+  });
+  return {
+    categories,
+    lastUpdatedSeason: 0,
+  };
+}
+
+export function cloneRecordBook(book = {}) {
+  if (!book || typeof book !== 'object') {
+    return { categories: {}, lastUpdatedSeason: 0 };
+  }
+  const categories = {};
+  Object.entries(book.categories || {}).forEach(([key, entry]) => {
+    categories[key] = {
+      key: entry?.key || key,
+      label: entry?.label || key,
+      type: entry?.type || 'player',
+      unit: entry?.unit || null,
+      value: entry?.value ?? 0,
+      holderId: entry?.holderId || null,
+      holderName: entry?.holderName || null,
+      teamId: entry?.teamId || null,
+      teamName: entry?.teamName || null,
+      seasonNumber: entry?.seasonNumber ?? null,
+      extra: entry?.extra ? { ...entry.extra } : {},
+      updatedSeason: entry?.updatedSeason ?? null,
+    };
+  });
+  return {
+    categories,
+    lastUpdatedSeason: book.lastUpdatedSeason ?? 0,
+  };
+}
+
+function ensureRecordBook(league) {
+  if (!league.recordBook) {
+    league.recordBook = createInitialRecordBook();
+  }
+  const missing = RECORD_DEFINITIONS.filter((definition) => !league.recordBook.categories?.[definition.key]);
+  if (missing.length) {
+    league.recordBook.categories ||= {};
+    missing.forEach((definition) => {
+      league.recordBook.categories[definition.key] = createBlankRecordEntry(definition);
+    });
+  }
+  return league.recordBook;
+}
+
+function getStatValueByPath(stat = {}, path = []) {
+  if (!Array.isArray(path) || !path.length) return 0;
+  return path.reduce((acc, key) => {
+    if (acc == null) return 0;
+    const next = acc[key];
+    return Number.isFinite(next) ? next : (next ?? 0);
+  }, stat) || 0;
+}
+
+function buildSeasonPlayerTeamMap(season, league) {
+  const map = {};
+  (season?.results || []).forEach((result) => {
+    Object.entries(result?.playerTeams || {}).forEach(([playerId, teamId]) => {
+      if (!playerId || !teamId) return;
+      map[playerId] = teamId;
+    });
+  });
+  const directory = league?.playerDirectory || {};
+  Object.entries(directory).forEach(([playerId, meta]) => {
+    if (map[playerId]) return;
+    if (meta?.teamId) map[playerId] = meta.teamId;
+    else if (meta?.team) map[playerId] = meta.team;
+  });
+  return map;
+}
+
+function resolvePlayerName(meta, fallbackId) {
+  if (!meta) return fallbackId || null;
+  if (meta.fullName) return meta.fullName;
+  if (meta.name) return meta.name;
+  const parts = [meta.firstName, meta.lastName].filter(Boolean).join(' ').trim();
+  return parts || fallbackId || null;
+}
+
+function resolveTeamDisplayName(season, teamId) {
+  if (!teamId) return null;
+  const info = season?.teams?.[teamId]?.info || getTeamIdentity(teamId) || null;
+  return info?.displayName || info?.name || teamId;
+}
+
+function compareTeamRecord(candidate, existing) {
+  if (!existing) return true;
+  if (candidate.wins > existing.wins) return true;
+  if (candidate.wins < existing.wins) return false;
+  if (candidate.winPct > existing.winPct) return true;
+  if (candidate.winPct < existing.winPct) return false;
+  if (candidate.pointDiff > existing.pointDiff) return true;
+  if (candidate.pointDiff < existing.pointDiff) return false;
+  return candidate.pointsFor > existing.pointsFor;
+}
+
+function comparePointDifferential(candidate, existing) {
+  if (!existing) return true;
+  if (candidate.pointDiff > existing.pointDiff) return true;
+  if (candidate.pointDiff < existing.pointDiff) return false;
+  return candidate.pointsFor > existing.pointsFor;
+}
+
+function buildTeamRecordHighlights(recordBook, teamId) {
+  if (!recordBook || !teamId) return [];
+  const highlights = [];
+  Object.values(recordBook.categories || {}).forEach((entry) => {
+    if (!entry || entry.teamId !== teamId) return;
+    highlights.push({
+      key: entry.key,
+      label: entry.label,
+      value: entry.value ?? 0,
+      unit: entry.unit || entry.extra?.unit || null,
+      seasonNumber: entry.seasonNumber ?? entry.updatedSeason ?? null,
+      holderName: entry.holderName || entry.teamName || null,
+    });
+  });
+  highlights.sort((a, b) => (b.seasonNumber ?? 0) - (a.seasonNumber ?? 0));
+  return highlights.slice(0, 12);
+}
+
+function collectTeamAwardsForSeason(season, league, teamId) {
+  const awards = [];
+  const awardSet = season?.awards || null;
+  if (!awardSet) return awards;
+  const labels = {
+    mvp: 'League MVP',
+    offensive: 'Offensive Player of the Year',
+    defensive: 'Defensive Player of the Year',
+  };
+  Object.entries(labels).forEach(([key, label]) => {
+    const award = awardSet[key];
+    if (!award || award.teamId !== teamId) return;
+    const meta = league?.playerDirectory?.[award.playerId] || null;
+    const name = award.name || resolvePlayerName(meta, award.playerId) || 'Unknown Player';
+    awards.push(`${label}: ${name}`);
+  });
+  return awards;
+}
+
+function buildSeasonNotes(recordText, playoffResult, awards, highlights) {
+  const notes = [];
+  if (recordText) notes.push(`Finished ${recordText}`);
+  if (playoffResult && playoffResult !== 'Regular Season') {
+    notes.push(`Postseason: ${playoffResult}`);
+  }
+  if (awards.length) {
+    notes.push(`Awards – ${awards.join(', ')}`);
+  }
+  if (highlights.length) {
+    notes.push(highlights[0].text);
+  }
+  return notes.join(' • ');
+}
+
+function buildTeamSeasonHighlights(teamId, season, league, playerTeams) {
+  const highlights = [];
+  if (!teamId) return highlights;
+  const stats = season?.playerStats || {};
+  const directory = league?.playerDirectory || {};
+  const categories = [
+    { key: 'passingYards', path: ['passing', 'yards'], label: 'Passing Yards Leader', unit: 'yds' },
+    { key: 'rushingYards', path: ['rushing', 'yards'], label: 'Rushing Yards Leader', unit: 'yds' },
+    { key: 'receivingYards', path: ['receiving', 'yards'], label: 'Receiving Yards Leader', unit: 'yds' },
+    { key: 'sacks', path: ['defense', 'sacks'], label: 'Sack Leader', unit: 'sacks' },
+    { key: 'tackles', path: ['defense', 'tackles'], label: 'Tackle Leader', unit: 'tackles' },
+  ];
+
+  categories.forEach((category) => {
+    let best = null;
+    Object.entries(stats).forEach(([playerId, stat]) => {
+      if (playerTeams[playerId] !== teamId) return;
+      const value = getStatValueByPath(stat, category.path);
+      if (!Number.isFinite(value) || value <= 0) return;
+      if (!best || value > best.value) {
+        best = { playerId, value };
+      }
+    });
+    if (best) {
+      const meta = directory[best.playerId] || {};
+      const name = resolvePlayerName(meta, best.playerId) || best.playerId;
+      const text = `${category.label}: ${Math.round(best.value)} ${category.unit}`;
+      highlights.push({
+        playerId: best.playerId,
+        name,
+        text,
+        value: best.value,
+        category: category.key,
+      });
+    }
+  });
+
+  return highlights;
+}
+
+function ensureTeamWikiEntry(league, teamId) {
+  if (!teamId) return null;
+  league.teamWiki ||= createInitialTeamWiki();
+  if (league.teamWiki[teamId]) return league.teamWiki[teamId];
+  const templates = createInitialTeamWiki();
+  if (templates[teamId]) {
+    league.teamWiki[teamId] = cloneTeamWikiMap({ [teamId]: templates[teamId] })[teamId];
+    return league.teamWiki[teamId];
+  }
+  const fallbackName = getTeamIdentity(teamId)?.displayName || teamId;
+  league.teamWiki[teamId] = {
+    id: teamId,
+    displayName: fallbackName,
+    sections: [],
+    seasonSummaries: [],
+    totals: {
+      playoffAppearances: 0,
+      championships: 0,
+      awards: 0,
+      bluperbowlWins: 0,
+    },
+    recordsSet: [],
+    notablePlayers: [],
+    lastUpdatedSeason: 0,
+  };
+  return league.teamWiki[teamId];
+}
+
+export function updateRecordBookForSeason(league, season) {
+  if (!league || !season) return;
+  const recordBook = ensureRecordBook(league);
+  const seasonNumber = season.seasonNumber ?? league.seasonNumber ?? 1;
+  const playerStats = season.playerStats || {};
+  const playerTeams = buildSeasonPlayerTeamMap(season, league);
+  const directory = league.playerDirectory || {};
+
+  Object.entries(playerStats).forEach(([playerId, stat]) => {
+    const meta = directory[playerId] || {};
+    const teamId = playerTeams[playerId] || null;
+    const teamName = resolveTeamDisplayName(season, teamId);
+    PLAYER_RECORD_DEFINITIONS.forEach((definition) => {
+      const value = Math.round(getStatValueByPath(stat, definition.path));
+      if (!Number.isFinite(value) || value <= 0) return;
+      const entry = recordBook.categories?.[definition.key];
+      if (!entry || value <= (entry.value ?? 0)) return;
+      entry.value = value;
+      entry.holderId = playerId;
+      entry.holderName = resolvePlayerName(meta, playerId);
+      entry.teamId = teamId;
+      entry.teamName = teamName;
+      entry.seasonNumber = seasonNumber;
+      entry.updatedSeason = seasonNumber;
+      entry.extra = {
+        ...(entry.extra || {}),
+        unit: definition.unit || entry.unit || null,
+      };
+    });
+  });
+
+  Object.values(season.teams || {}).forEach((team) => {
+    if (!team?.id) return;
+    const record = team.record || {};
+    const wins = record.wins ?? 0;
+    const losses = record.losses ?? 0;
+    const ties = record.ties ?? 0;
+    const games = wins + losses + ties;
+    const winPct = games ? (wins + 0.5 * ties) / games : 0;
+    const pointDiff = (team.pointsFor ?? 0) - (team.pointsAgainst ?? 0);
+    const teamName = resolveTeamDisplayName(season, team.id);
+
+    const recordEntry = recordBook.categories?.bestTeamRecordSeason;
+    if (recordEntry) {
+      const candidate = { wins, losses, ties, winPct, pointDiff, pointsFor: team.pointsFor ?? 0, pointsAgainst: team.pointsAgainst ?? 0 };
+      const current = recordEntry.extra || null;
+      if (wins > 0 && compareTeamRecord(candidate, current)) {
+        recordEntry.value = wins;
+        recordEntry.holderId = team.id;
+        recordEntry.holderName = teamName;
+        recordEntry.teamId = team.id;
+        recordEntry.teamName = teamName;
+        recordEntry.seasonNumber = seasonNumber;
+        recordEntry.updatedSeason = seasonNumber;
+        recordEntry.extra = candidate;
+      }
+    }
+
+    const diffEntry = recordBook.categories?.bestPointDifferentialSeason;
+    if (diffEntry) {
+      const candidate = { pointDiff, wins, losses, ties, pointsFor: team.pointsFor ?? 0, pointsAgainst: team.pointsAgainst ?? 0 };
+      const current = diffEntry.extra || null;
+      if (pointDiff > 0 && comparePointDifferential(candidate, current)) {
+        diffEntry.value = pointDiff;
+        diffEntry.holderId = team.id;
+        diffEntry.holderName = teamName;
+        diffEntry.teamId = team.id;
+        diffEntry.teamName = teamName;
+        diffEntry.seasonNumber = seasonNumber;
+        diffEntry.updatedSeason = seasonNumber;
+        diffEntry.extra = candidate;
+      }
+    }
+
+    const coachEntry = recordBook.categories?.coachMostWinsSeason;
+    if (coachEntry) {
+      const coach = league.teamCoaches?.[team.id] || null;
+      if (coach && wins > (coachEntry.value ?? 0)) {
+        const coachName = coach.identity?.fullName
+          || coach.identity?.name
+          || coach.identity?.lastName
+          || coach.name
+          || coach.id
+          || teamName;
+        coachEntry.value = wins;
+        coachEntry.holderId = coach.id || `${team.id}-coach`;
+        coachEntry.holderName = coachName;
+        coachEntry.teamId = team.id;
+        coachEntry.teamName = teamName;
+        coachEntry.seasonNumber = seasonNumber;
+        coachEntry.updatedSeason = seasonNumber;
+        coachEntry.extra = { losses, ties };
+      }
+    }
+  });
+
+  recordBook.lastUpdatedSeason = Math.max(recordBook.lastUpdatedSeason ?? 0, seasonNumber);
+}
+
+export function updateTeamWikiAfterSeason(league, season) {
+  if (!league || !season) return;
+  const seasonNumber = season.seasonNumber ?? league.seasonNumber ?? 1;
+  league.teamWiki ||= createInitialTeamWiki();
+  ensureRecordBook(league);
+  computeSeasonAwards(season, league);
+  const playerTeams = buildSeasonPlayerTeamMap(season, league);
+
+  Object.values(season.teams || {}).forEach((team) => {
+    if (!team?.id) return;
+    const entry = ensureTeamWikiEntry(league, team.id);
+    const recordText = formatRecord(team.record);
+    const playoffResult = determinePlayoffOutcome(season, team.id);
+    const awards = collectTeamAwardsForSeason(season, league, team.id);
+    const highlights = buildTeamSeasonHighlights(team.id, season, league, playerTeams);
+    const summary = {
+      seasonNumber,
+      recordText,
+      playoffResult,
+      pointsFor: team.pointsFor ?? 0,
+      pointsAgainst: team.pointsAgainst ?? 0,
+      awards,
+      notablePlayers: highlights.map((highlight) => ({
+        playerId: highlight.playerId,
+        name: highlight.name,
+        highlight: highlight.text,
+      })),
+      notes: buildSeasonNotes(recordText, playoffResult, awards, highlights),
+    };
+
+    const existingIndex = entry.seasonSummaries.findIndex((item) => item.seasonNumber === seasonNumber);
+    if (existingIndex >= 0) entry.seasonSummaries[existingIndex] = summary;
+    else entry.seasonSummaries.push(summary);
+    entry.seasonSummaries.sort((a, b) => (b.seasonNumber ?? 0) - (a.seasonNumber ?? 0));
+
+    const playerMap = new Map((entry.notablePlayers || []).map((player) => [
+      player.playerId,
+      {
+        ...player,
+        highlights: Array.isArray(player.highlights) ? player.highlights.slice() : [],
+        seasons: Array.isArray(player.seasons) ? player.seasons.slice() : [],
+      },
+    ]));
+
+    highlights.forEach((highlight) => {
+      if (!highlight.playerId) return;
+      const existing = playerMap.get(highlight.playerId);
+      if (existing) {
+        if (!existing.highlights.includes(highlight.text)) existing.highlights.push(highlight.text);
+        if (!existing.seasons.includes(seasonNumber)) existing.seasons.push(seasonNumber);
+      } else {
+        playerMap.set(highlight.playerId, {
+          playerId: highlight.playerId,
+          name: highlight.name,
+          highlights: [highlight.text],
+          seasons: [seasonNumber],
+        });
+      }
+    });
+
+    entry.notablePlayers = Array.from(playerMap.values())
+      .sort((a, b) => (b.seasons?.length || 0) - (a.seasons?.length || 0))
+      .slice(0, 10);
+
+    entry.recordsSet = buildTeamRecordHighlights(league.recordBook, team.id);
+
+    const playoffAppearances = entry.seasonSummaries.filter((summary) => summary.playoffResult && summary.playoffResult !== 'Regular Season').length;
+    const awardCount = entry.seasonSummaries.reduce((total, summary) => total + (summary.awards?.length || 0), 0);
+    const championships = league.teamChampionships?.[team.id]?.count ?? 0;
+
+    entry.totals = {
+      playoffAppearances,
+      championships,
+      awards: awardCount,
+      bluperbowlWins: championships,
+    };
+
+    entry.lastUpdatedSeason = seasonNumber;
+  });
+
+  league.teamWikiLastUpdatedSeason = Math.max(league.teamWikiLastUpdatedSeason ?? 0, seasonNumber);
+}
 
 function createBlankTeamStats() {
   return TEAM_STAT_KEYS.reduce((acc, key) => {
@@ -226,6 +683,10 @@ export function createLeagueContext() {
     teamChampionships: {},
     lastChampion: null,
     teamSeasonHistory: {},
+    recordBook: createInitialRecordBook(),
+    teamWiki: createInitialTeamWiki(),
+    teamWikiLastUpdatedSeason: 0,
+    teamWikiAiLog: [],
   };
   initializeLeaguePersonnel(league);
   ensureSeasonPersonnel(league, league.seasonNumber);

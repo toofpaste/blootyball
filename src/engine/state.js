@@ -27,6 +27,8 @@ import {
     incrementPlayerAges,
     applyOffseasonDevelopment,
     recordTeamSeasonHistory,
+    updateRecordBookForSeason,
+    updateTeamWikiAfterSeason,
 } from './league';
 import {
     ensureSeasonProgression,
@@ -591,6 +593,8 @@ function finalizeLeagueForSeason(state, result) {
     if (league.finalizedSeasonNumber === season.seasonNumber) return;
     registerChampion(season, league, result);
     recordTeamSeasonHistory(league, season);
+    updateRecordBookForSeason(league, season);
+    updateTeamWikiAfterSeason(league, season);
     mergePlayerStatsIntoCareer(league.careerStats, season.playerStats || {});
     league.finalizedSeasonNumber = season.seasonNumber;
     incrementPlayerAges(league);

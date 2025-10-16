@@ -12,6 +12,8 @@ export default function GlobalControls({
   onShowNews,
   onShowPressArticles,
   onShowFreeAgents,
+  onShowRecordBook,
+  onShowLeagueWiki,
   seasonProgressLabel,
   hasUnseenNews,
   hasUnseenPressArticles,
@@ -37,6 +39,13 @@ export default function GlobalControls({
         onClick={onShowTeamDirectory}
       >
         Team Pages
+      </button>
+      <button
+        type="button"
+        className="global-controls__button global-controls__button--secondary"
+        onClick={onShowLeagueWiki}
+      >
+        League Wiki
       </button>
       <button
         type="button"
@@ -81,6 +90,13 @@ export default function GlobalControls({
         onClick={onShowLeaderboards}
       >
         Leaderboards
+      </button>
+      <button
+        type="button"
+        className="global-controls__button global-controls__button--secondary"
+        onClick={onShowRecordBook}
+      >
+        League Records
       </button>
       <label className="global-controls__speed">
         <span className="global-controls__speed-label">Speed</span>
