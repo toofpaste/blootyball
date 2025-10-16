@@ -31,9 +31,24 @@ function splitParagraphs(text) {
   return text.split(/(?<=[.!?])\s+/).map((segment) => segment.trim()).filter(Boolean);
 }
 
+function parseWeekKey(weekKey) {
+  const match = /^S(\d+)-W(\d+)$/.exec(weekKey || '');
+  if (!match) return { seasonNumber: 0, weekNumber: 0 };
+  return {
+    seasonNumber: Number.parseInt(match[1], 10) || 0,
+    weekNumber: Number.parseInt(match[2], 10) || 0,
+  };
+}
+
+function formatWeekLabel(weekKey) {
+  const { seasonNumber, weekNumber } = parseWeekKey(weekKey);
+  if (!seasonNumber && !weekNumber) return 'Press Coverage';
+  return `Season ${seasonNumber} • Week ${weekNumber}`;
+}
+
 export default function PressArticlesModal({ open, onClose, league, season, seasonProgress }) {
-  const [selectedArticleId, setSelectedArticleId] = useState(null);
-  const [articlesById, setArticlesById] = useState({});
+  const [selectedArticleKey, setSelectedArticleKey] = useState(null);
+  const [articlesByWeek, setArticlesByWeek] = useState({});
   const cacheRef = useRef({});
   const inflightRef = useRef(new Set());
 
@@ -43,12 +58,13 @@ export default function PressArticlesModal({ open, onClose, league, season, seas
 
   useEffect(() => {
     if (!open) {
-      setSelectedArticleId(null);
+      setSelectedArticleKey(null);
       return;
     }
     if (!league || !season) return;
     const existingCache = cacheRef.current[weekKey] || {};
-    setArticlesById({ ...existingCache });
+    cacheRef.current[weekKey] = existingCache;
+    setArticlesByWeek({ ...cacheRef.current });
 
     angles.forEach((angle) => {
       const cached = existingCache[angle.id];
@@ -62,12 +78,19 @@ export default function PressArticlesModal({ open, onClose, league, season, seas
             ...result,
             generatedAt: new Date().toISOString(),
             angle,
+            weekKey,
           };
           cacheRef.current[weekKey] = {
             ...(cacheRef.current[weekKey] || {}),
             [angle.id]: payload,
           };
-          setArticlesById((prev) => ({ ...prev, [angle.id]: payload }));
+          setArticlesByWeek((prev) => ({
+            ...prev,
+            [weekKey]: {
+              ...(prev[weekKey] || {}),
+              [angle.id]: payload,
+            },
+          }));
         })
         .finally(() => {
           inflightRef.current.delete(angle.id);
@@ -75,25 +98,62 @@ export default function PressArticlesModal({ open, onClose, league, season, seas
     });
   }, [open, league, season, seasonProgress, angles, weekKey]);
 
-  const displayArticles = useMemo(() => {
-    return angles.map((angle) => {
-      const data = articlesById[angle.id] || null;
-      const generating = inflightRef.current.has(angle.id) && !data;
-      return { angle, data, generating };
+  const sections = useMemo(() => {
+    const sectionMap = new Map();
+    const knownWeekKeys = new Set([
+      ...Object.keys(articlesByWeek || {}),
+      weekKey,
+    ].filter(Boolean));
+
+    knownWeekKeys.forEach((key) => {
+      const stored = articlesByWeek[key] || {};
+      if (key === weekKey) {
+        const entries = angles.map((angle) => {
+          const data = stored[angle.id] || null;
+          const generating = inflightRef.current.has(angle.id) && !data;
+          return { weekKey: key, angle, data, generating };
+        });
+        sectionMap.set(key, entries);
+      } else {
+        const entries = Object.values(stored).map((item) => ({
+          weekKey: key,
+          angle: item.angle || { id: item.id, label: item.headline, description: item.preview },
+          data: item,
+          generating: false,
+        }));
+        sectionMap.set(key, entries);
+      }
     });
-  }, [angles, articlesById]);
+
+    const sortedKeys = Array.from(knownWeekKeys).sort((a, b) => {
+      const aParsed = parseWeekKey(a);
+      const bParsed = parseWeekKey(b);
+      if (aParsed.seasonNumber !== bParsed.seasonNumber) {
+        return bParsed.seasonNumber - aParsed.seasonNumber;
+      }
+      return bParsed.weekNumber - aParsed.weekNumber;
+    });
+
+    return sortedKeys.map((key) => ({
+      weekKey: key,
+      label: formatWeekLabel(key),
+      entries: sectionMap.get(key) || [],
+    }));
+  }, [angles, articlesByWeek, weekKey]);
+
+  const flatEntries = useMemo(() => sections.flatMap((section) => section.entries), [sections]);
 
   const activeArticle = useMemo(() => {
-    if (!selectedArticleId) return null;
-    return displayArticles.find((entry) => entry.angle.id === selectedArticleId) || null;
-  }, [displayArticles, selectedArticleId]);
+    if (!selectedArticleKey) return null;
+    return flatEntries.find((entry) => `${entry.weekKey}::${entry.angle.id}` === selectedArticleKey) || null;
+  }, [flatEntries, selectedArticleKey]);
 
-  const handleOpenArticle = useCallback((angleId) => {
-    setSelectedArticleId(angleId);
+  const handleOpenArticle = useCallback((week, angleId) => {
+    setSelectedArticleKey(`${week}::${angleId}`);
   }, []);
 
   const handleCloseArticle = useCallback(() => {
-    setSelectedArticleId(null);
+    setSelectedArticleKey(null);
   }, []);
 
   return (
@@ -104,7 +164,7 @@ export default function PressArticlesModal({ open, onClose, league, season, seas
         title="Articles From The Press"
         width="min(96vw, 760px)"
       >
-        {displayArticles.length === 0 ? (
+        {sections.length === 0 ? (
           <div style={{ color: '#cde8cd', fontSize: 14 }}>
             Press coverage will appear once the season is underway.
           </div>
@@ -113,56 +173,69 @@ export default function PressArticlesModal({ open, onClose, league, season, seas
             style={{
               display: 'flex',
               flexDirection: 'column',
-              gap: '12px',
+              gap: '18px',
               maxHeight: '70vh',
               overflowY: 'auto',
               paddingRight: 4,
             }}
           >
-            {displayArticles.map(({ angle, data, generating }) => (
-              <button
-                key={angle.id}
-                type="button"
-                onClick={() => handleOpenArticle(angle.id)}
-                style={{
-                  border: '1px solid rgba(32,112,32,0.45)',
-                  borderRadius: 12,
-                  background: 'rgba(6,36,6,0.94)',
-                  padding: '14px 18px',
-                  boxShadow: '0 2px 6px rgba(0,0,0,0.35)',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  alignItems: 'flex-start',
-                  gap: 6,
-                  cursor: 'pointer',
-                  textAlign: 'left',
-                }}
-              >
-                <header style={{ display: 'flex', width: '100%', justifyContent: 'space-between', alignItems: 'baseline' }}>
-                  <div style={{ fontWeight: 700, color: '#e5ffe5', fontSize: 16, letterSpacing: 0.5 }}>
-                    {data?.headline || angle.label}
-                  </div>
-                  {data?.generatedAt && (
-                    <div style={{ fontSize: 11, color: 'rgba(205,232,205,0.65)' }}>
-                      {new Date(data.generatedAt).toLocaleString()}
-                    </div>
-                  )}
-                </header>
-                {data?.source && (
-                  <div style={{ fontSize: 11, color: 'rgba(205,232,205,0.7)', fontStyle: 'italic' }}>
-                    {data.source === 'chatgpt' ? 'Generated via ChatGPT API' : 'Generated with local fallback'}
-                  </div>
-                )}
-                <div style={{ fontSize: 12, color: 'rgba(205,232,205,0.7)' }}>{angle.description}</div>
-                <div style={{ fontSize: 13, color: 'rgba(205,232,205,0.85)', lineHeight: 1.45 }}>
-                  {data?.preview || 'Click to open the full column from the press box.'}
+            {sections.map((section) => (
+              <div key={section.weekKey} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: 'rgba(205,232,205,0.75)', textTransform: 'uppercase', letterSpacing: 1 }}>
+                  {section.label}
                 </div>
-                {generating && (
-                  <div style={{ fontSize: 12, color: 'rgba(205,232,205,0.65)', fontStyle: 'italic' }}>
-                    Drafting fresh insights…
+                {section.entries.length === 0 ? (
+                  <div style={{ fontSize: 12, color: 'rgba(205,232,205,0.65)' }}>
+                    No articles available for this week yet.
                   </div>
+                ) : (
+                  section.entries.map(({ weekKey: entryWeek, angle, data, generating }) => (
+                    <button
+                      key={`${entryWeek}-${angle.id}`}
+                      type="button"
+                      onClick={() => handleOpenArticle(entryWeek, angle.id)}
+                      style={{
+                        border: '1px solid rgba(32,112,32,0.45)',
+                        borderRadius: 12,
+                        background: 'rgba(6,36,6,0.94)',
+                        padding: '14px 18px',
+                        boxShadow: '0 2px 6px rgba(0,0,0,0.35)',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'flex-start',
+                        gap: 6,
+                        cursor: 'pointer',
+                        textAlign: 'left',
+                      }}
+                    >
+                      <header style={{ display: 'flex', width: '100%', justifyContent: 'space-between', alignItems: 'baseline' }}>
+                        <div style={{ fontWeight: 700, color: '#e5ffe5', fontSize: 16, letterSpacing: 0.5 }}>
+                          {data?.headline || angle.label}
+                        </div>
+                        {data?.generatedAt && (
+                          <div style={{ fontSize: 11, color: 'rgba(205,232,205,0.65)' }}>
+                            {new Date(data.generatedAt).toLocaleString()}
+                          </div>
+                        )}
+                      </header>
+                      {data?.source && (
+                        <div style={{ fontSize: 11, color: 'rgba(205,232,205,0.7)', fontStyle: 'italic' }}>
+                          {data.source === 'chatgpt' ? 'Generated via ChatGPT API' : 'Generated with local fallback'}
+                        </div>
+                      )}
+                      <div style={{ fontSize: 12, color: 'rgba(205,232,205,0.7)' }}>{angle.description}</div>
+                      <div style={{ fontSize: 13, color: 'rgba(205,232,205,0.85)', lineHeight: 1.45 }}>
+                        {data?.preview || 'Click to open the full column from the press box.'}
+                      </div>
+                      {generating && (
+                        <div style={{ fontSize: 12, color: 'rgba(205,232,205,0.65)', fontStyle: 'italic' }}>
+                          Drafting fresh insights…
+                        </div>
+                      )}
+                    </button>
+                  ))
                 )}
-              </button>
+              </div>
             ))}
           </div>
         )}
