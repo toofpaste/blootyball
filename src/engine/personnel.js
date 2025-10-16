@@ -1539,13 +1539,15 @@ function replaceScout(league, teamId, scout, seasonNumber, { reason, context } =
   return true;
 }
 
-function evaluateStaffChanges(league, season) {
+function evaluateStaffChanges(league, season, { focusTeams, activityDial } = {}) {
   if (!league || !season) return;
   ensureTeamCoaches(league);
   ensureTeamGms(league);
   ensureScouts(league);
   ensureStaffFreeAgents(league);
-  TEAM_IDS.forEach((teamId) => {
+  const targetTeams = Array.isArray(focusTeams) && focusTeams.length ? focusTeams : TEAM_IDS;
+  const dial = Math.min(1, Math.max(0.2, activityDial ?? (targetTeams.length / Math.max(1, TEAM_IDS.length))));
+  targetTeams.forEach((teamId) => {
     const gm = league.teamGms?.[teamId] || null;
     if (!gm) return;
     const decisionContext = buildTeamDecisionContext(league, teamId, season);
@@ -1575,9 +1577,10 @@ function evaluateStaffChanges(league, season) {
 
     const coachStruggle = winPct < 0.45 || trend < -0.08;
     const coachPressure = clamp(resultPressure * 0.6 + (growthGap / 18) * 0.4 + (frustration - 1) * 0.25, 0, 1);
-    const fireCoachChance = coachStruggle
+    let fireCoachChance = coachStruggle
       ? clamp(coachPressure, 0, 0.85)
       : clamp((coachPressure - 0.45) * 0.55, 0, 0.45);
+    fireCoachChance = clamp(fireCoachChance * dial, 0, 0.85);
     if (coach && Math.random() < fireCoachChance) {
       replaceCoach(league, teamId, coach, season.seasonNumber || league.seasonNumber || 1, {
         reason: coachStruggle ? 'Performance evaluation' : 'Strategic refresh',
@@ -1587,9 +1590,10 @@ function evaluateStaffChanges(league, season) {
 
     const scoutStruggle = growthGap > 8 && winPct < 0.55;
     const scoutPressure = clamp((growthGap / 16) * 0.7 + resultPressure * 0.35 + (frustration - 1.2) * 0.15, 0, 1);
-    const fireScoutChance = scoutStruggle
+    let fireScoutChance = scoutStruggle
       ? clamp(scoutPressure, 0, 0.5)
       : clamp((scoutPressure - 0.5) * 0.4, 0, 0.32);
+    fireScoutChance = clamp(fireScoutChance * dial, 0, 0.5);
     if (Math.random() < fireScoutChance) {
       replaceScout(league, teamId, scout, season.seasonNumber || league.seasonNumber || 1, {
         reason: scoutStruggle ? 'Need sharper evaluations' : 'Shuffling scouting approach',
@@ -2302,14 +2306,17 @@ function computeTeamStrategies(season) {
   return strategies;
 }
 
-function runTradeMarket(league, season) {
+function runTradeMarket(league, season, { focusTeams, activityDial } = {}) {
   if (!league || !season) return;
   ensureScouts(league);
   const strategies = computeTeamStrategies(season);
-  const contenders = TEAM_IDS.filter((teamId) => strategies[teamId] === 'win-now');
-  const rebuilders = TEAM_IDS.filter((teamId) => strategies[teamId] === 'future');
+  const activeTeams = Array.isArray(focusTeams) && focusTeams.length ? focusTeams : TEAM_IDS;
+  const contenders = activeTeams.filter((teamId) => strategies[teamId] === 'win-now');
+  const rebuilders = activeTeams.filter((teamId) => strategies[teamId] === 'future');
   if (!contenders.length || !rebuilders.length) return;
-  const attempts = Math.min(3, Math.floor((contenders.length + rebuilders.length) / 4));
+  const dial = Math.min(1, Math.max(0.2, activityDial ?? (activeTeams.length / Math.max(1, TEAM_IDS.length))));
+  const baseAttempts = Math.min(3, Math.floor((contenders.length + rebuilders.length) / 4));
+  const attempts = Math.max(0, Math.round(baseAttempts * dial));
   for (let i = 0; i < attempts; i += 1) {
     const teamA = choice(contenders);
     const teamB = choice(rebuilders);
@@ -2337,8 +2344,13 @@ function evaluateRosterNeeds(league, teamId) {
   return needs;
 }
 
-function fillRosterNeeds(league, teamId, needs, { reason, mode }) {
-  needs.forEach((role) => {
+function fillRosterNeeds(league, teamId, needs, { reason, mode, limitFraction } = {}) {
+  if (!Array.isArray(needs) || !needs.length) return;
+  const fraction = Number.isFinite(limitFraction)
+    ? Math.min(1, Math.max(0.2, limitFraction))
+    : 1;
+  const limit = Math.max(1, Math.round(needs.length * fraction));
+  needs.slice(0, limit).forEach((role) => {
     signBestFreeAgentForRole(league, teamId, role, { reason, mode });
   });
 }
@@ -2476,7 +2488,11 @@ function handleFreeAgencyDepartures(league, season, context) {
   const departures = [];
   const totalDays = context.totalDays || 5;
   const dayNumber = context.dayNumber || 1;
-  TEAM_IDS.forEach((teamId) => {
+  const focusTeams = Array.isArray(context?.focusTeams) && context.focusTeams.length
+    ? context.focusTeams
+    : TEAM_IDS;
+  const dial = Math.min(1, Math.max(0.2, context?.activityDial ?? (focusTeams.length / Math.max(1, TEAM_IDS.length))));
+  focusTeams.forEach((teamId) => {
     const roster = ensureTeamRosterShell(league)[teamId];
     if (!roster) return;
     const record = season?.teams?.[teamId]?.record || {};
@@ -2497,7 +2513,7 @@ function handleFreeAgencyDepartures(league, season, context) {
         desire -= 0.05;
       }
       if (dayNumber === totalDays) desire += 0.05;
-      desire = clamp(desire, 0, 0.85);
+      desire = clamp(desire * (0.45 + dial * 0.55), 0, 0.85);
       if (Math.random() < desire) {
         departures.push({ teamId, role, player });
       }
@@ -2570,6 +2586,11 @@ function signFreeAgentToTeam(league, player, teamId, role, context, reason) {
 
 function attemptFreeAgentSignings(league, season, context) {
   if (!league?.freeAgents?.length) return;
+  const focusTeams = Array.isArray(context?.focusTeams) && context.focusTeams.length
+    ? context.focusTeams
+    : TEAM_IDS;
+  if (!focusTeams.length) return;
+  const dial = Math.min(1, Math.max(0.2, context?.activityDial ?? (focusTeams.length / Math.max(1, TEAM_IDS.length))));
   const candidates = league.freeAgents
     .map((player) => ({
       player,
@@ -2578,15 +2599,19 @@ function attemptFreeAgentSignings(league, season, context) {
     }))
     .sort((a, b) => (b.rating ?? 0) - (a.rating ?? 0));
 
-  candidates.forEach(({ player, rating, role }) => {
-    const interestBoard = TEAM_IDS.map((teamId) => ({
+  const limitFraction = 0.25 + dial * 0.5;
+  const maxCandidates = Math.max(1, Math.round(candidates.length * limitFraction));
+
+  candidates.slice(0, maxCandidates).forEach(({ player, rating, role }) => {
+    const interestBoard = focusTeams.map((teamId) => ({
       teamId,
       interest: evaluateTeamInterestForPlayer(league, season, teamId, role, player),
     })).sort((a, b) => (b.interest ?? 0) - (a.interest ?? 0));
     const best = interestBoard[0];
     if (!best) return;
     const threshold = rating >= 85 ? -0.5 : rating >= 80 ? 0 : rating >= 75 ? 0.35 : rating >= 70 ? 0.6 : 1.05;
-    if (best.interest > threshold) {
+    const patiencePenalty = (1 - dial) * 0.35;
+    if (best.interest > threshold + patiencePenalty) {
       signFreeAgentToTeam(league, player, best.teamId, role, context, 'Free agent market splash');
     }
   });
@@ -2628,6 +2653,21 @@ function recordOffseasonPress(league, season, context, newEntries = []) {
   });
 }
 
+function determineOffseasonFocusTeams(dayNumber = 1, totalDays = 5) {
+  const teamCount = TEAM_IDS.length;
+  if (!teamCount) return [];
+  const normalizedDay = Math.max(1, Math.floor(dayNumber));
+  const normalizedTotal = Math.max(1, Math.floor(totalDays));
+  const baseChunk = Math.ceil(teamCount / normalizedTotal);
+  const chunkSize = Math.max(1, Math.min(teamCount, Math.max(3, baseChunk)));
+  const focus = [];
+  const startIndex = ((normalizedDay - 1) * chunkSize) % teamCount;
+  for (let i = 0; i < chunkSize; i += 1) {
+    focus.push(TEAM_IDS[(startIndex + i) % teamCount]);
+  }
+  return [...new Set(focus)];
+}
+
 function ensureOffseasonState(league, totalDays = 5) {
   if (!league) return null;
   league.offseason ||= {};
@@ -2639,22 +2679,34 @@ function ensureOffseasonState(league, totalDays = 5) {
 
 export function advanceLeagueOffseason(league, season, context = {}) {
   if (!league) return;
+  const totalDays = context.totalDays || league.offseason?.totalDays || 5;
+  const dayNumber = context.dayNumber || 1;
+  const focusTeams = Array.isArray(context.focusTeams) && context.focusTeams.length
+    ? context.focusTeams
+    : determineOffseasonFocusTeams(dayNumber, totalDays);
+  const activityDial = Math.min(1, Math.max(0.2, focusTeams.length / Math.max(1, TEAM_IDS.length)));
+  context.focusTeams = focusTeams;
+  context.activityDial = activityDial;
   processOffseasonInjuries(league);
-  TEAM_IDS.forEach((teamId) => {
+  focusTeams.forEach((teamId) => {
     const strategy = teamStrategyFromRecord(season?.teams?.[teamId]);
     simulateRosterCuts(league, teamId, strategy);
   });
   handleFreeAgencyDepartures(league, season, context);
   attemptFreeAgentSignings(league, season, context);
-  TEAM_IDS.forEach((teamId) => {
+  focusTeams.forEach((teamId) => {
     const strategy = teamStrategyFromRecord(season?.teams?.[teamId]);
     const needs = evaluateRosterNeeds(league, teamId);
     if (needs.length) {
-      fillRosterNeeds(league, teamId, needs, { reason: 'offseason adjustments', mode: strategy });
+      fillRosterNeeds(league, teamId, needs, {
+        reason: 'offseason adjustments',
+        mode: strategy,
+        limitFraction: activityDial,
+      });
     }
   });
-  runTradeMarket(league, season);
-  evaluateStaffChanges(league, season);
+  runTradeMarket(league, season, { focusTeams, activityDial });
+  evaluateStaffChanges(league, season, { focusTeams, activityDial });
   TEAM_IDS.forEach((teamId) => refreshTeamMood(league, teamId));
 }
 
