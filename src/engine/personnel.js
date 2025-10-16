@@ -2606,7 +2606,7 @@ function attemptFreeAgentSignings(league, season, context) {
     }))
     .sort((a, b) => (b.rating ?? 0) - (a.rating ?? 0));
 
-  const limitFraction = 0.1 + dial * 0.25;
+  const limitFraction = 0.05 + dial * 0.15;
   const maxCandidates = Math.max(1, Math.round(candidates.length * limitFraction));
 
   candidates.slice(0, maxCandidates).forEach(({ player, rating, role }) => {
@@ -2666,7 +2666,8 @@ function determineOffseasonFocusTeams(dayNumber = 1, totalDays = 5) {
   const normalizedDay = Math.max(1, Math.floor(dayNumber));
   const normalizedTotal = Math.max(1, Math.floor(totalDays));
   const baseChunk = Math.ceil(teamCount / normalizedTotal);
-  const chunkSize = Math.max(1, Math.min(teamCount, Math.max(3, baseChunk)));
+  const scaledChunk = Math.max(1, Math.round(baseChunk * 0.6));
+  const chunkSize = Math.max(1, Math.min(teamCount, Math.max(2, scaledChunk)));
   const focus = [];
   const startIndex = ((normalizedDay - 1) * chunkSize) % teamCount;
   for (let i = 0; i < chunkSize; i += 1) {
@@ -2675,7 +2676,7 @@ function determineOffseasonFocusTeams(dayNumber = 1, totalDays = 5) {
   return [...new Set(focus)];
 }
 
-export const DEFAULT_OFFSEASON_DAY_DURATION_MS = 300000;
+export const DEFAULT_OFFSEASON_DAY_DURATION_MS = 60000;
 
 function ensureOffseasonState(league, totalDays = 5) {
   if (!league) return null;
@@ -2693,7 +2694,8 @@ export function advanceLeagueOffseason(league, season, context = {}) {
   const focusTeams = Array.isArray(context.focusTeams) && context.focusTeams.length
     ? context.focusTeams
     : determineOffseasonFocusTeams(dayNumber, totalDays);
-  const activityDial = Math.min(1, Math.max(0.2, focusTeams.length / Math.max(1, TEAM_IDS.length)));
+  const rawDial = focusTeams.length / Math.max(1, TEAM_IDS.length);
+  const activityDial = Math.min(0.85, Math.max(0.15, rawDial * 0.75));
   context.focusTeams = focusTeams;
   context.activityDial = activityDial;
   processOffseasonInjuries(league);
@@ -2710,7 +2712,7 @@ export function advanceLeagueOffseason(league, season, context = {}) {
       fillRosterNeeds(league, teamId, needs, {
         reason: 'offseason adjustments',
         mode: strategy,
-        limitFraction: activityDial,
+        limitFraction: activityDial * 0.6,
       });
     }
   });
