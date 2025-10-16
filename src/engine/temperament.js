@@ -93,6 +93,21 @@ export function ensurePlayerTemperament(player) {
   return safe;
 }
 
+export function ensurePlayerLoyalty(player) {
+  if (!player) return 0.5;
+  if (typeof player.loyalty === 'number' && Number.isFinite(player.loyalty)) {
+    player.loyalty = clamp(player.loyalty, 0, 1);
+    return player.loyalty;
+  }
+  const temperament = ensurePlayerTemperament(player);
+  const baseline = temperament?.baseline ?? 0;
+  const influence = temperament?.influence ?? 0.5;
+  const raw = 0.55 + baseline * 0.3 + (influence - 0.5) * 0.12 + rand(-0.12, 0.12);
+  const loyalty = clamp(raw, 0.05, 0.98);
+  player.loyalty = loyalty;
+  return loyalty;
+}
+
 export function cloneTemperament(temperament) {
   if (!temperament) return null;
   return { ...temperament };
@@ -313,6 +328,7 @@ export function getTeamCoach(league, teamId) {
 
 export default {
   ensurePlayerTemperament,
+  ensurePlayerLoyalty,
   cloneTemperament,
   describeMood,
   describeTemperament,

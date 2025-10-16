@@ -236,3 +236,31 @@ export function normalizeColorInput(color) {
 export function getMetaColor(group, slot) {
     return pickMetaColors(group, slot);
 }
+
+export function blendTeamColors(colorA, colorB, weight = 0.5, fallback = '#888888') {
+    const mixA = hexToRgb(colorA);
+    const mixB = hexToRgb(colorB);
+
+    if (!mixA && !mixB) {
+        return sanitizeTeamColor(fallback, fallback);
+    }
+
+    if (!mixA) {
+        return sanitizeTeamColor(colorB || fallback, fallback);
+    }
+
+    if (!mixB) {
+        return sanitizeTeamColor(colorA || fallback, fallback);
+    }
+
+    const ratio = clamp01(weight ?? 0.5);
+    const inv = 1 - ratio;
+
+    const blended = {
+        r: mixA.r * ratio + mixB.r * inv,
+        g: mixA.g * ratio + mixB.g * inv,
+        b: mixA.b * ratio + mixB.b * inv,
+    };
+
+    return sanitizeTeamColor(rgbToHex(blended), fallback);
+}

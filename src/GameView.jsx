@@ -1,7 +1,7 @@
 import React, { useEffect, useImperativeHandle, useRef, useState } from 'react';
 import Scoreboard from './ui/Scoreboard';
 import { FIELD_PIX_W, FIELD_PIX_H, COLORS, TEAM_RED, TEAM_BLK } from './engine/constants';
-import { createInitialGameState, resumeAssignedMatchup, stepGame } from './engine/state';
+import { createInitialGameState, resumeAssignedMatchup, stepGame, progressOffseason } from './engine/state';
 import { getDiagnostics } from './engine/diagnostics';
 import PlayLog from './ui/PlayLog';
 import StatsSummary from './ui/StatsSummary';
@@ -95,6 +95,16 @@ const GameView = React.forwardRef(function GameView({
   }, [state, gameIndex]);
 
   useEffect(() => {
+    const interval = setInterval(() => {
+      setState((prev) => {
+        const next = progressOffseason(prev);
+        return next === prev ? prev : next;
+      });
+    }, 1000);
+    return () => clearInterval(interval);
+  }, []);
+
+  useEffect(() => {
     if (state.gameComplete) {
       if (!notifiedCompleteRef.current) {
         onGameComplete?.(gameIndex, { shouldAutoResume: globalRunning && localRunning });
@@ -131,11 +141,11 @@ const GameView = React.forwardRef(function GameView({
   }, [resetSignal, gameIndex, onManualReset, parallelSlotCount, state?.league]);
 
   useEffect(() => {
-    if (globalRunning && !prevGlobalRunningRef.current && !state.gameComplete) {
+    if (globalRunning && !state.gameComplete && (!prevGlobalRunningRef.current || !localRunning)) {
       setLocalRunning(true);
     }
     prevGlobalRunningRef.current = globalRunning;
-  }, [globalRunning, state.gameComplete]);
+  }, [globalRunning, state.gameComplete, localRunning]);
 
   const season = state.season || {};
   const assignmentStride = season.assignmentStride || season.assignment?.stride || 1;
