@@ -992,13 +992,30 @@ export function applyGameResultToSeason(season, game, scores, directory, playerS
   const playerStatsClone = clonePlayerStatsSnapshot(playerStats || {});
   const playerTeams = extractPlayerTeams(directory || {});
 
+  let winner = null;
+  let decidedBy = null;
+  if (homeScore > awayScore) {
+    winner = homeId;
+  } else if (awayScore > homeScore) {
+    winner = awayId;
+  }
+
+  if (!winner && (tag === 'playoff-semifinal' || tag === 'playoff-championship')) {
+    const playoffWinner = pickPlayoffWinnerBySeed(season?.playoffBracket, homeId, awayId);
+    if (playoffWinner) {
+      winner = playoffWinner;
+      decidedBy = 'seed';
+    }
+  }
+
   const result = {
     gameId: game.id,
     index: game.index,
     homeTeamId: homeId,
     awayTeamId: awayId,
     score: { [homeId]: homeScore, [awayId]: awayScore },
-    winner: homeScore === awayScore ? null : (homeScore > awayScore ? homeId : awayId),
+    winner,
+    decidedBy,
     playLog: Array.isArray(playLog) ? [...playLog] : [],
     tag,
     playerStats: playerStatsClone,
@@ -1052,6 +1069,18 @@ export function applyGameResultToSeason(season, game, scores, directory, playerS
   recalculateSeasonAggregates(nextSeason);
 
   return nextSeason;
+}
+
+function pickPlayoffWinnerBySeed(bracket, homeId, awayId) {
+  if (!bracket) return null;
+  const seeds = Array.isArray(bracket.seeds) ? bracket.seeds : [];
+  const homeSeed = seeds.indexOf(homeId);
+  const awaySeed = seeds.indexOf(awayId);
+  if (homeSeed === -1 && awaySeed === -1) return homeId || awayId || null;
+  if (homeSeed === -1) return awayId;
+  if (awaySeed === -1) return homeId;
+  if (homeSeed === awaySeed) return homeId || awayId || null;
+  return homeSeed < awaySeed ? homeId : awayId;
 }
 
 function recalculateSeasonAggregates(season) {
