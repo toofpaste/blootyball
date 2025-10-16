@@ -2,6 +2,23 @@
 
 This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
 
+## AI-Powered Headlines & Press Coverage
+
+The league news modal now uses the ChatGPT API to punch up headlines and attach a playful 8-10 sentence article to every story. A
+dedicated “Articles From The Press” button also generates longer-form weekly coverage that references current records, streaks,
+front-office moves, and recent results. To enable the AI features, provide an OpenAI API key when running the client:
+
+```
+REACT_APP_OPENAI_API_KEY=your_api_key_here npm start
+```
+
+Optional overrides:
+
+- `REACT_APP_OPENAI_MODEL` — change the chat completion model (defaults to `gpt-4o-mini`).
+- `REACT_APP_OPENAI_API_URL` — point to an alternate OpenAI-compatible endpoint.
+
+If no key is supplied, the app falls back to locally generated summary text so the UI continues to function.
+
 ## Available Scripts
 
 In the project directory, you can run:
