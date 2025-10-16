@@ -1,5 +1,5 @@
 import { callChatCompletion, extractJsonPayload } from './openaiClient';
-import { getTeamIdentity } from '../engine/data/teamLibrary';
+import { getTeamIdentity, listTeamIdentities } from '../engine/data/teamLibrary';
 
 function resolveTeamIdentity(teamId) {
   if (!teamId) return { id: null, name: null, abbr: null };
@@ -49,12 +49,37 @@ function getTeamSnapshot(season, league, teamId) {
   };
 }
 
+function listValidTeams() {
+  return listTeamIdentities().map((identity) => ({
+    id: identity.id,
+    name: identity.displayName || identity.name,
+    abbr: identity.abbr,
+  }));
+}
+
+function listValidPlayers(league) {
+  if (!league?.playerDirectory) return [];
+  return Object.entries(league.playerDirectory)
+    .map(([playerId, meta]) => {
+      const fullName = meta?.fullName || meta?.name || meta?.displayName
+        || `${meta?.firstName || ''} ${meta?.lastName || ''}`.trim();
+      if (!fullName) return null;
+      return {
+        id: playerId,
+        name: fullName,
+        teamId: meta?.teamId || meta?.team || null,
+        position: meta?.position || meta?.role || null,
+      };
+    })
+    .filter(Boolean);
+}
+
 function buildNewsPromptContext({ league, season, entry }) {
   const team = getTeamSnapshot(season, league, entry.teamId) || null;
   const partnerTeam = entry.partnerTeam ? getTeamSnapshot(season, league, entry.partnerTeam) : null;
   const recentHeadlines = Array.isArray(league?.newsFeed)
     ? league.newsFeed
-      .filter((item) => item && item.id !== entry.id)
+      .filter((item) => item && item.id !== entry.id && item.type !== 'press')
       .slice(0, 5)
       .map((item) => ({ type: item.type, text: item.text, detail: item.detail || null }))
     : [];
@@ -69,6 +94,8 @@ function buildNewsPromptContext({ league, season, entry }) {
     seasonNumber: entry.seasonNumber || season?.seasonNumber || league?.seasonNumber || 1,
     createdAt: entry.createdAt || null,
     recentHeadlines,
+    validTeams: listValidTeams(),
+    validPlayers: listValidPlayers(league),
   };
 }
 
@@ -112,6 +139,7 @@ async function generatePlayerNewsContent({ league, season, entry }) {
     + `Use the provided JSON context to craft a new headline and an 8-10 sentence article that elaborates on the situation. `
     + `Keep the tone funny, weird, wholesome, or realistic based on the vibe of the base headline. `
     + `Mention specific team names, records, or notable details where possible. `
+    + `Use only the teams listed under validTeams and players listed under validPlayers—never invent new names. `
     + `Return JSON with fields headline, preview, article, and tone. The preview should be 1-2 sentences teaser.`;
 
   const response = await callChatCompletion({
@@ -235,7 +263,7 @@ function buildStandings(season, league) {
 function collectNotableNews(league, limit = 6) {
   if (!Array.isArray(league?.newsFeed)) return [];
   return league.newsFeed
-    .filter((entry) => entry && entry.text)
+    .filter((entry) => entry && entry.text && entry.type !== 'press')
     .slice(0, limit)
     .map((entry) => ({
       id: entry.id,
@@ -292,6 +320,8 @@ async function generatePressArticle({ league, season, seasonProgress, coverageWe
     streaks,
     recentResults,
     notableNews,
+    validTeams: listValidTeams(),
+    validPlayers: listValidPlayers(league),
   };
 
   const fallback = fallbackPressArticle(context);
@@ -299,6 +329,7 @@ async function generatePressArticle({ league, season, seasonProgress, coverageWe
   const userPrompt = `Generate an 8-10 sentence sports column for a weekly press article. `
     + `Use the JSON context to reference team records, streaks, and recent headlines. `
     + `The writing should feel like insider coverage, touching on coaches, executives, roster moves, and what is at stake. `
+    + `Use only the teams listed in validTeams and the players listed in validPlayers—do not invent new franchises or personas. `
     + `Provide JSON with headline, preview, and article. Preview should be 1-2 sentences summarizing the hook.`;
 
   const response = await callChatCompletion({
