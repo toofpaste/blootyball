@@ -39,6 +39,7 @@ const GameView = React.forwardRef(function GameView({
   const lastResetTokenRef = useRef(resetSignal?.token ?? 0);
   const notifiedCompleteRef = useRef(false);
   const prevGlobalRunningRef = useRef(globalRunning);
+  const runningTransitionRef = useRef(globalRunning);
 
   useImperativeHandle(ref, () => ({
     getSeasonSnapshot() {
@@ -95,6 +96,7 @@ const GameView = React.forwardRef(function GameView({
   }, [state, gameIndex]);
 
   useEffect(() => {
+    if (!globalRunning) return undefined;
     const interval = setInterval(() => {
       setState((prev) => {
         const next = progressOffseason(prev);
@@ -102,7 +104,39 @@ const GameView = React.forwardRef(function GameView({
       });
     }, 1000);
     return () => clearInterval(interval);
-  }, []);
+  }, [globalRunning]);
+
+  useEffect(() => {
+    const previous = runningTransitionRef.current;
+    runningTransitionRef.current = globalRunning;
+    if (previous === globalRunning) return;
+    setState((prev) => {
+      const offseason = prev?.league?.offseason;
+      if (!offseason || !offseason.active || offseason.nextSeasonReady) {
+        return prev;
+      }
+      const duration = offseason.dayDurationMs || 60000;
+      const nowTs = Date.now();
+      const next = { ...prev, league: { ...prev.league, offseason: { ...offseason } } };
+      const off = next.league.offseason;
+      if (globalRunning) {
+        const remaining = Number.isFinite(off.pausedRemainingMs)
+          ? Math.max(0, off.pausedRemainingMs)
+          : (off.currentDay > 0 && off.nextDayAt
+            ? Math.max(0, off.nextDayAt - nowTs)
+            : duration);
+        off.nextDayAt = nowTs + remaining;
+        off.lastAdvancedAt = nowTs;
+        if ('pausedRemainingMs' in off) delete off.pausedRemainingMs;
+      } else {
+        const remaining = off.nextDayAt ? Math.max(0, off.nextDayAt - nowTs) : duration;
+        off.pausedRemainingMs = remaining;
+        off.nextDayAt = nowTs + remaining;
+        off.lastAdvancedAt = nowTs;
+      }
+      return next;
+    });
+  }, [globalRunning]);
 
   useEffect(() => {
     if (state.gameComplete) {

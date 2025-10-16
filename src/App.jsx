@@ -1064,6 +1064,7 @@ export default function App() {
   const [lastSeenPressWeekKey, setLastSeenPressWeekKey] = useState('');
   const [seasonSnapshots, setSeasonSnapshots] = useState(() => []);
   const [wikiOverrides, setWikiOverrides] = useState({ seasonNumber: 0, teams: {} });
+  const [now, setNow] = useState(() => Date.now());
   const gameRefs = useRef([]);
 
   const handleGameComplete = useCallback((index, { shouldAutoResume } = {}) => {
@@ -1143,6 +1144,13 @@ export default function App() {
   }, [collectSeasonSnapshots]);
 
   useEffect(() => {
+    const id = setInterval(() => {
+      collectSeasonSnapshots();
+    }, 1000);
+    return () => clearInterval(id);
+  }, [collectSeasonSnapshots]);
+
+  useEffect(() => {
     if (!completionFlags.some(Boolean)) return;
     collectSeasonSnapshots();
   }, [completionFlags, collectSeasonSnapshots]);
@@ -1202,6 +1210,15 @@ export default function App() {
     [seasonSnapshots],
   );
 
+  useEffect(() => {
+    if (!globalRunning) return undefined;
+    setNow(Date.now());
+    const id = setInterval(() => {
+      setNow(Date.now());
+    }, 1000);
+    return () => clearInterval(id);
+  }, [globalRunning]);
+
   useWikiAiUpdater({
     league: aggregatedSeasonStats?.league || null,
     onOverride: handleApplyWikiOverrides,
@@ -1211,6 +1228,34 @@ export default function App() {
     () => computeSeasonProgress(aggregatedSeasonStats?.season || null),
     [aggregatedSeasonStats],
   );
+
+  const offseasonState = aggregatedSeasonStats?.league?.offseason || null;
+
+  const offseasonInfo = useMemo(() => {
+    if (!offseasonState) return null;
+    const totalDays = Number.isFinite(offseasonState.totalDays) ? offseasonState.totalDays : 0;
+    const currentDay = Number.isFinite(offseasonState.currentDay) ? offseasonState.currentDay : 0;
+    const daysRemaining = Math.max(0, totalDays - currentDay);
+    const ready = !!offseasonState.nextSeasonReady && !offseasonState.nextSeasonStarted;
+    const active = !!offseasonState.active && !ready;
+    const paused = active && !globalRunning;
+    if (!active && !ready) return null;
+    let msUntilNextDay = null;
+    if (active && globalRunning) {
+      const target = offseasonState.nextDayAt
+        || ((offseasonState.lastAdvancedAt || Date.now()) + (offseasonState.dayDurationMs || 60000));
+      msUntilNextDay = Math.max(0, target - now);
+    }
+    return {
+      active,
+      ready,
+      paused,
+      totalDays,
+      currentDay,
+      daysRemaining,
+      msUntilNextDay,
+    };
+  }, [offseasonState, globalRunning, now]);
 
   const pressCoverageWeek = useMemo(() => {
     if (!seasonProgress) return null;
@@ -1313,6 +1358,7 @@ export default function App() {
         seasonProgressLabel={seasonProgress.label}
         hasUnseenNews={hasUnseenNews}
         hasUnseenPressArticles={hasUnseenPressArticles}
+        offseasonInfo={offseasonInfo}
       />
       <div className="games-stack">
         {Array.from({ length: GAME_COUNT }).map((_, index) => (

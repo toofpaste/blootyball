@@ -17,6 +17,7 @@ export default function GlobalControls({
   seasonProgressLabel,
   hasUnseenNews,
   hasUnseenPressArticles,
+  offseasonInfo,
 }) {
   const handleSpeedChange = (event) => {
     const value = parseFloat(event.target.value);
@@ -27,8 +28,63 @@ export default function GlobalControls({
 
   const progressText = seasonProgressLabel || 'Week 1 of 16';
 
+  const formatCountdown = (ms) => {
+    if (!Number.isFinite(ms)) return '--:--';
+    const totalSeconds = Math.max(0, Math.ceil(ms / 1000));
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = String(totalSeconds % 60).padStart(2, '0');
+    return `${minutes}:${seconds}`;
+  };
+
+  let offseasonContent = null;
+  if (offseasonInfo) {
+    const {
+      active,
+      ready,
+      paused,
+      totalDays,
+      currentDay,
+      daysRemaining,
+      msUntilNextDay,
+    } = offseasonInfo;
+    const chips = [];
+
+    if (ready) {
+      chips.push('Offseason complete');
+    } else if (active) {
+      const total = Math.max(1, totalDays || 0);
+      const dayNumber = Math.min(currentDay + 1, total);
+      chips.push(`Offseason Day ${dayNumber} of ${total}`);
+      if (paused) {
+        chips.push('Press Start to advance');
+      } else if (msUntilNextDay != null) {
+        chips.push(`Next day in ${formatCountdown(msUntilNextDay)}`);
+      }
+    }
+
+    if (Number.isFinite(daysRemaining)) {
+      const kickoffText = daysRemaining === 1
+        ? '1 day until season kickoff'
+        : `${daysRemaining} days until season kickoff`;
+      chips.push(kickoffText);
+    }
+
+    if (chips.length) {
+      offseasonContent = (
+        <div className="global-controls__offseason" aria-live="polite">
+          {chips.map((text, index) => (
+            <span key={index} className="global-controls__offseason-chip">
+              {text}
+            </span>
+          ))}
+        </div>
+      );
+    }
+  }
+
   return (
     <div className="global-controls">
+      {offseasonContent}
       <span className="global-controls__season" aria-live="polite">{progressText}</span>
       <button type="button" className="global-controls__button" onClick={onToggleRunning}>
         {running ? 'Pause' : 'Start'}
