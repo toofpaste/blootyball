@@ -2832,6 +2832,8 @@ export function defenseLogic(s, dt) {
             const tacklerSkill = (tackler?.attrs?.tackle ?? 0.9), carStr = (ballCarrier.attrs?.strength ?? 0.85), carIQ = clamp(ballCarrier.attrs?.awareness ?? 1.0, 0.4, 1.3);
             const tackleTrait = clamp((tackler?.modifiers?.tackle ?? 0.5) - 0.5, -0.3, 0.3);
             const breakTrait = clamp((ballCarrier?.modifiers?.breakTackle ?? 0.5) - 0.5, -0.3, 0.3);
+            const tacklerRole = tackler?.role || '';
+            const isSecondary = tacklerRole.startsWith('CB') || tacklerRole.startsWith('S') || tacklerRole === 'NB';
             let tackleChance = 0.66 + (tacklerSkill - carStr) * 0.22 - (carIQ - 1.0) * 0.10 + assistants * 0.08 + (Math.random() * 0.10 - 0.05);
             tackleChance += tackleTrait * 0.25;
             tackleChance -= breakTrait * 0.22;
@@ -2842,8 +2844,16 @@ export function defenseLogic(s, dt) {
                 const powerEdge = clamp((ballCarrier.attrs?.strength ?? 0.9) - 0.95, -0.25, 0.4);
                 const runResist = clamp(0.14 + breakTrait * 0.32 + visionTrait * 0.18 + powerEdge * 0.24, -0.05, 0.42);
                 tackleChance -= runResist;
+                if (isSecondary) {
+                    const pursuit = clamp((tackler?.attrs?.speed ?? 0.9) - 0.85, -0.2, 0.35);
+                    tackleChance += 0.14 + pursuit * 0.35;
+                }
             }
-            if (tackleChance > 0.5) {
+            let successThreshold = 0.5;
+            if (rbRun) successThreshold -= 0.02;
+            if (isSecondary && rbRun) successThreshold -= 0.06;
+            tackleChance = clamp(tackleChance, 0, 1);
+            if (tackleChance > successThreshold) {
                 if (maybeForceFumble(s, { carrier: ballCarrier, carrierRole, tackler, severity: 1.0 + assistants * 0.12 })) return;
                 s.play.deadAt = s.play.elapsed; s.play.phase = 'DEAD'; s.play.resultWhy = (carrierRole === 'QB') ? 'Sack' : 'Tackled';
                 (s.play.events ||= []).push({ t: s.play.elapsed, type: 'tackle:wrapHoldWin', carrierId, byId: wr.byId }); endWrap(s); return;
