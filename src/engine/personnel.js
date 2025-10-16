@@ -3222,6 +3222,16 @@ function collectRosterEntries(roster) {
   return entries;
 }
 
+function hasActiveStandardContract(player) {
+  if (!player?.contract || player.contract.temporary) return false;
+  const remaining = Number.isFinite(player.contract.yearsRemaining)
+    ? player.contract.yearsRemaining
+    : Number.isFinite(player.contract.years)
+      ? player.contract.years
+      : 0;
+  return remaining > 0;
+}
+
 function handleFreeAgencyDepartures(league, season, context) {
   if (!league) return;
   const departures = [];
@@ -3270,6 +3280,31 @@ function handleFreeAgencyDepartures(league, season, context) {
 
   context.events ||= [];
   departures.forEach(({ teamId, role, player }) => {
+    if (!teamId || !player) return;
+    if (hasActiveStandardContract(player)) {
+      const teamIdentity = getTeamIdentity(teamId);
+      const teamLabel = teamIdentity?.abbr || teamId;
+      const firstName = player.firstName || player.profile?.firstName || 'Player';
+      const lastName = player.lastName || player.profile?.lastName || '';
+      const fullName = `${firstName}${lastName ? ` ${lastName}` : ''}`.trim();
+      const traded = attemptTradeForUnhappyPlayer(league, teamId, role, player);
+      if (traded) {
+        context.events.push(`${fullName} traded after requesting a move from ${teamLabel}.`);
+        return;
+      }
+      adjustPlayerMood(player, -0.18);
+      player.loyalty = clamp((player.loyalty ?? 0.5) * 0.92, 0, 1);
+      recordNewsInternal(league, {
+        type: 'rumor',
+        teamId,
+        text: `${fullName} (${role}) requests a trade but remains with the team`,
+        detail: `${teamLabel} hold firm to the existing contract`,
+        seasonNumber: league.seasonNumber || null,
+      });
+      context.events.push(`${fullName} requests a trade from ${teamLabel}, but remains under contract.`);
+      refreshTeamMood(league, teamId);
+      return;
+    }
     if (context && !consumeOffseasonMove(context, teamId)) return;
     const removed = removePlayerFromRoster(league, teamId, role) || player;
     if (!removed && context) {

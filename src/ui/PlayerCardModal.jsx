@@ -109,6 +109,16 @@ export function formatWeight(value) {
   return `${Math.round(value)} lbs`;
 }
 
+function findRosterEntry(team, playerId) {
+  if (!team || !playerId) return null;
+  const roster = team.roster || {};
+  const offense = Array.isArray(roster.offense) ? roster.offense : [];
+  const defense = Array.isArray(roster.defense) ? roster.defense : [];
+  const special = Array.isArray(roster.special) ? roster.special : [];
+  const all = [...offense, ...defense, ...special];
+  return all.find((entry) => entry?.id === playerId) || null;
+}
+
 function hasStatCategory(category = {}) {
   return Object.values(category).some((value) => Number.isFinite(value) && Math.abs(value) > 1e-6);
 }
@@ -238,7 +248,8 @@ export default function PlayerCardModal({ open, onClose, entry, team }) {
         base: entry.baseAttrs?.[key],
         current: entry.attrs?.[key],
       })).filter(({ base, current }) => base != null || current != null);
-  const contract = entry.contract || null;
+  const rosterEntry = findRosterEntry(team, entry.id);
+  const contract = entry.contract || rosterEntry?.contract || null;
   const contractLines = contract
     ? [
         `${formatCurrency(contract.salary)} per year`,
