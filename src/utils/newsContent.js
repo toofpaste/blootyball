@@ -273,17 +273,20 @@ function fallbackPressArticle(context) {
   };
 }
 
-async function generatePressArticle({ league, season, seasonProgress, angle }) {
+async function generatePressArticle({ league, season, seasonProgress, coverageWeek, angle }) {
   if (!league || !season) return null;
   const standings = buildStandings(season, league);
   const recentResults = buildRecentResults(season, seasonProgress, 8);
   const streaks = computeTeamStreaks(season);
   const notableNews = collectNotableNews(league, 8);
+  const upcomingWeek = seasonProgress?.currentWeek || 1;
+  const completedWeek = coverageWeek || Math.max(1, upcomingWeek - 1);
   const context = {
     angle,
     angleLabel: angle.label,
     seasonNumber: season?.seasonNumber || league?.seasonNumber || 1,
-    currentWeek: seasonProgress?.currentWeek || 1,
+    currentWeek: completedWeek,
+    upcomingWeek,
     totalWeeks: seasonProgress?.totalWeeks || null,
     standings,
     streaks,

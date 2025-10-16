@@ -2,21 +2,24 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Modal from './Modal';
 import { generatePressArticle } from '../utils/newsContent';
 
-function buildAngles(seasonProgress = {}) {
-  const currentWeek = seasonProgress.currentWeek || 1;
-  const totalWeeks = seasonProgress.totalWeeks || currentWeek;
-  const nextWeek = Math.min(totalWeeks, currentWeek + 1);
+function buildAngles(seasonProgress = {}, coverageWeek = null) {
+  const upcomingWeek = seasonProgress.currentWeek || 1;
+  const totalWeeks = seasonProgress.totalWeeks || upcomingWeek;
+  const recapWeek = coverageWeek || Math.max(1, upcomingWeek - 1);
+  const storylinesWeek = Math.min(totalWeeks, Math.max(1, upcomingWeek));
+  const nextWeek = Math.min(totalWeeks, storylinesWeek + 1);
   return [
     {
-      id: `week-${currentWeek}-recap`,
-      label: `Week ${currentWeek} Heat Check`,
+      id: `week-${recapWeek}-recap`,
+      label: `Week ${recapWeek} Heat Check`,
       description: 'Recap last week\'s results, streaks, and highlight-reel plays with colorful commentary.',
       focus: 'recap',
-      nextWeek,
+      nextWeek: storylinesWeek,
+      recapWeek,
     },
     {
-      id: `week-${currentWeek}-storylines`,
-      label: `Storylines Heading Into Week ${nextWeek}`,
+      id: `week-${storylinesWeek}-storylines`,
+      label: `Storylines Heading Into Week ${storylinesWeek}`,
       description: 'Dig into standings pressure, playoff stakes, and front office moves shaping the league narrative.',
       focus: 'storylines',
       nextWeek,
@@ -46,15 +49,25 @@ function formatWeekLabel(weekKey) {
   return `Season ${seasonNumber} • Week ${weekNumber}`;
 }
 
-export default function PressArticlesModal({ open, onClose, league, season, seasonProgress }) {
+export default function PressArticlesModal({
+  open,
+  onClose,
+  league,
+  season,
+  seasonProgress,
+  pressCoverageWeek,
+}) {
   const [selectedArticleKey, setSelectedArticleKey] = useState(null);
   const [articlesByWeek, setArticlesByWeek] = useState({});
   const cacheRef = useRef({});
   const inflightRef = useRef(new Set());
 
-  const angles = useMemo(() => buildAngles(seasonProgress), [seasonProgress]);
+  const angles = useMemo(() => buildAngles(seasonProgress, pressCoverageWeek), [seasonProgress, pressCoverageWeek]);
   const seasonNumber = season?.seasonNumber || league?.seasonNumber || 1;
-  const weekKey = useMemo(() => `S${seasonNumber}-W${seasonProgress?.currentWeek || 1}`, [seasonNumber, seasonProgress?.currentWeek]);
+  const weekKey = useMemo(() => {
+    if (!pressCoverageWeek) return null;
+    return `S${seasonNumber}-W${pressCoverageWeek}`;
+  }, [seasonNumber, pressCoverageWeek]);
 
   useEffect(() => {
     if (!open) {
@@ -62,6 +75,7 @@ export default function PressArticlesModal({ open, onClose, league, season, seas
       return;
     }
     if (!league || !season) return;
+    if (!weekKey) return;
     const existingCache = cacheRef.current[weekKey] || {};
     cacheRef.current[weekKey] = existingCache;
     setArticlesByWeek({ ...cacheRef.current });
@@ -71,7 +85,7 @@ export default function PressArticlesModal({ open, onClose, league, season, seas
       if (cached?.article) return;
       if (inflightRef.current.has(angle.id)) return;
       inflightRef.current.add(angle.id);
-      generatePressArticle({ league, season, seasonProgress, angle })
+      generatePressArticle({ league, season, seasonProgress, coverageWeek: pressCoverageWeek, angle })
         .then((result) => {
           if (!result) return;
           const payload = {
@@ -96,7 +110,7 @@ export default function PressArticlesModal({ open, onClose, league, season, seas
           inflightRef.current.delete(angle.id);
         });
     });
-  }, [open, league, season, seasonProgress, angles, weekKey]);
+  }, [open, league, season, seasonProgress, angles, weekKey, pressCoverageWeek]);
 
   const sections = useMemo(() => {
     const sectionMap = new Map();

@@ -1065,17 +1065,27 @@ export default function App() {
     [aggregatedSeasonStats],
   );
 
+  const pressCoverageWeek = useMemo(() => {
+    if (!seasonProgress) return null;
+    const currentWeek = seasonProgress.currentWeek || 1;
+    if (seasonProgress.phase && seasonProgress.phase !== 'regular') {
+      return currentWeek;
+    }
+    if (currentWeek <= 1) return null;
+    return currentWeek - 1;
+  }, [seasonProgress]);
+
   const pressWeekKey = useMemo(() => {
     const seasonNumber = aggregatedSeasonStats?.season?.seasonNumber
       || aggregatedSeasonStats?.league?.seasonNumber
       || null;
-    const currentWeek = seasonProgress?.currentWeek || null;
-    if (!seasonNumber || !currentWeek) return null;
-    return `S${seasonNumber}-W${currentWeek}`;
+    const coverageWeek = pressCoverageWeek || null;
+    if (!seasonNumber || !coverageWeek) return null;
+    return `S${seasonNumber}-W${coverageWeek}`;
   }, [
     aggregatedSeasonStats?.season?.seasonNumber,
     aggregatedSeasonStats?.league?.seasonNumber,
-    seasonProgress?.currentWeek,
+    pressCoverageWeek,
   ]);
 
   const leagueNewsMeta = useMemo(() => {
@@ -1123,9 +1133,8 @@ export default function App() {
   const pressCoverageAvailable = useMemo(() => {
     if (!seasonProgress) return false;
     if (seasonProgress.phase && seasonProgress.phase !== 'regular') return true;
-    const currentWeek = seasonProgress.currentWeek || 1;
-    return currentWeek > 1;
-  }, [seasonProgress]);
+    return (pressCoverageWeek || 0) >= 1;
+  }, [seasonProgress, pressCoverageWeek]);
 
   const hasUnseenPressArticles = Boolean(
     pressCoverageAvailable
@@ -1226,6 +1235,7 @@ export default function App() {
         league={aggregatedSeasonStats?.league || null}
         season={aggregatedSeasonStats?.season || null}
         seasonProgress={seasonProgress}
+        pressCoverageWeek={pressCoverageWeek}
       />
       </div>
     </PlayerCardProvider>
