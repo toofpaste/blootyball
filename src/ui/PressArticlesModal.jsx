@@ -49,6 +49,37 @@ function formatWeekLabel(weekKey) {
   return `Season ${seasonNumber} • Week ${weekNumber}`;
 }
 
+const PRESS_STORAGE_PREFIX = 'bb_press_articles::season-';
+
+function getPressStorageKey(seasonNumber) {
+  if (!seasonNumber) return null;
+  return `${PRESS_STORAGE_PREFIX}${seasonNumber}`;
+}
+
+function loadStoredArticles(storageKey) {
+  if (!storageKey) return {};
+  if (typeof window === 'undefined' || !window?.localStorage) return {};
+  try {
+    const raw = window.localStorage.getItem(storageKey);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object') return {};
+    return parsed;
+  } catch (err) {
+    return {};
+  }
+}
+
+function persistStoredArticles(storageKey, data) {
+  if (!storageKey) return;
+  if (typeof window === 'undefined' || !window?.localStorage) return;
+  try {
+    window.localStorage.setItem(storageKey, JSON.stringify(data || {}));
+  } catch (err) {
+    // ignore persistence errors (e.g., storage unavailable)
+  }
+}
+
 export default function PressArticlesModal({
   open,
   onClose,
@@ -61,13 +92,38 @@ export default function PressArticlesModal({
   const [articlesByWeek, setArticlesByWeek] = useState({});
   const cacheRef = useRef({});
   const inflightRef = useRef(new Set());
+  const loadedStorageKeyRef = useRef(null);
 
   const angles = useMemo(() => buildAngles(seasonProgress, pressCoverageWeek), [seasonProgress, pressCoverageWeek]);
   const seasonNumber = season?.seasonNumber || league?.seasonNumber || 1;
+  const storageKey = useMemo(() => getPressStorageKey(seasonNumber), [seasonNumber]);
   const weekKey = useMemo(() => {
     if (!pressCoverageWeek) return null;
     return `S${seasonNumber}-W${pressCoverageWeek}`;
   }, [seasonNumber, pressCoverageWeek]);
+
+  const persistCache = useCallback(() => {
+    persistStoredArticles(storageKey, cacheRef.current);
+  }, [storageKey]);
+
+  useEffect(() => {
+    if (!storageKey) {
+      cacheRef.current = {};
+      setArticlesByWeek({});
+      loadedStorageKeyRef.current = null;
+      return;
+    }
+
+    if (loadedStorageKeyRef.current === storageKey) {
+      setArticlesByWeek({ ...cacheRef.current });
+      return;
+    }
+
+    const stored = loadStoredArticles(storageKey);
+    cacheRef.current = stored && typeof stored === 'object' ? stored : {};
+    loadedStorageKeyRef.current = storageKey;
+    setArticlesByWeek({ ...cacheRef.current });
+  }, [storageKey]);
 
   useEffect(() => {
     if (!open) {
@@ -98,6 +154,7 @@ export default function PressArticlesModal({
             ...(cacheRef.current[weekKey] || {}),
             [angle.id]: payload,
           };
+          persistCache();
           setArticlesByWeek((prev) => ({
             ...prev,
             [weekKey]: {
