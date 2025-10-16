@@ -111,9 +111,17 @@ export default function PressArticlesModal({ open, onClose, league, season, seas
         const entries = angles.map((angle) => {
           const data = stored[angle.id] || null;
           const generating = inflightRef.current.has(angle.id) && !data;
-          return { weekKey: key, angle, data, generating };
+          return {
+            weekKey: key,
+            angle,
+            data,
+            generating,
+            ready: !!data?.article,
+          };
         });
-        sectionMap.set(key, entries);
+        const readyEntries = entries.filter((entry) => entry.ready);
+        const hasPending = entries.some((entry) => entry.generating || (entry.data && !entry.data.article));
+        sectionMap.set(key, { entries: readyEntries, hasPending });
       } else {
         const entries = Object.values(stored).map((item) => ({
           weekKey: key,
@@ -121,7 +129,9 @@ export default function PressArticlesModal({ open, onClose, league, season, seas
           data: item,
           generating: false,
         }));
-        sectionMap.set(key, entries);
+        const readyEntries = entries.filter((entry) => entry.data?.article);
+        const hasPending = readyEntries.length !== entries.length;
+        sectionMap.set(key, { entries: readyEntries, hasPending });
       }
     });
 
@@ -134,11 +144,15 @@ export default function PressArticlesModal({ open, onClose, league, season, seas
       return bParsed.weekNumber - aParsed.weekNumber;
     });
 
-    return sortedKeys.map((key) => ({
-      weekKey: key,
-      label: formatWeekLabel(key),
-      entries: sectionMap.get(key) || [],
-    }));
+    return sortedKeys.map((key) => {
+      const sectionData = sectionMap.get(key) || { entries: [], hasPending: false };
+      return {
+        weekKey: key,
+        label: formatWeekLabel(key),
+        entries: sectionData.entries || [],
+        hasPending: sectionData.hasPending || false,
+      };
+    });
   }, [angles, articlesByWeek, weekKey]);
 
   const flatEntries = useMemo(() => sections.flatMap((section) => section.entries), [sections]);
@@ -186,7 +200,9 @@ export default function PressArticlesModal({ open, onClose, league, season, seas
                 </div>
                 {section.entries.length === 0 ? (
                   <div style={{ fontSize: 12, color: 'rgba(205,232,205,0.65)' }}>
-                    No articles available for this week yet.
+                    {section.hasPending
+                      ? 'Articles are being drafted for this week.'
+                      : 'No articles available for this week yet.'}
                   </div>
                 ) : (
                   section.entries.map(({ weekKey: entryWeek, angle, data, generating }) => (
