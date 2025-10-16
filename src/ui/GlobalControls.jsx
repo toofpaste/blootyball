@@ -10,6 +10,7 @@ export default function GlobalControls({
   onShowSchedule,
   onShowLeaderboards,
   onShowNews,
+  onShowPressArticles,
   onShowFreeAgents,
   seasonProgressLabel,
   hasUnseenNews,
@@ -43,6 +44,13 @@ export default function GlobalControls({
       >
         League News
         {hasUnseenNews ? <span className="global-controls__news-indicator" aria-hidden="true" /> : null}
+      </button>
+      <button
+        type="button"
+        className="global-controls__button global-controls__button--secondary"
+        onClick={onShowPressArticles}
+      >
+        Articles From The Press
       </button>
       <button
         type="button"

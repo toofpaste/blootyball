@@ -9,6 +9,7 @@ import LeaderboardsModal from './ui/LeaderboardsModal';
 import NewsModal from './ui/NewsModal';
 import SeasonScheduleModal from './ui/SeasonScheduleModal';
 import FreeAgentModal from './ui/FreeAgentModal';
+import PressArticlesModal from './ui/PressArticlesModal';
 import './AppLayout.css';
 import { PlayerCardProvider } from './ui/PlayerCardProvider';
 
@@ -935,6 +936,7 @@ export default function App() {
   const [teamDirectoryOpen, setTeamDirectoryOpen] = useState(false);
   const [leaderboardsOpen, setLeaderboardsOpen] = useState(false);
   const [newsOpen, setNewsOpen] = useState(false);
+  const [pressOpen, setPressOpen] = useState(false);
   const [scheduleOpen, setScheduleOpen] = useState(false);
   const [freeAgentsOpen, setFreeAgentsOpen] = useState(false);
   const [lastSeenNewsTimestamp, setLastSeenNewsTimestamp] = useState(0);
@@ -1047,6 +1049,11 @@ export default function App() {
     setNewsOpen(true);
   }, [collectSeasonSnapshots]);
 
+  const handleOpenPress = useCallback(() => {
+    collectSeasonSnapshots();
+    setPressOpen(true);
+  }, [collectSeasonSnapshots]);
+
   const aggregatedSeasonStats = useMemo(
     () => combineSeasonSnapshots(seasonSnapshots),
     [seasonSnapshots],
@@ -1105,6 +1112,7 @@ export default function App() {
         onShowSchedule={handleOpenSchedule}
         onShowLeaderboards={handleOpenLeaderboards}
         onShowNews={handleOpenNews}
+        onShowPressArticles={handleOpenPress}
         onShowFreeAgents={handleOpenFreeAgents}
         seasonProgressLabel={seasonProgress.label}
         hasUnseenNews={hasUnseenNews}
@@ -1172,6 +1180,13 @@ export default function App() {
         onClose={() => setNewsOpen(false)}
         league={aggregatedSeasonStats?.league || null}
         season={aggregatedSeasonStats?.season || null}
+      />
+      <PressArticlesModal
+        open={pressOpen}
+        onClose={() => setPressOpen(false)}
+        league={aggregatedSeasonStats?.league || null}
+        season={aggregatedSeasonStats?.season || null}
+        seasonProgress={seasonProgress}
       />
       </div>
     </PlayerCardProvider>
