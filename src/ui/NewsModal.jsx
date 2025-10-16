@@ -89,6 +89,117 @@ function resolveHeadlineColor(entry) {
   return '#f0fff0';
 }
 
+function formatSalaryPerYear(amount) {
+  if (!Number.isFinite(amount)) return null;
+  const abs = Math.abs(amount);
+  if (abs >= 1_000_000) {
+    const millions = amount / 1_000_000;
+    const decimals = Number.isInteger(millions) ? 0 : 1;
+    return `$${millions.toFixed(decimals)}M`;
+  }
+  if (abs >= 1_000) {
+    const thousands = amount / 1_000;
+    const decimals = Number.isInteger(thousands) ? 0 : 1;
+    return `$${thousands.toFixed(decimals)}K`;
+  }
+  return `$${amount.toFixed(0)}`;
+}
+
+function extractRoleFromText(text) {
+  if (!text) return null;
+  const match = text.match(/\(([^)]+)\)/);
+  if (match) return match[1].trim();
+  return null;
+}
+
+function extractPlayerNameFromText(text) {
+  if (!text) return null;
+  const signingMatch = text.match(/sign\s+([^()]+?)(?:\s*\(|$)/i);
+  if (signingMatch) return signingMatch[1].trim();
+  const prefixMatch = text.match(/^[^(]+?\(([^)]+)\)/);
+  if (prefixMatch) {
+    return text.split('(')[0].trim();
+  }
+  const stopMatch = text.split(/suffers|injured|suspended|returns|traded|deal|activated|heads/i);
+  if (stopMatch.length > 1) {
+    return stopMatch[0].trim();
+  }
+  return text.trim();
+}
+
+function parseGamesFromDetail(detail) {
+  if (!detail) return null;
+  const match = detail.match(/(\d+)\s+game/i);
+  if (!match) return null;
+  const value = parseInt(match[1], 10);
+  return Number.isFinite(value) ? value : null;
+}
+
+function buildSigningHeadline(item) {
+  const entry = item?.raw || {};
+  const teamName = resolveTeamName(entry.teamId) || entry.teamId || 'Team';
+  const playerName = entry.playerName || extractPlayerNameFromText(item?.text) || 'Player';
+  const role = entry.role || extractRoleFromText(item?.text) || null;
+  const contract = entry.contractSummary || null;
+  const roleSuffix = role ? ` (${role})` : '';
+
+  if (contract?.temporary) {
+    const games = Number.isFinite(contract.temporaryGames) ? contract.temporaryGames : null;
+    if (games && games > 0) {
+      const label = `${games} ${games === 1 ? 'game' : 'games'}`;
+      return `${teamName} sign ${playerName}${roleSuffix} on ${label} deal`;
+    }
+    return `${teamName} sign ${playerName}${roleSuffix} to temporary deal`;
+  }
+
+  const salary = Number.isFinite(contract?.salary) ? contract.salary : null;
+  const years = Number.isFinite(contract?.years) ? contract.years : null;
+  if (salary && years) {
+    const salaryText = formatSalaryPerYear(salary);
+    const yearsText = `${years} ${years === 1 ? 'year' : 'years'}`;
+    return `${teamName} sign ${playerName}${roleSuffix} for ${salaryText} per year for ${yearsText}`;
+  }
+  if (years) {
+    const yearsText = `${years} ${years === 1 ? 'year' : 'years'}`;
+    return `${teamName} sign ${playerName}${roleSuffix} on ${yearsText} deal`;
+  }
+  return `${teamName} sign ${playerName}${roleSuffix}`;
+}
+
+function buildInjuryHeadline(item) {
+  const entry = item?.raw || {};
+  const playerName = entry.playerName || extractPlayerNameFromText(item?.text) || 'Player';
+  const role = entry.role || extractRoleFromText(item?.text) || null;
+  const base = role ? `${playerName} (${role})` : playerName;
+  const games = Number.isFinite(entry.gamesMissed)
+    ? entry.gamesMissed
+    : parseGamesFromDetail(item?.detail || entry.detail || '');
+  const status = String(entry.status || entry.type || '').toLowerCase();
+  if (games && games > 0) {
+    const gamesText = `${games} ${games === 1 ? 'game' : 'games'}`;
+    if (status === 'suspension') return `${base} suspended ${gamesText}`;
+    return `${base} out ${gamesText}`;
+  }
+  const detail = (entry.detail || item?.detail || '').trim();
+  if (detail) {
+    return `${base} ${detail.replace(/\.+$/, '')}`;
+  }
+  if (status === 'suspension') return `${base} suspension update`;
+  return `${base} injury update`;
+}
+
+function buildSimpleHeadline(item) {
+  const type = String(item?.raw?.type || '').toLowerCase();
+  if (!type) return null;
+  if (type === 'signing' || type === 'acquisition') {
+    return buildSigningHeadline(item);
+  }
+  if (type === 'injury' || type === 'suspension') {
+    return buildInjuryHeadline(item);
+  }
+  return null;
+}
+
 export default function NewsModal({ open, onClose, league, season }) {
   const [selectedId, setSelectedId] = useState(null);
   const [articleMap, setArticleMap] = useState({});
@@ -99,24 +210,24 @@ export default function NewsModal({ open, onClose, league, season }) {
     return league.newsFeed
       .filter((entry) => entry?.type !== 'press')
       .map((entry) => {
-      const seasonNumber = entry.seasonNumber ?? season?.seasonNumber ?? league?.seasonNumber ?? null;
-      const type = headlineType(entry.type);
-      const teamName = resolveTeamName(entry.teamId);
-      const partnerName = resolveTeamName(entry.partnerTeam);
-      const context = [
-        seasonNumber ? `Season ${seasonNumber}` : null,
-        teamName,
-        partnerName ? `↔ ${partnerName}` : null,
-      ].filter(Boolean).join(' • ');
-      return {
-        id: entry.id || `${entry.type}-${entry.text}`,
-        type,
-        context,
-        text: entry.text,
-        detail: entry.detail,
-        createdAt: formatTimestamp(entry.createdAt),
-        raw: entry,
-      };
+        const seasonNumber = entry.seasonNumber ?? season?.seasonNumber ?? league?.seasonNumber ?? null;
+        const type = headlineType(entry.type);
+        const teamName = resolveTeamName(entry.teamId);
+        const partnerName = resolveTeamName(entry.partnerTeam);
+        const context = [
+          seasonNumber ? `Season ${seasonNumber}` : null,
+          teamName,
+          partnerName ? `↔ ${partnerName}` : null,
+        ].filter(Boolean).join(' • ');
+        return {
+          id: entry.id || `${entry.type}-${entry.text}`,
+          type,
+          context,
+          text: entry.text,
+          detail: entry.detail,
+          createdAt: formatTimestamp(entry.createdAt),
+          raw: entry,
+        };
       });
   }, [league, season]);
 
@@ -156,11 +267,16 @@ export default function NewsModal({ open, onClose, league, season }) {
     return items.map((item) => {
       const aiContent = item.raw?.aiContent || articleMap[item.id] || null;
       const generating = inflightRef.current.has(item.id) && !aiContent;
+      const simpleHeadline = buildSimpleHeadline(item);
+      const creativeHeadline = aiContent?.headline || null;
       return {
         ...item,
         aiContent,
         generating,
         headlineColor: resolveHeadlineColor(item.raw),
+        simpleHeadline,
+        creativeHeadline,
+        previewText: aiContent?.preview || item.detail || 'Click to read the full story.',
       };
     });
   }, [items, articleMap]);
@@ -218,8 +334,13 @@ export default function NewsModal({ open, onClose, league, season }) {
             }}
           >
             {displayItems.map((item) => {
-              const headline = item.aiContent?.headline || item.text;
-              const preview = item.aiContent?.preview || item.detail || 'Click to read the full story.';
+              const headline = item.simpleHeadline || item.creativeHeadline || item.text;
+              const secondaryHeadline = item.simpleHeadline
+                && item.creativeHeadline
+                && item.creativeHeadline !== item.simpleHeadline
+                  ? item.creativeHeadline
+                  : null;
+              const preview = item.previewText;
               return (
                 <button
                   key={item.id}
@@ -260,6 +381,18 @@ export default function NewsModal({ open, onClose, league, season }) {
                   >
                     {headline}
                   </div>
+                  {secondaryHeadline && (
+                    <div
+                      style={{
+                        fontSize: 13,
+                        color: 'rgba(205,232,205,0.92)',
+                        fontWeight: 600,
+                        letterSpacing: 0.15,
+                      }}
+                    >
+                      {secondaryHeadline}
+                    </div>
+                  )}
                   <div style={{ fontSize: 13, color: 'rgba(205,232,205,0.85)', lineHeight: 1.45 }}>
                     {preview}
                   </div>
