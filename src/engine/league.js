@@ -673,7 +673,7 @@ export function createLeagueContext() {
     playerAges[playerId] = computeInitialAge(playerId);
   });
   const league = {
-    seasonNumber: 1,
+    seasonNumber: 0,
     playerDevelopment: {},
     playerAges,
     playerDirectory,

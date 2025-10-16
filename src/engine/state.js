@@ -1970,7 +1970,11 @@ export function createInitialGameState(options = {}) {
         lockstepAssignments = false,
     } = options || {};
 
+    const freshLeague = !inputLeague;
     const league = inputLeague || createLeagueContext();
+    if (freshLeague) {
+        beginLeagueOffseason(league, { seasonNumber: 0 }, { inaugural: true, completedSeasonNumber: 0 });
+    }
     const season = createSeasonState({
         seasonNumber: league.seasonNumber || 1,
         playerDevelopment: league.playerDevelopment || {},
@@ -2017,7 +2021,8 @@ export function createInitialGameState(options = {}) {
         season.assignmentTotalGames = totalGames;
     }
 
-    const matchup = prepareSeasonMatchup(season);
+    const suppressInitialMatchup = freshLeague && league.offseason?.active && !league.offseason?.nextSeasonReady;
+    const matchup = suppressInitialMatchup ? null : prepareSeasonMatchup(season);
     const state = {
         season,
         playLog: [],
@@ -2027,9 +2032,13 @@ export function createInitialGameState(options = {}) {
         pendingMatchup: null,
         awaitingNextMatchup: false,
     };
-    prepareGameForMatchup(state, matchup);
-    if (!matchup) {
-        state.gameComplete = true;
+    if (matchup) {
+        prepareGameForMatchup(state, matchup);
+    } else {
+        prepareGameForMatchup(state, null);
+        if (suppressInitialMatchup) {
+            state.play = { phase: 'COMPLETE', resultText: 'Offseason underway' };
+        }
     }
     return state;
 }
