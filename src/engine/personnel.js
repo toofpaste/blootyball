@@ -1809,6 +1809,7 @@ export function signBestFreeAgentForRole(league, teamId, role, {
   reason = 'depth move',
   mode,
   minImprovement = 0,
+  context,
 } = {}) {
   if (!league) return null;
   ensureSeasonPersonnel(league, league.seasonNumber || 1);
@@ -1852,6 +1853,9 @@ export function signBestFreeAgentForRole(league, teamId, role, {
   const roster = ensureTeamRosterShell(league)[teamId];
   const current = side === 'offense' ? roster.offense[role] : side === 'defense' ? roster.defense[role] : roster.special.K;
   if (current && best.trueValue < evaluatePlayerTrueValue(current, strategy) + minImprovement) {
+    return null;
+  }
+  if (context && !consumeOffseasonMove(context, teamId)) {
     return null;
   }
   const [chosen] = league.freeAgents.splice(best.index, 1);
@@ -2257,12 +2261,17 @@ function tradeValue(league, teamId, role, player, mode) {
   return evaluation;
 }
 
-function performTrade(league, season, teamA, teamB, role, modeA, modeB) {
+function performTrade(league, season, teamA, teamB, role, modeA, modeB, context) {
   const rosters = ensureTeamRosterShell(league);
   const side = roleSide(role);
   const playerA = side === 'offense' ? rosters[teamA]?.offense?.[role] : side === 'defense' ? rosters[teamA]?.defense?.[role] : rosters[teamA]?.special?.K;
   const playerB = side === 'offense' ? rosters[teamB]?.offense?.[role] : side === 'defense' ? rosters[teamB]?.defense?.[role] : rosters[teamB]?.special?.K;
   if (!playerA || !playerB) return false;
+  if (context) {
+    if (!canTeamMakeOffseasonMove(context, teamA) || !canTeamMakeOffseasonMove(context, teamB)) {
+      return false;
+    }
+  }
   const valueA = tradeValue(league, teamA, role, playerB, modeA);
   const currentA = tradeValue(league, teamA, role, playerA, modeA);
   const valueB = tradeValue(league, teamB, role, playerA, modeB);
@@ -2276,6 +2285,13 @@ function performTrade(league, season, teamA, teamB, role, modeA, modeB) {
   const aggressionCheckB = Math.random() < (scoutB?.aggression ?? 0.5);
   if (!aggressionCheckA || !aggressionCheckB) return false;
   if (deltaA < -8 || deltaB < -8) return false;
+  if (context) {
+    if (!consumeOffseasonMove(context, teamA)) return false;
+    if (!consumeOffseasonMove(context, teamB)) {
+      refundOffseasonMove(context, teamA);
+      return false;
+    }
+  }
   removePlayerFromRoster(league, teamA, role);
   removePlayerFromRoster(league, teamB, role);
   assignPlayerToRoster(league, teamA, role, { ...playerB, origin: 'trade' });
@@ -2306,7 +2322,7 @@ function computeTeamStrategies(season) {
   return strategies;
 }
 
-function runTradeMarket(league, season, { focusTeams, activityDial } = {}) {
+function runTradeMarket(league, season, { focusTeams, activityDial, context } = {}) {
   if (!league || !season) return;
   ensureScouts(league);
   const strategies = computeTeamStrategies(season);
@@ -2322,7 +2338,7 @@ function runTradeMarket(league, season, { focusTeams, activityDial } = {}) {
     const teamB = choice(rebuilders);
     if (!teamA || !teamB || teamA === teamB) continue;
     const role = pickTradeRole();
-    performTrade(league, season, teamA, teamB, role, strategies[teamA], strategies[teamB]);
+    performTrade(league, season, teamA, teamB, role, strategies[teamA], strategies[teamB], context);
   }
 }
 
@@ -2344,14 +2360,14 @@ function evaluateRosterNeeds(league, teamId) {
   return needs;
 }
 
-function fillRosterNeeds(league, teamId, needs, { reason, mode, limitFraction } = {}) {
+function fillRosterNeeds(league, teamId, needs, { reason, mode, limitFraction, context } = {}) {
   if (!Array.isArray(needs) || !needs.length) return;
   const fraction = Number.isFinite(limitFraction)
     ? Math.min(1, Math.max(0.1, limitFraction))
     : 1;
   const limit = Math.max(1, Math.min(Math.round(needs.length * fraction), Math.ceil(2 + needs.length * 0.25)));
   needs.slice(0, limit).forEach((role) => {
-    signBestFreeAgentForRole(league, teamId, role, { reason, mode });
+    signBestFreeAgentForRole(league, teamId, role, { reason, mode, context });
   });
 }
 
@@ -2411,7 +2427,7 @@ function attemptTradeForUnhappyPlayer(league, teamId, role, player) {
   return true;
 }
 
-function simulateRosterCuts(league, teamId, mode) {
+function simulateRosterCuts(league, teamId, mode, context) {
   const roster = ensureTeamRosterShell(league)[teamId];
   const candidates = [];
   ROLES_OFF.forEach((role) => {
@@ -2438,7 +2454,18 @@ function simulateRosterCuts(league, teamId, mode) {
   const limit = Math.max(1, Math.round((scout?.aggression ?? 0.4) * 2));
   for (let i = 0; i < Math.min(limit, candidates.length); i += 1) {
     const pick = candidates[i];
-    const removed = removePlayerFromRoster(league, teamId, pick.role);
+    if (context && !canTeamMakeOffseasonMove(context, teamId, 2)) continue;
+    let removed = null;
+    if (context) {
+      if (!consumeOffseasonMove(context, teamId)) continue;
+      removed = removePlayerFromRoster(league, teamId, pick.role);
+      if (!removed) {
+        refundOffseasonMove(context, teamId);
+        continue;
+      }
+    } else {
+      removed = removePlayerFromRoster(league, teamId, pick.role);
+    }
     if (removed) {
       adjustPlayerMood(removed, -0.15);
       pushPlayerToFreeAgency(league, removed, pick.role, 'waived');
@@ -2449,7 +2476,7 @@ function simulateRosterCuts(league, teamId, mode) {
         detail: 'Roster spot opened',
         seasonNumber: league.seasonNumber || null,
       });
-      signBestFreeAgentForRole(league, teamId, pick.role, { reason: 'replacing waived player', mode });
+      signBestFreeAgentForRole(league, teamId, pick.role, { reason: 'replacing waived player', mode, context });
     }
   }
   refreshTeamMood(league, teamId);
@@ -2531,7 +2558,11 @@ function handleFreeAgencyDepartures(league, season, context) {
 
   context.events ||= [];
   departures.forEach(({ teamId, role, player }) => {
+    if (context && !consumeOffseasonMove(context, teamId)) return;
     const removed = removePlayerFromRoster(league, teamId, role) || player;
+    if (!removed && context) {
+      refundOffseasonMove(context, teamId);
+    }
     if (!removed) return;
     adjustPlayerMood(removed, -0.25);
     removed.loyalty = clamp((removed.loyalty ?? 0.5) * 0.88, 0, 1);
@@ -2573,8 +2604,15 @@ function evaluateTeamInterestForPlayer(league, season, teamId, role, player) {
 
 function signFreeAgentToTeam(league, player, teamId, role, context, reason) {
   if (!league || !player || !teamId || !role) return;
+  if (context && !canTeamMakeOffseasonMove(context, teamId)) return;
   const index = league.freeAgents.findIndex((entry) => entry?.id === player.id);
   const [chosen] = index >= 0 ? league.freeAgents.splice(index, 1) : [player];
+  if (context && !consumeOffseasonMove(context, teamId)) {
+    if (index >= 0) {
+      league.freeAgents.splice(index, 0, chosen);
+    }
+    return;
+  }
   const assigned = { ...chosen, role, origin: 'free-agent' };
   assigned.loyalty = clamp((assigned.loyalty ?? 0.5) * 0.6 + rand(0.22, 0.4), 0.12, 0.96);
   assignPlayerToRoster(league, teamId, role, assigned);
@@ -2677,6 +2715,45 @@ function determineOffseasonFocusTeams(dayNumber = 1, totalDays = 5) {
 }
 
 export const DEFAULT_OFFSEASON_DAY_DURATION_MS = 60000;
+const DEFAULT_OFFSEASON_MOVE_LIMIT = 3;
+
+function ensureOffseasonMoveLedger(context) {
+  if (!context) return null;
+  if (!context.teamMoves) context.teamMoves = {};
+  return context.teamMoves;
+}
+
+function getOffseasonMoveLimit(context) {
+  if (!context) return DEFAULT_OFFSEASON_MOVE_LIMIT;
+  const limit = Number.isFinite(context.moveLimit) ? context.moveLimit : DEFAULT_OFFSEASON_MOVE_LIMIT;
+  return Math.max(1, limit);
+}
+
+function canTeamMakeOffseasonMove(context, teamId, count = 1) {
+  if (!context || !teamId) return true;
+  const ledger = ensureOffseasonMoveLedger(context);
+  if (!ledger) return true;
+  const limit = getOffseasonMoveLimit(context);
+  const used = ledger[teamId] || 0;
+  return used + count <= limit;
+}
+
+function consumeOffseasonMove(context, teamId, count = 1) {
+  if (!context || !teamId) return true;
+  const ledger = ensureOffseasonMoveLedger(context);
+  if (!ledger) return true;
+  const limit = getOffseasonMoveLimit(context);
+  const used = ledger[teamId] || 0;
+  if (used + count > limit) return false;
+  ledger[teamId] = used + count;
+  return true;
+}
+
+function refundOffseasonMove(context, teamId, count = 1) {
+  if (!context || !teamId || !context.teamMoves) return;
+  const current = context.teamMoves[teamId] || 0;
+  context.teamMoves[teamId] = Math.max(0, current - count);
+}
 
 function ensureOffseasonState(league, totalDays = 5) {
   if (!league) return null;
@@ -2698,10 +2775,12 @@ export function advanceLeagueOffseason(league, season, context = {}) {
   const activityDial = Math.min(0.85, Math.max(0.15, rawDial * 0.75));
   context.focusTeams = focusTeams;
   context.activityDial = activityDial;
+  context.moveLimit = getOffseasonMoveLimit(context);
+  ensureOffseasonMoveLedger(context);
   processOffseasonInjuries(league);
   focusTeams.forEach((teamId) => {
     const strategy = teamStrategyFromRecord(season?.teams?.[teamId]);
-    simulateRosterCuts(league, teamId, strategy);
+    simulateRosterCuts(league, teamId, strategy, context);
   });
   handleFreeAgencyDepartures(league, season, context);
   attemptFreeAgentSignings(league, season, context);
@@ -2713,10 +2792,11 @@ export function advanceLeagueOffseason(league, season, context = {}) {
         reason: 'offseason adjustments',
         mode: strategy,
         limitFraction: activityDial * 0.6,
+        context,
       });
     }
   });
-  runTradeMarket(league, season, { focusTeams, activityDial });
+  runTradeMarket(league, season, { focusTeams, activityDial, context });
   evaluateStaffChanges(league, season, { focusTeams, activityDial });
   TEAM_IDS.forEach((teamId) => refreshTeamMood(league, teamId));
 }
