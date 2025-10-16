@@ -10,6 +10,11 @@ import NewsModal from './ui/NewsModal';
 import SeasonScheduleModal from './ui/SeasonScheduleModal';
 import FreeAgentModal from './ui/FreeAgentModal';
 import PressArticlesModal from './ui/PressArticlesModal';
+import { cloneRecordBook } from './engine/league';
+import { cloneTeamWikiMap } from './data/teamWikiTemplates';
+import RecordBookModal from './ui/RecordBookModal';
+import LeagueWikiModal from './ui/LeagueWikiModal';
+import { useWikiAiUpdater } from './utils/useWikiAiUpdater';
 import './AppLayout.css';
 import { PlayerCardProvider } from './ui/PlayerCardProvider';
 
@@ -524,6 +529,11 @@ function cloneLeague(league) {
     acc[teamId] = Array.isArray(seasons) ? seasons.map((entry) => cloneTeamHistoryEntry(entry)) : [];
     return acc;
   }, {});
+  const recordBook = cloneRecordBook(league.recordBook || {});
+  const teamWiki = cloneTeamWikiMap(league.teamWiki || {});
+  const teamWikiAiLog = Array.isArray(league.teamWikiAiLog)
+    ? league.teamWikiAiLog.map((entry) => ({ ...entry }))
+    : [];
   return {
     ...league,
     playerDevelopment: clonePlayerDevelopmentMap(league.playerDevelopment || {}),
@@ -551,6 +561,10 @@ function cloneLeague(league) {
     injuryCounts,
     seasonSnapshot: league.seasonSnapshot ? cloneSeason(league.seasonSnapshot) : null,
     teamSeasonHistory,
+    recordBook,
+    teamWiki,
+    teamWikiLastUpdatedSeason: league.teamWikiLastUpdatedSeason ?? 0,
+    teamWikiAiLog,
   };
 }
 
@@ -740,6 +754,111 @@ function mergeLeagueData(target, source) {
   if (!target.seasonSnapshot && source.seasonSnapshot) {
     target.seasonSnapshot = cloneSeason(source.seasonSnapshot);
   }
+
+  target.recordBook = cloneRecordBook(target.recordBook || {});
+  if (source.recordBook) {
+    const incoming = cloneRecordBook(source.recordBook);
+    target.recordBook.categories ||= {};
+    Object.entries(incoming.categories || {}).forEach(([key, entry]) => {
+      const existing = target.recordBook.categories[key];
+      if (!existing || (entry.value ?? 0) > (existing.value ?? 0)) {
+        target.recordBook.categories[key] = entry;
+      }
+    });
+    target.recordBook.lastUpdatedSeason = Math.max(
+      target.recordBook.lastUpdatedSeason ?? 0,
+      incoming.lastUpdatedSeason ?? 0,
+    );
+  }
+
+  target.teamWiki = cloneTeamWikiMap(target.teamWiki || {});
+  Object.entries(source.teamWiki || {}).forEach(([teamId, entry]) => {
+    if (!entry) return;
+    const cloned = cloneTeamWikiMap({ [teamId]: entry })[teamId];
+    const existing = target.teamWiki[teamId];
+    if (!existing) {
+      target.teamWiki[teamId] = cloned;
+      return;
+    }
+
+    const summaryMap = new Map();
+    (existing.seasonSummaries || []).forEach((summary) => {
+      summaryMap.set(summary.seasonNumber, { ...summary });
+    });
+    (cloned.seasonSummaries || []).forEach((summary) => {
+      if (!summary) return;
+      summaryMap.set(summary.seasonNumber, { ...summary });
+    });
+    existing.seasonSummaries = Array.from(summaryMap.values()).sort((a, b) => (b.seasonNumber ?? 0) - (a.seasonNumber ?? 0));
+
+    const recordMap = new Map();
+    (existing.recordsSet || []).forEach((record) => {
+      recordMap.set(`${record.key}-${record.seasonNumber}`, { ...record });
+    });
+    (cloned.recordsSet || []).forEach((record) => {
+      if (!record) return;
+      const key = `${record.key}-${record.seasonNumber}`;
+      const existingRecord = recordMap.get(key);
+      if (!existingRecord || (record.value ?? 0) > (existingRecord.value ?? 0)) {
+        recordMap.set(key, { ...record });
+      }
+    });
+    existing.recordsSet = Array.from(recordMap.values()).sort((a, b) => (b.seasonNumber ?? 0) - (a.seasonNumber ?? 0));
+
+    const playerMap = new Map();
+    (existing.notablePlayers || []).forEach((player) => {
+      playerMap.set(player.playerId, {
+        ...player,
+        highlights: Array.isArray(player.highlights) ? player.highlights.slice() : [],
+        seasons: Array.isArray(player.seasons) ? player.seasons.slice() : [],
+      });
+    });
+    (cloned.notablePlayers || []).forEach((player) => {
+      if (!player) return;
+      const existingPlayer = playerMap.get(player.playerId);
+      const highlights = Array.isArray(player.highlights) ? player.highlights : [];
+      const seasons = Array.isArray(player.seasons) ? player.seasons : [];
+      if (existingPlayer) {
+        highlights.forEach((highlight) => {
+          if (!existingPlayer.highlights.includes(highlight)) existingPlayer.highlights.push(highlight);
+        });
+        seasons.forEach((seasonNumber) => {
+          if (!existingPlayer.seasons.includes(seasonNumber)) existingPlayer.seasons.push(seasonNumber);
+        });
+      } else {
+        playerMap.set(player.playerId, {
+          ...player,
+          highlights: highlights.slice(),
+          seasons: seasons.slice(),
+        });
+      }
+    });
+    existing.notablePlayers = Array.from(playerMap.values()).sort((a, b) => (b.seasons?.length || 0) - (a.seasons?.length || 0));
+
+    if ((cloned.lastUpdatedSeason ?? 0) >= (existing.lastUpdatedSeason ?? 0)) {
+      existing.sections = Array.isArray(cloned.sections)
+        ? cloned.sections.map((section) => ({ ...section }))
+        : existing.sections;
+      existing.totals = { ...cloned.totals };
+    }
+
+    existing.lastUpdatedSeason = Math.max(existing.lastUpdatedSeason ?? 0, cloned.lastUpdatedSeason ?? 0);
+    if (cloned.aiSections) {
+      existing.aiSections = { ...(existing.aiSections || {}), ...cloned.aiSections };
+    }
+  });
+
+  target.teamWikiLastUpdatedSeason = Math.max(
+    target.teamWikiLastUpdatedSeason ?? 0,
+    source.teamWikiLastUpdatedSeason ?? 0,
+  );
+
+  const aiLog = Array.isArray(target.teamWikiAiLog) ? target.teamWikiAiLog.slice() : [];
+  (source.teamWikiAiLog || []).forEach((entry) => {
+    if (!entry) return;
+    aiLog.push({ ...entry });
+  });
+  target.teamWikiAiLog = aiLog;
 }
 
 function pickCurrentMatchup(snapshots) {
@@ -939,9 +1058,12 @@ export default function App() {
   const [pressOpen, setPressOpen] = useState(false);
   const [scheduleOpen, setScheduleOpen] = useState(false);
   const [freeAgentsOpen, setFreeAgentsOpen] = useState(false);
+  const [recordBookOpen, setRecordBookOpen] = useState(false);
+  const [leagueWikiOpen, setLeagueWikiOpen] = useState(false);
   const [lastSeenNewsTimestamp, setLastSeenNewsTimestamp] = useState(0);
   const [lastSeenPressWeekKey, setLastSeenPressWeekKey] = useState('');
   const [seasonSnapshots, setSeasonSnapshots] = useState(() => []);
+  const [wikiOverrides, setWikiOverrides] = useState({ seasonNumber: 0, teams: {} });
   const gameRefs = useRef([]);
 
   const handleGameComplete = useCallback((index, { shouldAutoResume } = {}) => {
@@ -989,6 +1111,16 @@ export default function App() {
 
   const handleSimSpeedChange = useCallback((value) => {
     setSimSpeed(value);
+  }, []);
+
+  const handleApplyWikiOverrides = useCallback((update) => {
+    if (!update || typeof update !== 'object') return;
+    setWikiOverrides((prev) => {
+      const nextSeason = update.seasonNumber ?? prev.seasonNumber ?? 0;
+      if (nextSeason < (prev.seasonNumber ?? 0)) return prev;
+      const teams = update.teams && typeof update.teams === 'object' ? update.teams : {};
+      return { seasonNumber: nextSeason, teams };
+    });
   }, []);
 
   const collectSeasonSnapshots = useCallback(() => {
@@ -1055,10 +1187,25 @@ export default function App() {
     setPressOpen(true);
   }, [collectSeasonSnapshots]);
 
+  const handleOpenRecordBook = useCallback(() => {
+    collectSeasonSnapshots();
+    setRecordBookOpen(true);
+  }, [collectSeasonSnapshots]);
+
+  const handleOpenLeagueWiki = useCallback(() => {
+    collectSeasonSnapshots();
+    setLeagueWikiOpen(true);
+  }, [collectSeasonSnapshots]);
+
   const aggregatedSeasonStats = useMemo(
     () => combineSeasonSnapshots(seasonSnapshots),
     [seasonSnapshots],
   );
+
+  useWikiAiUpdater({
+    league: aggregatedSeasonStats?.league || null,
+    onOverride: handleApplyWikiOverrides,
+  });
 
   const seasonProgress = useMemo(
     () => computeSeasonProgress(aggregatedSeasonStats?.season || null),
@@ -1161,6 +1308,8 @@ export default function App() {
         onShowNews={handleOpenNews}
         onShowPressArticles={handleOpenPress}
         onShowFreeAgents={handleOpenFreeAgents}
+        onShowRecordBook={handleOpenRecordBook}
+        onShowLeagueWiki={handleOpenLeagueWiki}
         seasonProgressLabel={seasonProgress.label}
         hasUnseenNews={hasUnseenNews}
         hasUnseenPressArticles={hasUnseenPressArticles}
@@ -1218,6 +1367,12 @@ export default function App() {
         season={aggregatedSeasonStats?.season || null}
         league={aggregatedSeasonStats?.league || null}
       />
+      <RecordBookModal
+        open={recordBookOpen}
+        onClose={() => setRecordBookOpen(false)}
+        recordBook={aggregatedSeasonStats?.league?.recordBook || null}
+        league={aggregatedSeasonStats?.league || null}
+      />
       <FreeAgentModal
         open={freeAgentsOpen}
         onClose={() => setFreeAgentsOpen(false)}
@@ -1236,6 +1391,13 @@ export default function App() {
         season={aggregatedSeasonStats?.season || null}
         seasonProgress={seasonProgress}
         pressCoverageWeek={pressCoverageWeek}
+      />
+      <LeagueWikiModal
+        open={leagueWikiOpen}
+        onClose={() => setLeagueWikiOpen(false)}
+        teamWiki={aggregatedSeasonStats?.league?.teamWiki || null}
+        recordBook={aggregatedSeasonStats?.league?.recordBook || null}
+        aiOverrides={wikiOverrides}
       />
       </div>
     </PlayerCardProvider>

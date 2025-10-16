@@ -19,6 +19,17 @@ Optional overrides:
 
 If no key is supplied, the app falls back to locally generated summary text so the UI continues to function.
 
+## League Record Book & Wiki
+
+From the global header you can open a dedicated League Records modal that highlights the top single-season accomplishments for
+players, teams, and coaches. The record book automatically refreshes whenever a season concludes, capturing the record holder,
+season, team, and total set for each category.
+
+The League Wiki button opens a hub of Wikipedia-style team pages that track franchise histories, notable moments, and a running
+ledger of awards, playoff appearances, and Blooperbowl titles. Each offseason the simulator updates every team's article using the
+latest season results. Provide the same OpenAI API key described above to let the AI expand and rewrite wiki sections; without a
+key, the pages still refresh with locally generated summaries.
+
 ## Available Scripts
 
 In the project directory, you can run:
