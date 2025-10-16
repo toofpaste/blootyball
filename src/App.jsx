@@ -11,6 +11,7 @@ import SeasonScheduleModal from './ui/SeasonScheduleModal';
 import FreeAgentModal from './ui/FreeAgentModal';
 import PressArticlesModal from './ui/PressArticlesModal';
 import { cloneRecordBook } from './engine/league';
+import { DEFAULT_OFFSEASON_DAY_DURATION_MS } from './engine/personnel';
 import { cloneTeamWikiMap } from './data/teamWikiTemplates';
 import RecordBookModal from './ui/RecordBookModal';
 import LeagueWikiModal from './ui/LeagueWikiModal';
@@ -1243,7 +1244,9 @@ export default function App() {
     let msUntilNextDay = null;
     if (active && globalRunning) {
       const target = offseasonState.nextDayAt
-        || ((offseasonState.lastAdvancedAt || Date.now()) + (offseasonState.dayDurationMs || 60000));
+        || ((
+          offseasonState.lastAdvancedAt || Date.now()
+        ) + (offseasonState.dayDurationMs || DEFAULT_OFFSEASON_DAY_DURATION_MS));
       msUntilNextDay = Math.max(0, target - now);
     }
     return {

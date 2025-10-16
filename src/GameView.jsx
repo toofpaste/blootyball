@@ -2,6 +2,7 @@ import React, { useEffect, useImperativeHandle, useRef, useState } from 'react';
 import Scoreboard from './ui/Scoreboard';
 import { FIELD_PIX_W, FIELD_PIX_H, COLORS, TEAM_RED, TEAM_BLK } from './engine/constants';
 import { createInitialGameState, resumeAssignedMatchup, stepGame, progressOffseason } from './engine/state';
+import { DEFAULT_OFFSEASON_DAY_DURATION_MS } from './engine/personnel';
 import { getDiagnostics } from './engine/diagnostics';
 import PlayLog from './ui/PlayLog';
 import StatsSummary from './ui/StatsSummary';
@@ -115,7 +116,7 @@ const GameView = React.forwardRef(function GameView({
       if (!offseason || !offseason.active || offseason.nextSeasonReady) {
         return prev;
       }
-      const duration = offseason.dayDurationMs || 60000;
+      const duration = offseason.dayDurationMs || DEFAULT_OFFSEASON_DAY_DURATION_MS;
       const nowTs = Date.now();
       const next = { ...prev, league: { ...prev.league, offseason: { ...offseason } } };
       const off = next.league.offseason;
