@@ -2953,7 +2953,7 @@ function performTrade(league, season, teamA, teamB, role, modeA, modeB, context)
   });
   recordNewsInternal(league, {
     type: 'trade',
-    text: `${getTeamIdentity(teamB)?.abbr || teamB} acquire ${playerA.firstName} ${playerA.lastName} (${role})`,
+    text: `${getTeamIdentity(teamB)?.abbr || teamB} trade ${playerB.firstName} ${playerB.lastName} (${role}) for ${playerA.firstName} ${playerA.lastName}`,
     teamId: teamB,
     partnerTeam: teamA,
     seasonNumber: season?.seasonNumber || league.seasonNumber || null,
@@ -3107,14 +3107,14 @@ function attemptTradeForUnhappyPlayer(league, teamId, role, player) {
     type: 'trade',
     teamId,
     partnerTeam: best.otherId,
-    text: `${getTeamIdentity(teamId)?.abbr || teamId} trade ${outgoing.firstName} ${outgoing.lastName} (${role}) to ${getTeamIdentity(best.otherId)?.abbr || best.otherId}`,
+    text: `${getTeamIdentity(teamId)?.abbr || teamId} trade ${outgoing.firstName} ${outgoing.lastName} (${role}) for ${incoming.firstName} ${incoming.lastName} (${role}) from ${getTeamIdentity(best.otherId)?.abbr || best.otherId}`,
     seasonNumber: league.seasonNumber || null,
   });
   recordNewsInternal(league, {
     type: 'trade',
     teamId: best.otherId,
     partnerTeam: teamId,
-    text: `${getTeamIdentity(best.otherId)?.abbr || best.otherId} welcome ${outgoing.firstName} ${outgoing.lastName} (${role})`,
+    text: `${getTeamIdentity(best.otherId)?.abbr || best.otherId} trade ${incoming.firstName} ${incoming.lastName} (${role}) for ${outgoing.firstName} ${outgoing.lastName} (${role}) with ${getTeamIdentity(teamId)?.abbr || teamId}`,
     seasonNumber: league.seasonNumber || null,
   });
   refreshTeamMood(league, teamId);
