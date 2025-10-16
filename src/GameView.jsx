@@ -174,12 +174,29 @@ const GameView = React.forwardRef(function GameView({
     onManualReset?.(gameIndex);
   }, [resetSignal, gameIndex, onManualReset, parallelSlotCount, state?.league]);
 
+  const offseasonBlockingGames = Boolean(
+    state?.league?.offseason?.active && !state?.league?.offseason?.nextSeasonStarted,
+  );
+
   useEffect(() => {
-    if (globalRunning && !state.gameComplete && (!prevGlobalRunningRef.current || !localRunning)) {
+    if (offseasonBlockingGames) {
+      if (localRunning) {
+        setLocalRunning(false);
+      }
+    } else if (
+      globalRunning
+      && !state.gameComplete
+      && (!prevGlobalRunningRef.current || !localRunning)
+    ) {
       setLocalRunning(true);
     }
     prevGlobalRunningRef.current = globalRunning;
-  }, [globalRunning, state.gameComplete, localRunning]);
+  }, [
+    globalRunning,
+    state.gameComplete,
+    localRunning,
+    offseasonBlockingGames,
+  ]);
 
   const season = state.season || {};
   const assignmentStride = season.assignmentStride || season.assignment?.stride || 1;
