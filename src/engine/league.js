@@ -4,6 +4,7 @@ import { clamp, rand } from './helpers';
 import {
   initializeLeaguePersonnel,
   ensureSeasonPersonnel,
+  advanceContractsForNewSeason,
 } from './personnel';
 import { createInitialTeamWiki, cloneTeamWikiMap } from '../data/teamWikiTemplates';
 
@@ -1294,10 +1295,13 @@ export function mergePlayerStatsIntoCareer(careerMap, seasonStats = {}) {
 }
 
 export function incrementPlayerAges(league) {
-  if (!league?.playerAges) return;
-  Object.keys(league.playerAges).forEach((playerId) => {
-    league.playerAges[playerId] = (league.playerAges[playerId] || 0) + 1;
-  });
+  if (!league) return;
+  if (league.playerAges) {
+    Object.keys(league.playerAges).forEach((playerId) => {
+      league.playerAges[playerId] = (league.playerAges[playerId] || 0) + 1;
+    });
+  }
+  advanceContractsForNewSeason(league);
 }
 
 function decayDevelopment(map, retention = 0.88) {

@@ -64,6 +64,21 @@ function formatTeamRatings(offenseRating, defenseRating) {
   return `OFF ${formatValue(offenseRating)} • DEF ${formatValue(defenseRating)}`;
 }
 
+function formatCurrency(value) {
+  if (value == null || Number.isNaN(value)) return '—';
+  const sign = value < 0 ? '-' : '';
+  const absolute = Math.abs(value);
+  if (absolute >= 1_000_000) {
+    const fixed = (absolute / 1_000_000).toFixed(1);
+    return `${sign}$${fixed}M`;
+  }
+  if (absolute >= 1_000) {
+    const fixed = Math.round(absolute / 1_000);
+    return `${sign}$${fixed}K`;
+  }
+  return `${sign}$${Math.round(absolute)}`;
+}
+
 function RosterSection({ title, players, onPlayerSelect }) {
   return (
     <div
@@ -492,6 +507,9 @@ export default function TeamDirectoryModal({ open, onClose, season, league = nul
   }, [selectedTeamId]);
 
   const selectedTeam = teams.find((team) => team.id === selectedTeamId) || null;
+  const salaryCap = selectedTeam?.salaryCap ?? league?.salaryCap ?? 100000000;
+  const payroll = selectedTeam?.payroll ?? 0;
+  const capSpace = selectedTeam?.capSpace != null ? selectedTeam.capSpace : (salaryCap - payroll);
 
   const handlePlayerSelect = (player) => {
     if (!player || !selectedTeam) return;
@@ -587,6 +605,10 @@ export default function TeamDirectoryModal({ open, onClose, season, league = nul
                 </div>
                 <div style={{ fontSize: 12, color: '#b6f0b6', marginTop: 4 }}>
                   Team Mood: {selectedTeam.mood?.label || 'Neutral'} • {formatBoostValue(selectedTeam.mood?.score ?? 0)}
+                </div>
+                <div style={{ fontSize: 12, color: '#b6f0b6', marginTop: 4 }}>
+                  Payroll: {formatCurrency(payroll)} / {formatCurrency(salaryCap)} • Cap Space:{' '}
+                  <span style={{ color: capSpace < 0 ? '#ffb6b6' : '#b6f0b6' }}>{formatCurrency(capSpace)}</span>
                 </div>
                 <div style={{ fontSize: 12, color: '#9bd79b', marginTop: 4 }}>
                   BluperBowl Titles: {selectedTeam.titles || 0}

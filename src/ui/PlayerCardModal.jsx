@@ -81,6 +81,21 @@ export function formatBoostValue(value) {
   return value > 0 ? `+${fixed}` : fixed;
 }
 
+export function formatCurrency(value) {
+  if (value == null || Number.isNaN(value)) return '—';
+  const sign = value < 0 ? '-' : '';
+  const absolute = Math.abs(value);
+  if (absolute >= 1_000_000) {
+    const fixed = (absolute / 1_000_000).toFixed(1);
+    return `${sign}$${fixed}M`;
+  }
+  if (absolute >= 1_000) {
+    const fixed = Math.round(absolute / 1_000);
+    return `${sign}$${fixed}K`;
+  }
+  return `${sign}$${Math.round(absolute)}`;
+}
+
 export function formatHeight(value) {
   if (value == null || Number.isNaN(value)) return '—';
   const inches = Math.max(0, Math.round(value));
@@ -223,6 +238,15 @@ export default function PlayerCardModal({ open, onClose, entry, team }) {
         base: entry.baseAttrs?.[key],
         current: entry.attrs?.[key],
       })).filter(({ base, current }) => base != null || current != null);
+  const contract = entry.contract || null;
+  const contractLines = contract
+    ? [
+        `${formatCurrency(contract.salary)} per year`,
+        contract.years != null ? `${contract.years} yr${contract.years === 1 ? '' : 's'}` : null,
+        contract.yearsRemaining != null ? `${contract.yearsRemaining} remaining` : null,
+        contract.totalValue != null ? `Total ${formatCurrency(contract.totalValue)}` : null,
+      ].filter(Boolean)
+    : [];
 
   return (
     <Modal open={open} onClose={onClose} title={`Player Card • ${entry.name}`} width="min(90vw, 640px)">
@@ -235,6 +259,11 @@ export default function PlayerCardModal({ open, onClose, entry, team }) {
           {secondaryMeta.length ? (
             <div style={{ color: '#cde8cd', fontSize: 12, marginTop: 2 }}>
               {secondaryMeta.join(' • ')}
+            </div>
+          ) : null}
+          {contractLines.length ? (
+            <div style={{ color: '#9bd79b', fontSize: 12, marginTop: 6 }}>
+              Contract: {contractLines.join(' • ')}
             </div>
           ) : null}
           {ratingBadges.length ? (

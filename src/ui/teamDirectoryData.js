@@ -117,6 +117,18 @@ export function createPlayerEntry(player, role, sideLabel, statsMap = {}, league
     entry.attrs = { maxDistance: player.maxDistance ?? null, accuracy: player.accuracy ?? null };
     entry.baseAttrs = { maxDistance: player.maxDistance ?? null, accuracy: player.accuracy ?? null };
   }
+  if (player.contract) {
+    const contract = player.contract;
+    entry.contract = {
+      salary: contract.salary ?? null,
+      years: contract.years ?? null,
+      yearsRemaining: contract.yearsRemaining ?? contract.years ?? null,
+      startSeason: contract.startSeason ?? null,
+      totalValue: contract.totalValue ?? ((contract.salary ?? 0) * (contract.years ?? 1)),
+      basis: contract.basis || contract.type || null,
+    };
+    entry.capHit = contract.salary ?? null;
+  }
   return entry;
 }
 
@@ -225,6 +237,7 @@ export function buildTeamDirectoryData(season, league) {
   const development = season.playerDevelopment || {};
   const teamTitles = league?.teamChampionships || {};
   const teamSeasonHistory = league?.teamSeasonHistory || {};
+  const salaryCap = league?.salaryCap ?? 100000000;
 
   return teams.map((team) => {
     const teamId = team.id;
@@ -265,6 +278,8 @@ export function buildTeamDirectoryData(season, league) {
     const special = buildSpecialGroup(group.special, statsMap, league, teamId);
     const offenseRating = computeGroupRating(offense);
     const defenseRating = computeGroupRating(defense);
+    const payroll = league?.teamPayroll?.[teamId] ?? 0;
+    const capSpace = (team.salaryCap ?? salaryCap) - payroll;
 
     return {
       id: teamId,
@@ -287,6 +302,9 @@ export function buildTeamDirectoryData(season, league) {
       },
       offenseRating,
       defenseRating,
+      salaryCap: team.salaryCap ?? salaryCap,
+      payroll,
+      capSpace,
     };
   });
 }

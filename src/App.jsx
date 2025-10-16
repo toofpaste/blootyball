@@ -402,6 +402,7 @@ function clonePlayerRecordForLeague(player = {}) {
     ratings: { ...(player.ratings || {}) },
     modifiers: { ...(player.modifiers || {}) },
     temperament: player.temperament ? { ...player.temperament } : null,
+    contract: player.contract ? { ...player.contract } : null,
   };
 }
 
@@ -535,6 +536,10 @@ function cloneLeague(league) {
   const teamWikiAiLog = Array.isArray(league.teamWikiAiLog)
     ? league.teamWikiAiLog.map((entry) => ({ ...entry }))
     : [];
+  const teamPayroll = Object.entries(league.teamPayroll || {}).reduce((acc, [teamId, value]) => {
+    acc[teamId] = value ?? 0;
+    return acc;
+  }, {});
   return {
     ...league,
     playerDevelopment: clonePlayerDevelopmentMap(league.playerDevelopment || {}),
@@ -566,6 +571,8 @@ function cloneLeague(league) {
     teamWiki,
     teamWikiLastUpdatedSeason: league.teamWikiLastUpdatedSeason ?? 0,
     teamWikiAiLog,
+    teamPayroll,
+    salaryCap: league.salaryCap ?? 100000000,
   };
 }
 
@@ -677,6 +684,13 @@ function mergeLeagueData(target, source) {
     mergedMoods[teamId] = mood ? { ...mood } : null;
   });
   target.teamMoods = mergedMoods;
+  target.teamPayroll = { ...(target.teamPayroll || {}) };
+  Object.entries(source.teamPayroll || {}).forEach(([teamId, value]) => {
+    target.teamPayroll[teamId] = value ?? target.teamPayroll[teamId] ?? 0;
+  });
+  if (source.salaryCap != null) {
+    target.salaryCap = source.salaryCap;
+  }
 
   if (!target.teamRosters && source.teamRosters) {
     target.teamRosters = Object.entries(source.teamRosters).reduce((acc, [teamId, roster]) => {
