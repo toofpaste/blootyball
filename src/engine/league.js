@@ -653,6 +653,12 @@ export function ensurePlayoffsScheduled(season, league) {
     buildSemifinalGame({ seasonNumber: season.seasonNumber, homeTeam: seeds[0], awayTeam: seeds[3], index: startIndex, order: 1 }),
     buildSemifinalGame({ seasonNumber: season.seasonNumber, homeTeam: seeds[1], awayTeam: seeds[2], index: startIndex + 1, order: 2 }),
   ];
+  // Playoff games should always be consumed sequentially. Reset any lingering
+  // assignment stride from the regular season so both semifinals are played.
+  season.assignmentStride = 1;
+  if (season.assignment) {
+    season.assignment.stride = 1;
+  }
   games.forEach((game, idx) => {
     const entry = { ...game, index: startIndex + idx, week: (season.regularSeasonLength || startIndex) + idx + 1 };
     season.schedule.push(entry);
@@ -689,6 +695,10 @@ export function ensureChampionshipScheduled(season) {
   const awayTeam = winners[1].winner;
   if (!homeTeam || !awayTeam) return [];
   const index = season.schedule.length;
+  season.assignmentStride = 1;
+  if (season.assignment) {
+    season.assignment.stride = 1;
+  }
   const entry = {
     id: `PO${String(season.seasonNumber).padStart(2, '0')}-CH`,
     homeTeam,
