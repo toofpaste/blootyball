@@ -2710,8 +2710,11 @@ export function beginLeagueOffseason(league, season, summary = {}) {
   const totalDays = 5;
   const state = ensureOffseasonState(league, totalDays);
   const now = Date.now();
-  const completedSeasonNumber = season?.seasonNumber || league.seasonNumber || 1;
-  const upcomingSeasonNumber = Math.max(league.seasonNumber || completedSeasonNumber, completedSeasonNumber) + 1;
+  const inferredCompleted = summary.completedSeasonNumber ?? season?.seasonNumber ?? league.seasonNumber ?? 1;
+  const completedSeasonNumber = Number.isFinite(inferredCompleted) ? inferredCompleted : 0;
+  const currentSeasonNumber = Number.isFinite(league.seasonNumber) ? league.seasonNumber : completedSeasonNumber;
+  const upcomingSeasonNumber = Math.max(currentSeasonNumber, completedSeasonNumber) + 1;
+  const inaugural = !!summary.inaugural || completedSeasonNumber <= 0;
   state.active = true;
   state.currentDay = 0;
   state.startedAt = now;
@@ -2730,8 +2733,10 @@ export function beginLeagueOffseason(league, season, summary = {}) {
   recordNewsInternal(league, {
     type: 'league',
     text: 'Offseason begins',
-    detail: `Teams embark on a ${totalDays}-day offseason following Season ${completedSeasonNumber}.`,
-    seasonNumber: completedSeasonNumber,
+    detail: inaugural
+      ? `Teams embark on a ${totalDays}-day offseason before the inaugural season kicks off.`
+      : `Teams embark on a ${totalDays}-day offseason following Season ${completedSeasonNumber}.`,
+    seasonNumber: inaugural ? null : completedSeasonNumber,
   });
   return state;
 }
