@@ -1092,13 +1092,19 @@ function randomAgeForProspect(type = 'balanced') {
   return Math.round(rand(23, 29));
 }
 
-function buildFreeAgent(role, archetype, tier, seasonNumber) {
-  const skill = tier === 'veteran' ? rand(0.65, 0.95)
-    : tier === 'prospect' ? rand(0.35, 0.65)
-    : rand(0.5, 0.8);
-  const potential = tier === 'prospect' ? clamp(skill + rand(0.25, 0.45), 0.6, 1.25)
-    : tier === 'veteran' ? clamp(skill + rand(-0.05, 0.18), 0.5, 1.05)
-    : clamp(skill + rand(0.05, 0.3), 0.55, 1.1);
+function buildFreeAgent(role, archetype, tier, seasonNumber, options = {}) {
+  const { bargain = false } = options;
+  const effectiveTier = bargain ? 'veteran' : tier;
+  const skill = bargain
+    ? rand(0.22, 0.45)
+    : tier === 'veteran' ? rand(0.65, 0.95)
+      : tier === 'prospect' ? rand(0.35, 0.65)
+        : rand(0.5, 0.8);
+  const potential = bargain
+    ? clamp(skill + rand(-0.04, 0.12), 0.32, 0.62)
+    : tier === 'prospect' ? clamp(skill + rand(0.25, 0.45), 0.6, 1.25)
+      : tier === 'veteran' ? clamp(skill + rand(-0.05, 0.18), 0.5, 1.05)
+        : clamp(skill + rand(0.05, 0.3), 0.55, 1.1);
   const ratings = generateRatingsForRole(role, skill);
   const firstName = randomFirstName();
   const lastName = randomLastName();
@@ -1110,14 +1116,18 @@ function buildFreeAgent(role, archetype, tier, seasonNumber) {
     ratings,
     modifiers: {},
     potential,
-    ceiling: potential + rand(0.02, 0.1),
+    ceiling: bargain ? clamp(potential + rand(0.01, 0.04), 0.35, 0.68) : potential + rand(0.02, 0.1),
     origin: 'free-agent',
-    archetype: archetype || tier,
-    age: randomAgeForProspect(tier),
+    archetype: bargain ? 'bargain' : archetype || tier,
+    age: randomAgeForProspect(effectiveTier),
     createdSeason: seasonNumber,
-    type: tier,
+    type: bargain ? 'bargain' : tier,
     preferredRole: role,
   };
+  if (bargain) {
+    player.bargainBin = true;
+    player.loyalty = clamp(rand(0.22, 0.48), 0.1, 0.55);
+  }
   if (role === 'K') {
     player.maxDistance = clamp(rand(43, 62), 35, 68);
     player.accuracy = clamp(rand(0.62, 0.92), 0.4, 0.98);
@@ -1152,6 +1162,19 @@ function hasFreeAgentForRole(freeAgents, role) {
   });
 }
 
+function hasCheapFreeAgentForRole(freeAgents, role) {
+  if (!Array.isArray(freeAgents) || !freeAgents.length) return false;
+  return freeAgents.some((player) => {
+    if (!player || (!player.bargainBin && player.type !== 'bargain')) return false;
+    const candidateRole = player.role || player.preferredRole || null;
+    if (!candidateRole) return false;
+    if (role === 'K') {
+      return candidateRole === 'K';
+    }
+    return candidateRole === role;
+  });
+}
+
 function ensureFreeAgentRoleCoverage(league, seasonNumber, roles = null) {
   if (!league) return;
   const pool = league.freeAgents || (league.freeAgents = []);
@@ -1163,6 +1186,12 @@ function ensureFreeAgentRoleCoverage(league, seasonNumber, roles = null) {
     if (!role || hasFreeAgentForRole(pool, role)) return;
     for (let i = 0; i < 3; i += 1) {
       pool.push(buildFreeAgent(role, null, 'balanced', resolvedSeason));
+    }
+  });
+  roleList.forEach((role) => {
+    if (!role || hasCheapFreeAgentForRole(pool, role)) return;
+    for (let i = 0; i < 3; i += 1) {
+      pool.push(buildFreeAgent(role, null, 'balanced', resolvedSeason, { bargain: true }));
     }
   });
 }
@@ -2552,6 +2581,21 @@ function scoutEvaluationForPlayer(league, teamId, role, player, modeOverride) {
   return { scout, evaluation, trueValue: capAwareValue };
 }
 
+function countOpenRosterSpots(league, teamId) {
+  const rosters = ensureTeamRosterShell(league);
+  const roster = rosters?.[teamId];
+  if (!roster) return 0;
+  let count = 0;
+  ROLES_OFF.forEach((role) => {
+    if (!roster.offense?.[role]) count += 1;
+  });
+  ROLES_DEF.forEach((role) => {
+    if (!roster.defense?.[role]) count += 1;
+  });
+  if (!roster.special?.K) count += 1;
+  return count;
+}
+
 export function signBestFreeAgentForRole(league, teamId, role, {
   reason = 'depth move',
   mode,
@@ -2587,17 +2631,9 @@ export function signBestFreeAgentForRole(league, teamId, role, {
   }
   const strategy = mode || teamStrategyFromRecord(league?.seasonSnapshot?.teams?.[teamId]);
   const coach = getTeamCoach(league, teamId);
+  const scout = league.teamScouts?.[teamId] || null;
+  const gm = league.teamGms?.[teamId] || null;
   const teamMood = league.teamMoods?.[teamId] || null;
-  let best = null;
-  candidates.forEach(({ player, index }) => {
-    const assessment = scoutEvaluationForPlayer(league, teamId, role, player, strategy);
-    const temperamentBonus = temperamentScoutAdjustment(player, { coach, teamMood });
-    const score = assessment.evaluation + temperamentBonus;
-    if (!best || score > best.score) {
-      best = { ...assessment, index, player, score };
-    }
-  });
-  if (!best) return null;
   const roster = ensureTeamRosterShell(league)[teamId];
   if (!roster) return null;
   const groupRoles = roleGroupFor(role);
@@ -2628,43 +2664,159 @@ export function signBestFreeAgentForRole(league, teamId, role, {
   }
   const current = pickRoleOccupant(targetRole);
   const incumbentValue = current ? evaluatePlayerTrueValue(current, strategy) : null;
-  if (current && best.trueValue < (incumbentValue ?? 0) + minImprovement) {
-    return null;
+  const openSlotsBefore = countOpenRosterSpots(league, teamId);
+  const remainingAfter = temporaryContract ? openSlotsBefore : (current ? openSlotsBefore : Math.max(0, openSlotsBefore - 1));
+  const capReservation = temporaryContract ? 0 : remainingAfter * MIN_CONTRACT_SALARY;
+  const capSpace = getCapSpace(league, teamId) + (current?.contract?.salary ?? 0);
+  const availableBudget = temporaryContract ? capSpace : Math.max(0, capSpace - capReservation);
+  const capDiscipline = clamp(((coach?.capFocus ?? 0.4) * 0.6) + ((scout?.capFocus ?? 0.4) * 0.4), 0, 1);
+  const capCeiling = Math.max(MIN_CONTRACT_SALARY, capSpace || 0);
+
+  const candidateEvaluations = candidates.map(({ player, index }) => {
+    const assessment = scoutEvaluationForPlayer(league, teamId, targetRole, player, strategy);
+    const temperamentBonus = temperamentScoutAdjustment(player, { coach, teamMood });
+    const expectedCost = (player?.bargainBin || player?.type === 'bargain')
+      ? MIN_CONTRACT_SALARY
+      : computeBaseSalary(player, league);
+    const baseScore = assessment.evaluation + temperamentBonus;
+    const budgetPressure = availableBudget > 0
+      ? Math.max(0, expectedCost - availableBudget) / 1_000_000
+      : expectedCost / 1_000_000;
+    const proportionalPenalty = (expectedCost / capCeiling) * (0.4 + capDiscipline * 0.6);
+    const score = baseScore - budgetPressure * (2.4 + capDiscipline * 4) - proportionalPenalty;
+    return {
+      ...assessment,
+      index,
+      player,
+      score,
+      expectedCost,
+      temperamentBonus,
+    };
+  });
+  if (!candidateEvaluations.length) return null;
+  const cheapestOption = candidateEvaluations.reduce((best, entry) => {
+    if (!best || entry.expectedCost < best.expectedCost) return entry;
+    return best;
+  }, null);
+  const rankedCandidates = [...candidateEvaluations].sort((a, b) => b.score - a.score);
+
+  const seasonNumber = league.seasonNumber || 1;
+  let negotiation = null;
+  let chosenEval = null;
+  let moveConsumed = false;
+  const ensureMoveAvailable = () => {
+    if (!context || moveConsumed) return true;
+    if (!consumeOffseasonMove(context, teamId)) return false;
+    moveConsumed = true;
+    return true;
+  };
+
+  for (const entry of rankedCandidates) {
+    if (current && entry.trueValue < (incumbentValue ?? 0) + minImprovement) continue;
+    const candidate = league.freeAgents[entry.index];
+    if (!candidate) continue;
+    const teamNeedScore = computeTeamNeedScore(incumbentValue, entry.trueValue);
+    if (temporaryContract) {
+      const games = Math.max(1, Math.round(temporaryContract.games || 1));
+      const salary = Math.max(MIN_CONTRACT_SALARY, Math.round(temporaryContract.salary || MIN_CONTRACT_SALARY));
+      const contract = finalizeContract({
+        teamId,
+        salary,
+        years: 1,
+        startSeason: seasonNumber,
+        basis: temporaryContract.basis || 'injury-temporary',
+      });
+      contract.temporary = true;
+      contract.temporaryGames = games;
+      contract.temporaryForPlayerId = temporaryContract.forPlayerId || null;
+      contract.capHit = 0;
+      negotiation = { contract, preference: 1, capSpace: null };
+    } else {
+      negotiation = negotiateContractForTeam(league, teamId, candidate, {
+        teamNeedScore: Math.max(teamNeedScore, current ? 0 : 1),
+        seasonNumber,
+        basis: reason || 'need-signing',
+        replacingSalary: current?.contract?.salary ?? 0,
+        capReservation,
+      });
+    }
+    if (negotiation) {
+      chosenEval = entry;
+      break;
+    }
   }
-  if (context && !consumeOffseasonMove(context, teamId)) {
-    return null;
-  }
-  const candidate = league.freeAgents[best.index];
-  const teamNeedScore = computeTeamNeedScore(incumbentValue, best.trueValue);
-  let negotiation;
-  if (temporaryContract) {
-    const games = Math.max(1, Math.round(temporaryContract.games || 1));
-    const salary = Math.max(MIN_CONTRACT_SALARY, Math.round(temporaryContract.salary || MIN_CONTRACT_SALARY));
-    const contract = finalizeContract({
-      teamId,
-      salary,
-      years: 1,
-      startSeason: league.seasonNumber || 1,
-      basis: temporaryContract.basis || 'injury-temporary',
-    });
-    contract.temporary = true;
-    contract.temporaryGames = games;
-    contract.temporaryForPlayerId = temporaryContract.forPlayerId || null;
-    contract.capHit = 0;
-    negotiation = { contract, preference: 1, capSpace: null };
-  } else {
-    negotiation = negotiateContractForTeam(league, teamId, candidate, {
-      teamNeedScore: Math.max(teamNeedScore, current ? 0 : 1),
-      seasonNumber: league.seasonNumber || 1,
-      basis: reason || 'need-signing',
-      replacingSalary: current?.contract?.salary ?? 0,
-    });
-  }
+
   if (!negotiation) {
-    if (context) refundOffseasonMove(context, teamId);
+    if (!temporaryContract && !current) {
+      const capSpaceNow = getCapSpace(league, teamId);
+      const openSlotsNow = countOpenRosterSpots(league, teamId);
+      if (openSlotsNow > 0 && capSpaceNow < MIN_CONTRACT_SALARY && cheapestOption) {
+        if (!ensureMoveAvailable()) {
+          if (context && moveConsumed) refundOffseasonMove(context, teamId);
+          return null;
+        }
+        const forcedIndex = league.freeAgents.findIndex((entry) => entry?.id === cheapestOption.player.id);
+        const removalIndex = forcedIndex >= 0 ? forcedIndex : cheapestOption.index;
+        const [chosen] = removalIndex >= 0 ? league.freeAgents.splice(removalIndex, 1) : [cheapestOption.player];
+        const forcedContract = finalizeContract({
+          teamId,
+          salary: MIN_CONTRACT_SALARY,
+          years: 1,
+          startSeason: seasonNumber,
+          basis: 'cap-emergency',
+        });
+        const assigned = { ...chosen, role: targetRole, origin: 'free-agent' };
+        assigned.loyalty = clamp((assigned.loyalty ?? 0.5) * 0.5 + rand(0.18, 0.32), 0.08, 0.9);
+        assigned.contract = forcedContract;
+        applyContractToPlayer(assigned, assigned.contract);
+        assignPlayerToRoster(league, teamId, targetRole, assigned);
+        if (gm) {
+          gm.frustration = clamp((gm.frustration || 0) + 0.55, 0, 4);
+          gm.capSituation = { ...(gm.capSituation || {}), forcedOverage: true };
+        }
+        const newsContext = {};
+        if (context?.dayNumber != null) newsContext.dayNumber = context.dayNumber;
+        if (context?.totalDays != null) newsContext.totalDays = context.totalDays;
+        if (context?.inaugural != null) newsContext.inaugural = context.inaugural;
+        if (Object.keys(newsContext).length && newsContext.phase == null) {
+          newsContext.phase = 'offseason';
+        }
+        const suppressAi = !!context?.suppressAiForAcquisitions;
+        recordNewsInternal(league, {
+          type: 'signing',
+          teamId,
+          text: `${getTeamIdentity(teamId)?.abbr || teamId} sign ${assigned.firstName} ${assigned.lastName} (${targetRole})`,
+          detail: 'Emergency roster fill despite cap crunch',
+          seasonNumber: league.seasonNumber || null,
+          playerId: assigned.id,
+          playerName: `${assigned.firstName} ${assigned.lastName}`.trim(),
+          role: targetRole,
+          contractSummary: summarizeContractForNews(assigned.contract),
+          ...(Object.keys(newsContext).length ? { context: newsContext } : {}),
+          ...(suppressAi ? {
+            aiSuppressed: true,
+            aiSuppressReason: context?.aiSuppressReason || 'inaugural-offseason',
+          } : {}),
+        });
+        if (context?.events) {
+          const identity = getTeamIdentity(teamId)?.abbr || teamId;
+          context.events.push(`${identity} exceed the cap to add ${assigned.firstName} ${assigned.lastName} (${targetRole}). GM fumes.`);
+        }
+        ensureFreeAgentRoleCoverage(league, league.seasonNumber || 1, targetRole);
+        refreshTeamMood(league, teamId);
+        return assigned;
+      }
+    }
+    if (context && moveConsumed) refundOffseasonMove(context, teamId);
     return null;
   }
-  const [chosen] = league.freeAgents.splice(best.index, 1);
+
+  if (!ensureMoveAvailable()) {
+    if (context && moveConsumed) refundOffseasonMove(context, teamId);
+    return null;
+  }
+
+  const [chosen] = league.freeAgents.splice(chosenEval.index, 1);
   const assigned = { ...chosen, role: targetRole, origin: 'free-agent' };
   assigned.loyalty = clamp((assigned.loyalty ?? 0.5) * 0.6 + rand(0.22, 0.4), 0.12, 0.96);
   assigned.contract = negotiation.contract;
@@ -3627,13 +3779,18 @@ function computeContractDemand(league, teamId, player, { teamNeedScore = 0, pres
   const temperament = ensurePlayerTemperament(player);
   const mood = temperament?.mood ?? 0;
   const role = player.role || player.preferredRole || 'WR1';
+  const bargain = !!(player?.bargainBin || player?.type === 'bargain');
   let overall = Number.isFinite(player.overall) ? player.overall : null;
   if (!Number.isFinite(overall)) {
     const ratingSource = player.ratings || player.attrs || null;
     if (ratingSource) overall = computeOverallFromRatings(ratingSource, role);
   }
   if (!Number.isFinite(overall)) overall = 65;
-  let ask = baseSalary;
+  let adjustedBase = baseSalary;
+  if (bargain) {
+    adjustedBase = Math.max(MIN_CONTRACT_SALARY, baseSalary * 0.35);
+  }
+  let ask = adjustedBase;
   if (overall >= 88) ask *= 1.28;
   else if (overall >= 82) ask *= 1.18;
   else if (overall >= 76) ask *= 1.1;
@@ -3646,11 +3803,17 @@ function computeContractDemand(league, teamId, player, { teamNeedScore = 0, pres
   }
   ask *= 1 + Math.max(0, -mood) * 0.12;
   const preferredYears = determinePreferredContractLength(resolvePlayerAge(league, player), player);
-  let floor = baseSalary * (0.74 + loyalty * 0.18);
+  let floor = adjustedBase * (0.74 + loyalty * 0.18);
   floor *= 1 - Math.min(0.12, prestige * 0.08);
   floor *= 1 - Math.min(0.08, teamNeedScore * 0.05);
   floor = Math.max(MIN_CONTRACT_SALARY, Math.min(floor, ask * 0.95));
-  return { baseSalary, ask, floor, preferredYears, loyalty, mood };
+  let normalizedYears = preferredYears;
+  if (bargain) {
+    ask = Math.max(MIN_CONTRACT_SALARY, Math.min(ask, adjustedBase * 0.85));
+    floor = MIN_CONTRACT_SALARY;
+    normalizedYears = Math.max(1, Math.min(2, preferredYears));
+  }
+  return { baseSalary, ask, floor, preferredYears: normalizedYears, loyalty, mood };
 }
 
 function negotiateContractForTeam(league, teamId, player, {
@@ -3659,6 +3822,7 @@ function negotiateContractForTeam(league, teamId, player, {
   basis = 'free-agent',
   multiOfferBonus = 0,
   replacingSalary = 0,
+  capReservation = 0,
 } = {}) {
   ensureSalaryStructures(league);
   if (!teamId || !player) return null;
@@ -3666,11 +3830,13 @@ function negotiateContractForTeam(league, teamId, player, {
   const outgoingRelief = Math.max(0, replacingSalary);
   const payroll = Math.max(0, recalculateTeamPayroll(league, teamId) - outgoingRelief);
   const capSpace = Math.max(0, cap - payroll);
-  if (capSpace < MIN_CONTRACT_SALARY) return null;
+  const reserved = Math.max(0, capReservation);
+  const effectiveCapSpace = Math.max(0, capSpace - reserved);
+  if (effectiveCapSpace < MIN_CONTRACT_SALARY) return null;
   const prestige = computeTeamPrestige(league, teamId);
   const returning = player.currentTeamId === teamId || player.originalTeamId === teamId;
   const demand = computeContractDemand(league, teamId, player, { teamNeedScore, prestige, returning });
-  const maxAnnual = Math.min(capSpace, cap * Math.min(0.35, 0.18 + Math.min(teamNeedScore, 1) * 0.22));
+  const maxAnnual = Math.min(effectiveCapSpace, cap * Math.min(0.35, 0.18 + Math.min(teamNeedScore, 1) * 0.22));
   if (maxAnnual < demand.floor - 1) return null;
   let target = demand.ask;
   const negotiationTilt = 0.35 + prestige * 0.18 + demand.loyalty * 0.22 + Math.min(teamNeedScore, 1) * 0.15;
