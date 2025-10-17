@@ -1,6 +1,12 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Modal from './Modal';
 import { generatePressArticle } from '../utils/newsContent';
+import {
+  loadPressWeek,
+  prunePressWeeks,
+  savePressWeek,
+  listStoredWeeks,
+} from '../utils/pressArchive';
 
 function buildAngles(seasonProgress = {}, coverageWeek = null) {
   const upcomingWeek = seasonProgress.currentWeek || 1;
@@ -81,36 +87,8 @@ function formatWeekLabel(weekKey) {
   return `Season ${seasonNumber} • Week ${weekNumber}`;
 }
 
-const PRESS_STORAGE_PREFIX = 'bb_press_articles::season-';
-
-function getPressStorageKey(seasonNumber) {
-  if (!seasonNumber) return null;
-  return `${PRESS_STORAGE_PREFIX}${seasonNumber}`;
-}
-
-function loadStoredArticles(storageKey) {
-  if (!storageKey) return {};
-  if (typeof window === 'undefined' || !window?.localStorage) return {};
-  try {
-    const raw = window.localStorage.getItem(storageKey);
-    if (!raw) return {};
-    const parsed = JSON.parse(raw);
-    if (!parsed || typeof parsed !== 'object') return {};
-    return parsed;
-  } catch (err) {
-    return {};
-  }
-}
-
-function persistStoredArticles(storageKey, data) {
-  if (!storageKey) return;
-  if (typeof window === 'undefined' || !window?.localStorage) return;
-  try {
-    window.localStorage.setItem(storageKey, JSON.stringify(data || {}));
-  } catch (err) {
-    // ignore persistence errors (e.g., storage unavailable)
-  }
-}
+const MAX_IN_MEMORY_WEEKS = 3;
+const MAX_STORED_WEEKS = 12;
 
 export default function PressArticlesModal({
   open,
@@ -122,40 +100,89 @@ export default function PressArticlesModal({
 }) {
   const [selectedArticleKey, setSelectedArticleKey] = useState(null);
   const [articlesByWeek, setArticlesByWeek] = useState({});
-  const cacheRef = useRef({});
+  const [archivedWeeks, setArchivedWeeks] = useState([]);
+  const cacheRef = useRef(new Map());
+  const orderRef = useRef([]);
   const inflightRef = useRef(new Set());
-  const loadedStorageKeyRef = useRef(null);
+  const loadedSeasonRef = useRef(null);
 
   const angles = useMemo(() => buildAngles(seasonProgress, pressCoverageWeek), [seasonProgress, pressCoverageWeek]);
   const seasonNumber = season?.seasonNumber || league?.seasonNumber || 1;
-  const storageKey = useMemo(() => getPressStorageKey(seasonNumber), [seasonNumber]);
   const weekKey = useMemo(() => {
     if (!pressCoverageWeek) return null;
     return `S${seasonNumber}-W${pressCoverageWeek}`;
   }, [seasonNumber, pressCoverageWeek]);
 
-  const persistCache = useCallback(() => {
-    persistStoredArticles(storageKey, cacheRef.current);
-  }, [storageKey]);
+  const syncCacheToState = useCallback(() => {
+    setArticlesByWeek(Object.fromEntries(cacheRef.current.entries()));
+  }, []);
+
+  const touchWeekCache = useCallback((key, payload) => {
+    if (!key) return;
+    const map = cacheRef.current;
+    const safePayload = payload && typeof payload === 'object' ? payload : {};
+    map.set(key, safePayload);
+    orderRef.current = orderRef.current.filter((entry) => entry !== key);
+    orderRef.current.push(key);
+    while (orderRef.current.length > MAX_IN_MEMORY_WEEKS) {
+      const oldest = orderRef.current.shift();
+      if (oldest && oldest !== key) {
+        map.delete(oldest);
+      }
+    }
+    syncCacheToState();
+  }, [syncCacheToState]);
+
+  const markWeekSeen = useCallback((key) => {
+    if (!key) return;
+    setArchivedWeeks((prev) => {
+      if (prev.includes(key)) return prev;
+      return [...prev, key];
+    });
+  }, []);
+
+  const persistWeek = useCallback(async (key) => {
+    if (!seasonNumber || !key) return;
+    const payload = cacheRef.current.get(key) || {};
+    await savePressWeek({ seasonNumber, weekKey: key, data: payload });
+    const keepKeys = orderRef.current.slice();
+    await prunePressWeeks({ seasonNumber, keepKeys, maxStoredWeeks: MAX_STORED_WEEKS });
+  }, [seasonNumber]);
 
   useEffect(() => {
-    if (!storageKey) {
-      cacheRef.current = {};
+    if (!seasonNumber) {
+      cacheRef.current = new Map();
+      orderRef.current = [];
       setArticlesByWeek({});
-      loadedStorageKeyRef.current = null;
+      loadedSeasonRef.current = null;
+      setArchivedWeeks([]);
       return;
     }
+    if (loadedSeasonRef.current === seasonNumber) return;
+    cacheRef.current = new Map();
+    orderRef.current = [];
+    setArticlesByWeek({});
+    loadedSeasonRef.current = seasonNumber;
+    setArchivedWeeks([]);
+  }, [seasonNumber]);
 
-    if (loadedStorageKeyRef.current === storageKey) {
-      setArticlesByWeek({ ...cacheRef.current });
-      return;
-    }
-
-    const stored = loadStoredArticles(storageKey);
-    cacheRef.current = stored && typeof stored === 'object' ? stored : {};
-    loadedStorageKeyRef.current = storageKey;
-    setArticlesByWeek({ ...cacheRef.current });
-  }, [storageKey]);
+  useEffect(() => {
+    if (!seasonNumber) return;
+    let cancelled = false;
+    (async () => {
+      const weeks = await listStoredWeeks(seasonNumber);
+      if (cancelled) return;
+      if (Array.isArray(weeks)) {
+        setArchivedWeeks((prev) => {
+          const merged = new Set([...prev, ...weeks]);
+          return Array.from(merged);
+        });
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [seasonNumber]);
 
   useEffect(() => {
     if (!open) {
@@ -164,9 +191,32 @@ export default function PressArticlesModal({
     }
     if (!league || !season) return;
     if (!weekKey) return;
-    const existingCache = cacheRef.current[weekKey] || {};
-    cacheRef.current[weekKey] = existingCache;
-    setArticlesByWeek({ ...cacheRef.current });
+    let cancelled = false;
+
+    (async () => {
+      if (cacheRef.current.has(weekKey)) {
+        touchWeekCache(weekKey, cacheRef.current.get(weekKey));
+        return;
+      }
+      const stored = await loadPressWeek({ seasonNumber, weekKey });
+      if (cancelled) return;
+      touchWeekCache(weekKey, stored);
+      markWeekSeen(weekKey);
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [open, league, season, weekKey, seasonNumber, touchWeekCache, markWeekSeen]);
+
+  useEffect(() => {
+    if (!open) return;
+    if (!league || !season) return;
+    if (!weekKey) return;
+    const existingCache = cacheRef.current.get(weekKey) || {};
+    cacheRef.current.set(weekKey, existingCache);
+    syncCacheToState();
+    markWeekSeen(weekKey);
 
     angles.forEach((angle) => {
       const cached = existingCache[angle.id];
@@ -174,7 +224,7 @@ export default function PressArticlesModal({
       if (inflightRef.current.has(angle.id)) return;
       inflightRef.current.add(angle.id);
       generatePressArticle({ league, season, seasonProgress, coverageWeek: pressCoverageWeek, angle })
-        .then((result) => {
+        .then(async (result) => {
           if (!result) return;
           const payload = {
             ...result,
@@ -182,34 +232,43 @@ export default function PressArticlesModal({
             angle,
             weekKey,
           };
-          cacheRef.current[weekKey] = {
-            ...(cacheRef.current[weekKey] || {}),
+          const nextWeekData = {
+            ...(cacheRef.current.get(weekKey) || {}),
             [angle.id]: payload,
           };
-          persistCache();
-          setArticlesByWeek((prev) => ({
-            ...prev,
-            [weekKey]: {
-              ...(prev[weekKey] || {}),
-              [angle.id]: payload,
-            },
-          }));
+          touchWeekCache(weekKey, nextWeekData);
+          markWeekSeen(weekKey);
+          await persistWeek(weekKey);
         })
         .finally(() => {
           inflightRef.current.delete(angle.id);
         });
     });
-  }, [open, league, season, seasonProgress, angles, weekKey, pressCoverageWeek]);
+  }, [
+    open,
+    league,
+    season,
+    seasonProgress,
+    angles,
+    weekKey,
+    pressCoverageWeek,
+    touchWeekCache,
+    persistWeek,
+    syncCacheToState,
+    markWeekSeen,
+  ]);
 
   const sections = useMemo(() => {
     const sectionMap = new Map();
     const knownWeekKeys = new Set([
+      ...(archivedWeeks || []),
       ...Object.keys(articlesByWeek || {}),
       weekKey,
     ].filter(Boolean));
 
     knownWeekKeys.forEach((key) => {
       const stored = articlesByWeek[key] || {};
+      const isLoaded = stored && Object.keys(stored).length > 0;
       if (key === weekKey) {
         const entries = angles.map((angle) => {
           const data = stored[angle.id] || null;
@@ -224,7 +283,7 @@ export default function PressArticlesModal({
         });
         const readyEntries = entries.filter((entry) => entry.ready);
         const hasPending = entries.some((entry) => entry.generating || (entry.data && !entry.data.article));
-        sectionMap.set(key, { entries: readyEntries, hasPending });
+        sectionMap.set(key, { entries: readyEntries, hasPending, archived: false });
       } else {
         const entries = Object.values(stored).map((item) => ({
           weekKey: key,
@@ -234,7 +293,7 @@ export default function PressArticlesModal({
         }));
         const readyEntries = entries.filter((entry) => entry.data?.article);
         const hasPending = readyEntries.length !== entries.length;
-        sectionMap.set(key, { entries: readyEntries, hasPending });
+        sectionMap.set(key, { entries: readyEntries, hasPending, archived: !isLoaded });
       }
     });
 
@@ -256,7 +315,7 @@ export default function PressArticlesModal({
         hasPending: sectionData.hasPending || false,
       };
     });
-  }, [angles, articlesByWeek, weekKey]);
+  }, [angles, articlesByWeek, weekKey, archivedWeeks]);
 
   const flatEntries = useMemo(() => sections.flatMap((section) => section.entries), [sections]);
 
@@ -272,6 +331,22 @@ export default function PressArticlesModal({
   const handleCloseArticle = useCallback(() => {
     setSelectedArticleKey(null);
   }, []);
+
+  const handleLoadArchived = useCallback((week) => {
+    if (!seasonNumber || !week) return;
+    const inflightKey = `load:${week}`;
+    if (inflightRef.current.has(inflightKey)) return;
+    inflightRef.current.add(inflightKey);
+    loadPressWeek({ seasonNumber, weekKey: week })
+      .then((data) => {
+        if (!data || typeof data !== 'object') return;
+        touchWeekCache(week, data);
+        markWeekSeen(week);
+      })
+      .finally(() => {
+        inflightRef.current.delete(inflightKey);
+      });
+  }, [seasonNumber, touchWeekCache, markWeekSeen]);
 
   return (
     <>
@@ -302,11 +377,33 @@ export default function PressArticlesModal({
                   {section.label}
                 </div>
                 {section.entries.length === 0 ? (
-                  <div style={{ fontSize: 12, color: 'rgba(205,232,205,0.65)' }}>
-                    {section.hasPending
-                      ? 'Articles are being drafted for this week.'
-                      : 'No articles available for this week yet.'}
-                  </div>
+                  section.archived ? (
+                    <button
+                      type="button"
+                      onClick={() => handleLoadArchived(section.weekKey)}
+                      style={{
+                        border: '1px solid rgba(32,112,32,0.45)',
+                        borderRadius: 999,
+                        background: 'rgba(6,36,6,0.9)',
+                        color: '#e5ffe5',
+                        padding: '8px 16px',
+                        fontSize: 12,
+                        fontWeight: 600,
+                        cursor: 'pointer',
+                        alignSelf: 'flex-start',
+                      }}
+                    >
+                      {inflightRef.current.has(`load:${section.weekKey}`)
+                        ? 'Restoring archived coverage…'
+                        : 'Load archived coverage'}
+                    </button>
+                  ) : (
+                    <div style={{ fontSize: 12, color: 'rgba(205,232,205,0.65)' }}>
+                      {section.hasPending
+                        ? 'Articles are being drafted for this week.'
+                        : 'No articles available for this week yet.'}
+                    </div>
+                  )
                 ) : (
                   section.entries.map(({ weekKey: entryWeek, angle, data, generating }) => (
                     <button
