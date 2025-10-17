@@ -619,17 +619,30 @@ export function disperseFranchiseRostersToFreeAgency(league) {
   if (!league) return;
   if (league.initialRosterDispersalComplete) return;
   const rosters = ensureTeamRosterShell(league);
-  const hasExistingPlayers = Object.values(rosters || {}).some((roster) => {
-    if (!roster) return false;
-    const offCount = Object.keys(roster.offense || {}).length;
-    const defCount = Object.keys(roster.defense || {}).length;
-    const hasKicker = roster.special?.K != null;
-    return offCount + defCount + (hasKicker ? 1 : 0) > 0;
+  const teamsWithRosteredPlayers = [];
+  Object.entries(rosters || {}).forEach(([teamId, roster]) => {
+    if (!roster) return;
+    const hasOffense = Object.keys(roster.offense || {}).length > 0;
+    const hasDefense = Object.keys(roster.defense || {}).length > 0;
+    const hasKicker = !!roster.special?.K;
+    if (hasOffense || hasDefense || hasKicker) {
+      teamsWithRosteredPlayers.push(teamId);
+      const rosterEntries = gatherRosterPlayers(roster);
+      rosterEntries.forEach(({ player }) => {
+        if (!player?.id || !league.playerDirectory?.[player.id]) return;
+        const identity = getTeamIdentity(teamId);
+        league.playerDirectory[player.id] = {
+          ...league.playerDirectory[player.id],
+          teamId: null,
+          team: null,
+          teamName: null,
+          teamAbbr: null,
+          originTeamId: league.playerDirectory[player.id].originTeamId || teamId,
+          originTeamAbbr: league.playerDirectory[player.id].originTeamAbbr || identity?.abbr || teamId,
+        };
+      });
+    }
   });
-  if (hasExistingPlayers) {
-    league.initialRosterDispersalComplete = true;
-    return;
-  }
   league.freeAgents ||= [];
   const existingIds = new Set(league.freeAgents.map((player) => player?.id).filter(Boolean));
   TEAM_IDS.forEach((teamId) => {
@@ -689,6 +702,13 @@ export function disperseFranchiseRostersToFreeAgency(league) {
       }
     }
   });
+  if (teamsWithRosteredPlayers.length) {
+    teamsWithRosteredPlayers.forEach((teamId) => {
+      rosters[teamId] = { offense: {}, defense: {}, special: {} };
+      recalculateTeamPayroll(league, teamId);
+    });
+    bumpTeamRostersVersion(league);
+  }
   league.initialRosterDispersalComplete = true;
 }
 
