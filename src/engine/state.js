@@ -1400,6 +1400,32 @@ function otherTeam(team) {
     return team === TEAM_RED ? TEAM_BLK : TEAM_RED;
 }
 
+function resolveTeamLabel(s, slot) {
+    if (!slot) return slot;
+    const matchup = s?.matchup || s?.lastCompletedGame?.matchup || null;
+    const identities = matchup?.identities || {};
+    const identity = identities?.[slot] || null;
+    if (identity) {
+        const abbr = identity.abbr || identity.shortName;
+        if (abbr && abbr.trim()) return abbr;
+        if (identity.displayName) return identity.displayName;
+        if (identity.name) return identity.name;
+    }
+    const slotToTeam = matchup?.slotToTeam || {};
+    const teamId = slotToTeam?.[slot];
+    if (teamId) {
+        const seasonInfo = s?.season?.teams?.[teamId]?.info || null;
+        if (seasonInfo) {
+            const abbr = seasonInfo.abbr || seasonInfo.shortName;
+            if (abbr && abbr.trim()) return abbr;
+            if (seasonInfo.displayName) return seasonInfo.displayName;
+            if (seasonInfo.name) return seasonInfo.name;
+        }
+        return teamId;
+    }
+    return slot;
+}
+
 function createClock(coaches = null) {
     const plan = coachClockPlan(coaches || {});
     const settings = {
@@ -1597,6 +1623,7 @@ function maybeAssessPenalty(s, ctx) {
     if (!chosen) return null;
 
     const flaggedTeam = chosen.team === 'OFF' ? offense : defense;
+    const flaggedLabel = resolveTeamLabel(s, flaggedTeam);
     const direction = chosen.team === 'OFF' ? -1 : 1;
     const appliedYards = chosen.yards * direction;
     const newLos = clamp(ctx.startLos + appliedYards, 1, 99);
@@ -1624,7 +1651,7 @@ function maybeAssessPenalty(s, ctx) {
     s.roster = rosterForPossession(s.teams, s.possession);
     s.roster.__ownerState = s;
 
-    const text = `${flaggedTeam} penalty: ${chosen.name} (${chosen.yards} yards)`;
+    const text = `${flaggedLabel} penalty: ${chosen.name} (${chosen.yards} yards)`;
     s.play.resultText = text;
     recordPlayEvent(s, { type: 'penalty', team: flaggedTeam, yards: chosen.yards, name: chosen.name });
 

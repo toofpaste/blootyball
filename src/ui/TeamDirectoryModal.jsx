@@ -79,6 +79,43 @@ function formatCurrency(value) {
   return `${sign}$${Math.round(absolute)}`;
 }
 
+function formatContractSummary(player) {
+  if (!player?.contract) return 'Contract: —';
+  const contract = player.contract;
+  const salary = Number.isFinite(contract.salary)
+    ? contract.salary
+    : Number.isFinite(contract.capHit)
+      ? contract.capHit
+      : null;
+  const yearsRemaining = Number.isFinite(contract.yearsRemaining)
+    ? contract.yearsRemaining
+    : Number.isFinite(contract.years)
+      ? contract.years
+      : null;
+  const parts = [];
+  if (Number.isFinite(salary)) {
+    parts.push(`${formatCurrency(salary)} / yr`);
+  }
+  if (Number.isFinite(yearsRemaining)) {
+    parts.push(`${yearsRemaining} yr${yearsRemaining === 1 ? '' : 's'} left`);
+  }
+  if (contract.temporary) {
+    const games = Number.isFinite(contract.gamesRemaining)
+      ? contract.gamesRemaining
+      : Number.isFinite(contract.games)
+        ? contract.games
+        : Number.isFinite(contract.temporaryContractGames)
+          ? contract.temporaryContractGames
+          : null;
+    const tempLabel = games
+      ? `temporary • ${games} game${games === 1 ? '' : 's'}`
+      : 'temporary';
+    parts.push(tempLabel);
+  }
+  const summary = parts.length ? parts.join(' • ') : '—';
+  return `Contract: ${summary}`;
+}
+
 function RosterSection({ title, players, onPlayerSelect }) {
   return (
     <div
@@ -166,6 +203,9 @@ function RosterSection({ title, players, onPlayerSelect }) {
                         </span>
                         <span style={{ fontSize: 11, color: '#9bd79b' }}>
                           {player.number != null ? `#${player.number}` : '—'}
+                        </span>
+                        <span style={{ fontSize: 11, color: '#b8f0b8' }}>
+                          {formatContractSummary(player)}
                         </span>
                         {player.onInjuredReserve && (player.injury?.description || player.injury?.gamesRemaining != null) ? (
                           <span style={{ fontSize: 11, color: '#ff9f9f' }}>
@@ -456,7 +496,12 @@ function GMCardModal({ open, onClose, gm, team }) {
 }
 
 export default function TeamDirectoryModal({ open, onClose, season, league = null }) {
-  const teams = useMemo(() => buildTeamDirectoryData(season, league), [season, league]);
+  const rosterVersion = league?.teamRostersVersion ?? 0;
+  const capPenaltyVersion = league?.capPenaltiesVersion ?? 0;
+  const teams = useMemo(
+    () => buildTeamDirectoryData(season, league),
+    [season, league, rosterVersion, capPenaltyVersion],
+  );
   const [selectedTeamId, setSelectedTeamId] = useState(null);
   const [coachFocus, setCoachFocus] = useState(null);
   const [scoutFocus, setScoutFocus] = useState(null);
@@ -510,6 +555,7 @@ export default function TeamDirectoryModal({ open, onClose, season, league = nul
   const salaryCap = selectedTeam?.salaryCap ?? league?.salaryCap ?? 100000000;
   const payroll = selectedTeam?.payroll ?? 0;
   const capSpace = selectedTeam?.capSpace != null ? selectedTeam.capSpace : (salaryCap - payroll);
+  const deadCap = selectedTeam?.deadCap ?? 0;
 
   const handlePlayerSelect = (player) => {
     if (!player || !selectedTeam) return;
@@ -609,6 +655,10 @@ export default function TeamDirectoryModal({ open, onClose, season, league = nul
                 <div style={{ fontSize: 12, color: '#b6f0b6', marginTop: 4 }}>
                   Payroll: {formatCurrency(payroll)} / {formatCurrency(salaryCap)} • Cap Space:{' '}
                   <span style={{ color: capSpace < 0 ? '#ffb6b6' : '#b6f0b6' }}>{formatCurrency(capSpace)}</span>
+                </div>
+                <div style={{ fontSize: 12, color: '#b6f0b6', marginTop: 4 }}>
+                  Dead Cap (released players):{' '}
+                  <span style={{ color: deadCap > 0 ? '#ffdca3' : '#b6f0b6' }}>{formatCurrency(deadCap)}</span>
                 </div>
                 <div style={{ fontSize: 12, color: '#9bd79b', marginTop: 4 }}>
                   BluperBowl Titles: {selectedTeam.titles || 0}
