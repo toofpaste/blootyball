@@ -3567,6 +3567,10 @@ export function ensureTeamRosterComplete(league, teamId, {
   if (!league || !teamId) return false;
   ensureSeasonPersonnel(league, league.seasonNumber || 1);
   const rosters = ensureTeamRosterShell(league);
+  if (!rosters[teamId]) {
+    rosters[teamId] = { offense: {}, defense: {}, special: {} };
+    bumpTeamRostersVersion(league);
+  }
   const roster = rosters[teamId];
   if (!roster) return false;
   const missing = [];

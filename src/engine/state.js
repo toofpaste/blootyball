@@ -99,7 +99,7 @@ function teamsWithEmptyRosterSpots(league, teamIds = []) {
     const rosters = league.teamRosters || {};
     return teamIds.filter((teamId) => {
         const roster = rosters?.[teamId];
-        if (!roster) return false;
+        if (!roster) return true;
         const offense = roster.offense || {};
         const defense = roster.defense || {};
         const special = roster.special || {};
