@@ -995,7 +995,13 @@ function combineSeasonSnapshots(rawSnapshots) {
 
 function computeSeasonProgress(season) {
   if (!season) {
-    return { label: 'Week 1 of 16', currentWeek: 1, totalWeeks: 16, phase: 'regular' };
+    return {
+      label: 'Week 1 of 16',
+      currentWeek: 1,
+      totalWeeks: 16,
+      phase: 'regular',
+      completedWeeks: 0,
+    };
   }
 
   const schedule = Array.isArray(season.schedule) ? season.schedule : [];
@@ -1036,28 +1042,65 @@ function computeSeasonProgress(season) {
   const bracketStage = season.playoffBracket?.stage || null;
 
   if (phase === 'complete' || bracketStage === 'complete') {
-    return { label: 'Season Complete', currentWeek: totalWeeks, totalWeeks, phase: 'complete' };
+    return {
+      label: 'Season Complete',
+      currentWeek: totalWeeks,
+      totalWeeks,
+      phase: 'complete',
+      completedWeeks: totalWeeks,
+    };
   }
   if (phase === 'championship' || bracketStage === 'championship') {
-    return { label: 'Playoffs • Championship', currentWeek: totalWeeks, totalWeeks, phase: 'championship' };
+    return {
+      label: 'Playoffs • Championship',
+      currentWeek: totalWeeks,
+      totalWeeks,
+      phase: 'championship',
+      completedWeeks: totalWeeks,
+    };
   }
   if (phase === 'playoffs' || bracketStage === 'semifinals') {
-    return { label: 'Playoffs • Semifinals', currentWeek: totalWeeks, totalWeeks, phase: 'playoffs' };
+    return {
+      label: 'Playoffs • Semifinals',
+      currentWeek: totalWeeks,
+      totalWeeks,
+      phase: 'playoffs',
+      completedWeeks: Math.max(0, totalWeeks - 1),
+    };
   }
 
   if (!regularGames.length) {
-    return { label: 'Week 1 of 16', currentWeek: 1, totalWeeks: 16, phase: 'regular' };
+    return {
+      label: 'Week 1 of 16',
+      currentWeek: 1,
+      totalWeeks: 16,
+      phase: 'regular',
+      completedWeeks: 0,
+    };
   }
 
   if (playedRegular >= regularGames.length) {
-    return { label: 'Regular Season Complete', currentWeek: totalWeeks, totalWeeks, phase: 'regular' };
+    return {
+      label: 'Regular Season Complete',
+      currentWeek: totalWeeks,
+      totalWeeks,
+      phase: 'regular',
+      completedWeeks: totalWeeks,
+    };
   }
 
   const completedWeeks = Math.floor(playedRegular / gamesPerWeek);
-  let currentWeek = Math.min(totalWeeks, completedWeeks + 1);
+  const boundedCompletedWeeks = Math.max(0, Math.min(totalWeeks, completedWeeks));
+  let currentWeek = Math.min(totalWeeks, boundedCompletedWeeks + 1);
   if (currentWeek <= 0) currentWeek = 1;
 
-  return { label: `Week ${currentWeek} of ${totalWeeks}`, currentWeek, totalWeeks, phase: 'regular' };
+  return {
+    label: `Week ${currentWeek} of ${totalWeeks}`,
+    currentWeek,
+    totalWeeks,
+    phase: 'regular',
+    completedWeeks: boundedCompletedWeeks,
+  };
 }
 
 export default function App() {
@@ -1276,12 +1319,12 @@ export default function App() {
 
   const pressCoverageWeek = useMemo(() => {
     if (!seasonProgress) return null;
-    const currentWeek = seasonProgress.currentWeek || 1;
+    const completedWeeks = seasonProgress.completedWeeks || 0;
     if (seasonProgress.phase && seasonProgress.phase !== 'regular') {
-      return currentWeek;
+      return completedWeeks || seasonProgress.currentWeek || null;
     }
-    if (currentWeek <= 1) return null;
-    return currentWeek - 1;
+    if (completedWeeks <= 0) return null;
+    return completedWeeks;
   }, [seasonProgress]);
 
   const pressWeekKey = useMemo(() => {

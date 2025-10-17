@@ -97,6 +97,19 @@ function ensureSalaryStructures(league) {
   if (!league.capPenalties) {
     league.capPenalties = {};
   }
+  if (league.capPenaltiesVersion == null) {
+    league.capPenaltiesVersion = 0;
+  }
+}
+
+function bumpTeamRostersVersion(league) {
+  if (!league) return;
+  league.teamRostersVersion = (league.teamRostersVersion || 0) + 1;
+}
+
+function bumpCapPenaltiesVersion(league) {
+  if (!league) return;
+  league.capPenaltiesVersion = (league.capPenaltiesVersion || 0) + 1;
 }
 
 function resolvePlayerAge(league, player) {
@@ -207,8 +220,15 @@ function clearPlayerContract(player) {
 function ensureCapPenaltyLedger(league, teamId) {
   ensureSalaryStructures(league);
   if (!teamId) return [];
-  league.capPenalties[teamId] = (league.capPenalties[teamId] || [])
+  const existing = league.capPenalties[teamId] || [];
+  const filtered = existing
     .filter((entry) => entry && entry.seasonsRemaining > 0 && entry.amount > 0);
+  if (filtered.length !== existing.length) {
+    league.capPenalties[teamId] = filtered;
+    bumpCapPenaltiesVersion(league);
+  } else {
+    league.capPenalties[teamId] = filtered;
+  }
   return league.capPenalties[teamId];
 }
 
@@ -246,6 +266,7 @@ function applyReleaseContractOutcome(league, player, {
     playerId: player.id || null,
     createdAt: Date.now(),
   });
+  bumpCapPenaltiesVersion(league);
   recalculateTeamPayroll(league, releaseTeamId);
 }
 
@@ -549,6 +570,7 @@ function clonePlayerData(data = {}) {
 
 function ensureTeamRosterShell(league) {
   if (!league.teamRosters) league.teamRosters = {};
+  if (league.teamRostersVersion == null) league.teamRostersVersion = 0;
   TEAM_IDS.forEach((teamId) => {
     if (!league.teamRosters[teamId]) {
       const data = getTeamData(teamId) || {};
@@ -565,6 +587,7 @@ function ensureTeamRosterShell(league) {
         special.K = clonePlayerData({ ...data.specialTeams.K, origin: 'franchise' });
       }
       league.teamRosters[teamId] = { offense, defense, special };
+      bumpTeamRostersVersion(league);
     }
   });
   return league.teamRosters;
@@ -2341,6 +2364,7 @@ function assignPlayerToRoster(league, teamId, role, player) {
   else rosters[teamId].special.K = decorated;
   ensurePlayerDirectoryEntry(league, teamId, role, decorated);
   recalculateTeamPayroll(league, teamId);
+  bumpTeamRostersVersion(league);
 }
 
 function removePlayerFromRoster(league, teamId, role) {
@@ -2359,8 +2383,11 @@ function removePlayerFromRoster(league, teamId, role) {
     delete rosters[teamId].special.K;
   }
   if (removed?.id) removeDirectoryEntry(league, removed.id);
-  if (removed) removed.currentTeamId = null;
-  recalculateTeamPayroll(league, teamId);
+  if (removed) {
+    removed.currentTeamId = null;
+    recalculateTeamPayroll(league, teamId);
+    bumpTeamRostersVersion(league);
+  }
   return removed;
 }
 
@@ -3671,9 +3698,10 @@ export function advanceContractsForNewSeason(league) {
     pushPlayerToFreeAgency(league, injuredPlayer, role, 'contract expired');
   });
 
+  let capPenaltiesChanged = false;
   Object.entries(league.capPenalties || {}).forEach(([teamId, entries]) => {
     if (!Array.isArray(entries)) return;
-    league.capPenalties[teamId] = entries
+    const nextEntries = entries
       .map((entry) => {
         if (!entry) return null;
         const remaining = Number.isFinite(entry.seasonsRemaining) ? entry.seasonsRemaining - 1 : 0;
@@ -3681,7 +3709,13 @@ export function advanceContractsForNewSeason(league) {
         return { ...entry, seasonsRemaining: remaining };
       })
       .filter(Boolean);
+    if (entries.length) capPenaltiesChanged = true;
+    if (nextEntries.length !== entries.length) capPenaltiesChanged = true;
+    league.capPenalties[teamId] = nextEntries;
   });
+  if (capPenaltiesChanged) {
+    bumpCapPenaltiesVersion(league);
+  }
 
   Object.keys(league.teamRosters || {}).forEach((teamId) => {
     recalculateTeamPayroll(league, teamId);

@@ -432,12 +432,13 @@ function drawField(ctx, state) {
     const rightNumX = FIELD_PIX_W - 24;
 
     const seq = [10, 20, 30, 40, 50, 40, 30, 20, 10];
-    const numbersColor = blendTeamColors(
-        homeIdentity?.color,
-        awayIdentity?.color,
-        0.5,
-        COLORS.lineWhite,
-    );
+    const activeTag = state?.matchup?.tag || state?.lastCompletedGame?.matchup?.tag || null;
+    const isBluperBowl = activeTag === 'playoff-championship';
+    const homeColor = homeIdentity?.color;
+    const awayColor = awayIdentity?.color;
+    const numbersColor = isBluperBowl
+        ? blendTeamColors(homeColor, awayColor, 0.5, COLORS.lineWhite)
+        : homeColor || COLORS.lineWhite;
     const numberOutline = 'rgba(0,0,0,0.55)';
     for (let i = 0; i < seq.length; i++) {
         const ydsFromTopGL = ENDZONE_YARDS + (i + 1) * 10;
@@ -446,8 +447,7 @@ function drawField(ctx, state) {
         drawNumber(ctx, rightNumX, y + 10, seq[i], 'right', numbersColor, numberOutline);
     }
 
-    const activeTag = state?.matchup?.tag || state?.lastCompletedGame?.matchup?.tag || null;
-    if (activeTag === 'playoff-championship') {
+    if (isBluperBowl) {
         const centerpieceColor = blendTeamColors(
             homeIdentity?.color,
             awayIdentity?.color,
@@ -457,15 +457,18 @@ function drawField(ctx, state) {
         drawBluperBowlCenterpiece(ctx, centerpieceColor);
     }
 
-    const topLabel = awayIdentity?.shortName || homeIdentity?.shortName;
-    const bottomLabel = homeIdentity?.shortName || awayIdentity?.shortName;
-    const topColor = awayIdentity?.color || numbersColor;
-    const bottomColor = homeIdentity?.color || numbersColor;
+    const homeLabel = homeIdentity?.shortName || homeIdentity?.displayName || null;
+    const awayLabel = awayIdentity?.shortName || awayIdentity?.displayName || null;
+    const defaultLabel = homeLabel || awayLabel;
+    const homeEndzoneColor = homeColor || numbersColor;
+    const awayEndzoneColor = isBluperBowl ? (awayColor || numbersColor) : homeEndzoneColor;
+    const topLabel = isBluperBowl ? (awayLabel || defaultLabel) : defaultLabel;
+    const bottomLabel = defaultLabel;
     if (topLabel) {
-        drawEndzoneLabel(ctx, ezPix / 2, topLabel, topColor, true);
+        drawEndzoneLabel(ctx, ezPix / 2, topLabel, awayEndzoneColor, true);
     }
     if (bottomLabel) {
-        drawEndzoneLabel(ctx, FIELD_PIX_H - ezPix / 2, bottomLabel, bottomColor, false);
+        drawEndzoneLabel(ctx, FIELD_PIX_H - ezPix / 2, bottomLabel, homeEndzoneColor, false);
     }
 
     drawGoalPost(ctx, yardsToPixY(ENDZONE_YARDS), -1);

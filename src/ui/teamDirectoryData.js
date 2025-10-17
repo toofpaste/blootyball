@@ -279,6 +279,11 @@ export function buildTeamDirectoryData(season, league) {
     const offenseRating = computeGroupRating(offense);
     const defenseRating = computeGroupRating(defense);
     const payroll = league?.teamPayroll?.[teamId] ?? 0;
+    const deadCap = Array.isArray(league?.capPenalties?.[teamId])
+      ? league.capPenalties[teamId]
+          .filter((entry) => entry && entry.amount > 0 && (entry.seasonsRemaining ?? 1) > 0)
+          .reduce((total, entry) => total + (entry.amount || 0), 0)
+      : 0;
     const capSpace = (team.salaryCap ?? salaryCap) - payroll;
 
     return {
@@ -305,6 +310,7 @@ export function buildTeamDirectoryData(season, league) {
       salaryCap: team.salaryCap ?? salaryCap,
       payroll,
       capSpace,
+      deadCap,
     };
   });
 }
