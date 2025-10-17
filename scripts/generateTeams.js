@@ -12,6 +12,38 @@ const TEAMS = [
   { id: 'NJY', city: 'New Jersey', name: 'Garden State Charge', abbr: 'NJY', colors: { primary: '#2e7d32', secondary: '#c8e6c9' } },
 ];
 
+const TEAM_PROFILES = {
+  SFB: {
+    offense: { throwAcc: 0.08, throwPow: 0.07, catch: 0.05 },
+    defense: { tackle: -0.04, awareness: -0.02 },
+  },
+  LAX: {
+    defense: { awareness: 0.04, tackle: 0.04 },
+  },
+  NYC: {
+    offense: { throwAcc: -0.05, catch: -0.04, speed: -0.05 },
+    defense: { tackle: 0.16, awareness: 0.12, strength: 0.1 },
+  },
+  MIA: {
+    offense: { speed: 0.06, catch: 0.05, throwAcc: 0.06 },
+    defense: { tackle: -0.03, awareness: -0.03 },
+  },
+  TOR: {
+    defense: { awareness: 0.1, agility: 0.06, tackle: 0.08 },
+  },
+  CHI: {
+    offense: { speed: -0.03, catch: -0.03 },
+    defense: { strength: 0.14, tackle: 0.15, awareness: 0.1 },
+  },
+  RNO: {
+    offense: { speed: 0.05, catch: 0.05 },
+    defense: { awareness: -0.03 },
+  },
+  NJY: {
+    defense: { awareness: 0.08, tackle: 0.06 },
+  },
+};
+
 const ROLES_OFF = ['QB', 'RB', 'WR1', 'WR2', 'WR3', 'TE', 'LT', 'LG', 'C', 'RG', 'RT'];
 const ROLES_DEF = ['LE', 'DT', 'RTk', 'RE', 'LB1', 'LB2', 'CB1', 'CB2', 'S1', 'S2', 'NB'];
 
@@ -219,6 +251,27 @@ function buildKicker(rng, teamId) {
 buildKicker.firstUsed = new Set();
 buildKicker.lastUsed = new Set();
 
+function applyTeamProfile(teamId, role, ratings) {
+  const profile = TEAM_PROFILES[teamId];
+  if (!profile) return ratings;
+  const side = ROLES_OFF.includes(role)
+    ? 'offense'
+    : ROLES_DEF.includes(role)
+      ? 'defense'
+      : null;
+  if (!side || !profile[side]) return ratings;
+  const adjustments = profile[side];
+  const adjusted = { ...ratings };
+  Object.entries(adjustments).forEach(([attr, delta]) => {
+    if (adjusted[attr] == null) return;
+    adjusted[attr] = Math.round(Math.max(0.3, adjusted[attr] + delta) * 100) / 100;
+    if (attr === 'accel') {
+      adjusted[attr] = Math.max(10, adjusted[attr]);
+    }
+  });
+  return adjusted;
+}
+
 function buildTeam(team, seed) {
   const rng = mulberry32(seed);
   const usedFirst = new Set();
@@ -236,7 +289,7 @@ function buildTeam(team, seed) {
       firstName: first,
       lastName: last,
       number,
-      ratings: buildRatings(rng, role),
+      ratings: applyTeamProfile(team.id, role, buildRatings(rng, role)),
       modifiers: buildModifiers(rng, role),
     };
     return acc;

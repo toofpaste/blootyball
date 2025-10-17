@@ -19,9 +19,9 @@
         "agility": 0.9,
         "strength": 0.78,
         "awareness": 1.18,
-        "catch": 0.7,
-        "throwPow": 1.31,
-        "throwAcc": 1.18,
+        "catch": 0.75,
+        "throwPow": 1.38,
+        "throwAcc": 1.26,
         "tackle": 1.07
       },
       "modifiers": {
@@ -47,9 +47,9 @@
         "agility": 0.97,
         "strength": 0.96,
         "awareness": 0.91,
-        "catch": 1,
-        "throwPow": 0.55,
-        "throwAcc": 0.64,
+        "catch": 1.05,
+        "throwPow": 0.62,
+        "throwAcc": 0.72,
         "tackle": 0.63
       },
       "modifiers": {
@@ -72,9 +72,9 @@
         "agility": 1.01,
         "strength": 0.95,
         "awareness": 1.12,
-        "catch": 1.13,
-        "throwPow": 0.72,
-        "throwAcc": 0.53,
+        "catch": 1.18,
+        "throwPow": 0.79,
+        "throwAcc": 0.61,
         "tackle": 0.63
       },
       "modifiers": {
@@ -96,9 +96,9 @@
         "agility": 1.06,
         "strength": 1.02,
         "awareness": 0.98,
-        "catch": 1.19,
-        "throwPow": 0.51,
-        "throwAcc": 0.34,
+        "catch": 1.24,
+        "throwPow": 0.58,
+        "throwAcc": 0.42,
         "tackle": 0.68
       },
       "modifiers": {
@@ -120,9 +120,9 @@
         "agility": 1.28,
         "strength": 0.83,
         "awareness": 1.08,
-        "catch": 1.02,
-        "throwPow": 0.68,
-        "throwAcc": 0.78,
+        "catch": 1.07,
+        "throwPow": 0.75,
+        "throwAcc": 0.86,
         "tackle": 0.58
       },
       "modifiers": {
@@ -144,9 +144,9 @@
         "agility": 1.09,
         "strength": 1.36,
         "awareness": 0.99,
-        "catch": 0.96,
-        "throwPow": 0.62,
-        "throwAcc": 0.63,
+        "catch": 1.01,
+        "throwPow": 0.69,
+        "throwAcc": 0.71,
         "tackle": 1.1
       },
       "modifiers": {
@@ -167,9 +167,9 @@
         "agility": 0.99,
         "strength": 1.54,
         "awareness": 1.13,
-        "catch": 0.55,
-        "throwPow": 0.58,
-        "throwAcc": 0.52,
+        "catch": 0.6,
+        "throwPow": 0.65,
+        "throwAcc": 0.6,
         "tackle": 1.29
       },
       "modifiers": {
@@ -188,9 +188,9 @@
         "agility": 0.81,
         "strength": 1.25,
         "awareness": 1.14,
-        "catch": 0.53,
-        "throwPow": 0.54,
-        "throwAcc": 0.66,
+        "catch": 0.58,
+        "throwPow": 0.61,
+        "throwAcc": 0.74,
         "tackle": 1.1
       },
       "modifiers": {
@@ -209,9 +209,9 @@
         "agility": 0.98,
         "strength": 1.55,
         "awareness": 1.08,
-        "catch": 0.56,
-        "throwPow": 0.94,
-        "throwAcc": 0.93,
+        "catch": 0.61,
+        "throwPow": 1.01,
+        "throwAcc": 1.01,
         "tackle": 0.85
       },
       "modifiers": {
@@ -230,9 +230,9 @@
         "agility": 0.86,
         "strength": 1.49,
         "awareness": 0.95,
-        "catch": 0.55,
-        "throwPow": 0.97,
-        "throwAcc": 0.76,
+        "catch": 0.6,
+        "throwPow": 1.04,
+        "throwAcc": 0.84,
         "tackle": 1.06
       },
       "modifiers": {
@@ -251,9 +251,9 @@
         "agility": 0.9,
         "strength": 1.38,
         "awareness": 0.99,
-        "catch": 0.58,
-        "throwPow": 0.96,
-        "throwAcc": 0.88,
+        "catch": 0.63,
+        "throwPow": 1.03,
+        "throwAcc": 0.96,
         "tackle": 1.24
       },
       "modifiers": {
@@ -273,11 +273,11 @@
         "accel": 16.97,
         "agility": 0.81,
         "strength": 1.43,
-        "awareness": 0.93,
+        "awareness": 0.91,
         "catch": 0.78,
         "throwPow": 0.69,
         "throwAcc": 0.67,
-        "tackle": 1.11
+        "tackle": 1.07
       },
       "modifiers": {
         "impact": 0.82,
@@ -294,11 +294,11 @@
         "accel": 14.51,
         "agility": 0.82,
         "strength": 1.35,
-        "awareness": 1.01,
+        "awareness": 0.99,
         "catch": 0.41,
         "throwPow": 0.53,
         "throwAcc": 0.38,
-        "tackle": 1.19
+        "tackle": 1.15
       },
       "modifiers": {
         "impact": 0.79,
@@ -315,11 +315,11 @@
         "accel": 13.93,
         "agility": 0.82,
         "strength": 1.42,
-        "awareness": 0.87,
+        "awareness": 0.85,
         "catch": 0.69,
         "throwPow": 0.67,
         "throwAcc": 0.3,
-        "tackle": 1.33
+        "tackle": 1.29
       },
       "modifiers": {
         "impact": 0.89,
@@ -336,11 +336,11 @@
         "accel": 15.79,
         "agility": 0.84,
         "strength": 1.35,
-        "awareness": 0.86,
+        "awareness": 0.84,
         "catch": 0.7,
         "throwPow": 0.3,
         "throwAcc": 0.3,
-        "tackle": 1.14
+        "tackle": 1.1
       },
       "modifiers": {
         "impact": 0.82,
@@ -357,11 +357,11 @@
         "accel": 17.69,
         "agility": 1,
         "strength": 1.04,
-        "awareness": 1.1,
+        "awareness": 1.08,
         "catch": 0.78,
         "throwPow": 0.78,
         "throwAcc": 0.82,
-        "tackle": 1.26
+        "tackle": 1.22
       },
       "modifiers": {
         "impact": 0.69,
@@ -378,11 +378,11 @@
         "accel": 16.03,
         "agility": 0.83,
         "strength": 1.07,
-        "awareness": 1.08,
+        "awareness": 1.06,
         "catch": 0.63,
         "throwPow": 0.97,
         "throwAcc": 0.86,
-        "tackle": 1.01
+        "tackle": 0.97
       },
       "modifiers": {
         "impact": 0.54,
@@ -399,11 +399,11 @@
         "accel": 19.87,
         "agility": 1.08,
         "strength": 1.08,
-        "awareness": 1.12,
+        "awareness": 1.1,
         "catch": 1.12,
         "throwPow": 0.65,
         "throwAcc": 0.57,
-        "tackle": 1.11
+        "tackle": 1.07
       },
       "modifiers": {
         "impact": 0.83,
@@ -420,11 +420,11 @@
         "accel": 16.27,
         "agility": 1.2,
         "strength": 0.95,
-        "awareness": 0.92,
+        "awareness": 0.9,
         "catch": 0.87,
         "throwPow": 0.96,
         "throwAcc": 0.63,
-        "tackle": 1.06
+        "tackle": 1.02
       },
       "modifiers": {
         "impact": 0.54,
@@ -441,11 +441,11 @@
         "accel": 16.23,
         "agility": 1.21,
         "strength": 0.96,
-        "awareness": 1.1,
+        "awareness": 1.08,
         "catch": 1.12,
         "throwPow": 0.52,
         "throwAcc": 0.93,
-        "tackle": 0.74
+        "tackle": 0.7
       },
       "modifiers": {
         "impact": 0.8,
@@ -462,11 +462,11 @@
         "accel": 18.74,
         "agility": 1.26,
         "strength": 0.94,
-        "awareness": 1.13,
+        "awareness": 1.11,
         "catch": 0.82,
         "throwPow": 0.93,
         "throwAcc": 0.51,
-        "tackle": 1.09
+        "tackle": 1.05
       },
       "modifiers": {
         "impact": 0.68,
@@ -483,11 +483,11 @@
         "accel": 18.38,
         "agility": 1.22,
         "strength": 0.9,
-        "awareness": 0.87,
+        "awareness": 0.85,
         "catch": 0.87,
         "throwPow": 0.51,
         "throwAcc": 0.94,
-        "tackle": 0.98
+        "tackle": 0.94
       },
       "modifiers": {
         "impact": 0.85,
