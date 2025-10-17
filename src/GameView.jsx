@@ -101,7 +101,12 @@ const GameView = React.forwardRef(function GameView({
       rafId = requestAnimationFrame(loop);
     };
     rafId = requestAnimationFrame(loop);
-    return () => cancelAnimationFrame(rafId);
+    return () => {
+      cancelAnimationFrame(rafId);
+      if (typeof performance !== 'undefined' && typeof performance.clearMeasures === 'function') {
+        performance.clearMeasures();
+      }
+    };
   }, [globalRunning, localRunning, simSpeed, state]);
 
   useEffect(() => {
