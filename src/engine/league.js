@@ -5,6 +5,7 @@ import {
   initializeLeaguePersonnel,
   ensureSeasonPersonnel,
   advanceContractsForNewSeason,
+  disperseFranchiseRostersToFreeAgency,
 } from './personnel';
 import { createInitialTeamWiki, cloneTeamWikiMap } from '../data/teamWikiTemplates';
 
@@ -600,19 +601,24 @@ function buildGlobalPlayerDirectory() {
   const directory = {};
   TEAM_IDS.forEach((teamId) => {
     const data = getTeamData(teamId) || {};
+    const identity = getTeamIdentity(teamId) || { id: teamId, displayName: teamId, abbr: teamId };
     const register = (collection = {}, side) => {
       Object.entries(collection).forEach(([role, entry]) => {
         if (!entry) return;
         const playerId = entry.id || `${teamId}-${role}`;
         directory[playerId] = {
           id: playerId,
-          teamId,
+          teamId: null,
+          team: null,
           side,
           role,
           firstName: entry.firstName || role,
           lastName: entry.lastName || '',
           fullName: `${entry.firstName || role}${entry.lastName ? ` ${entry.lastName}` : ''}`,
           number: entry.number ?? null,
+          originTeamId: teamId,
+          originTeamName: identity.displayName,
+          originTeamAbbr: identity.abbr,
         };
       });
     };
@@ -623,13 +629,17 @@ function buildGlobalPlayerDirectory() {
       const playerId = kicker.id || `${teamId}-K`;
       directory[playerId] = {
         id: playerId,
-        teamId,
+        teamId: null,
+        team: null,
         side: 'Special Teams',
         role: 'K',
         firstName: kicker.firstName || 'Kicker',
         lastName: kicker.lastName || '',
         fullName: `${kicker.firstName || 'Kicker'}${kicker.lastName ? ` ${kicker.lastName}` : ''}`,
         number: kicker.number ?? null,
+        originTeamId: teamId,
+        originTeamName: identity.displayName,
+        originTeamAbbr: identity.abbr,
       };
     }
   });
@@ -691,6 +701,7 @@ export function createLeagueContext() {
   };
   initializeLeaguePersonnel(league);
   ensureSeasonPersonnel(league, league.seasonNumber);
+  disperseFranchiseRostersToFreeAgency(league);
   return league;
 }
 

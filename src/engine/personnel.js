@@ -584,25 +584,112 @@ function ensureTeamRosterShell(league) {
   if (!league.teamRosters) league.teamRosters = {};
   if (league.teamRostersVersion == null) league.teamRostersVersion = 0;
   TEAM_IDS.forEach((teamId) => {
-    if (!league.teamRosters[teamId]) {
-      const data = getTeamData(teamId) || {};
-      const offense = {};
-      const defense = {};
-      const special = {};
-      Object.entries(data.offense || {}).forEach(([role, player]) => {
-        offense[role] = clonePlayerData({ ...player, origin: 'franchise' });
-      });
-      Object.entries(data.defense || {}).forEach(([role, player]) => {
-        defense[role] = clonePlayerData({ ...player, origin: 'franchise' });
-      });
-      if (data.specialTeams?.K) {
-        special.K = clonePlayerData({ ...data.specialTeams.K, origin: 'franchise' });
-      }
-      league.teamRosters[teamId] = { offense, defense, special };
+    const existing = league.teamRosters[teamId];
+    if (!existing) {
+      league.teamRosters[teamId] = { offense: {}, defense: {}, special: {} };
       bumpTeamRostersVersion(league);
+    } else {
+      existing.offense ||= {};
+      existing.defense ||= {};
+      existing.special ||= {};
     }
   });
   return league.teamRosters;
+}
+
+function createFranchiseFreeAgent(teamId, role, data) {
+  if (!data) return null;
+  const cloned = clonePlayerData({ ...data, origin: data.origin || 'franchise' });
+  cloned.originalTeamId = cloned.originalTeamId || teamId;
+  cloned.currentTeamId = null;
+  cloned.preferredRole = cloned.preferredRole || role;
+  const decorated = decoratePlayerMetrics(cloned, role);
+  decorated.role = role;
+  decorated.currentTeamId = null;
+  decorated.originalTeamId = decorated.originalTeamId || teamId;
+  decorated.origin = decorated.origin || 'franchise';
+  decorated.releasedReason = 'inaugural dispersal';
+  clearPlayerContract(decorated);
+  ensurePlayerTemperament(decorated);
+  ensurePlayerLoyalty(decorated);
+  return decorated;
+}
+
+export function disperseFranchiseRostersToFreeAgency(league) {
+  if (!league) return;
+  if (league.initialRosterDispersalComplete) return;
+  const rosters = ensureTeamRosterShell(league);
+  const hasExistingPlayers = Object.values(rosters || {}).some((roster) => {
+    if (!roster) return false;
+    const offCount = Object.keys(roster.offense || {}).length;
+    const defCount = Object.keys(roster.defense || {}).length;
+    const hasKicker = roster.special?.K != null;
+    return offCount + defCount + (hasKicker ? 1 : 0) > 0;
+  });
+  if (hasExistingPlayers) {
+    league.initialRosterDispersalComplete = true;
+    return;
+  }
+  league.freeAgents ||= [];
+  const existingIds = new Set(league.freeAgents.map((player) => player?.id).filter(Boolean));
+  TEAM_IDS.forEach((teamId) => {
+    const data = getTeamData(teamId) || {};
+    Object.entries(data.offense || {}).forEach(([role, player]) => {
+      if (!player) return;
+      const candidate = createFranchiseFreeAgent(teamId, role, player);
+      if (!candidate || existingIds.has(candidate.id)) return;
+      league.freeAgents.push(candidate);
+      existingIds.add(candidate.id);
+      if (league.playerDirectory?.[candidate.id]) {
+        league.playerDirectory[candidate.id] = {
+          ...league.playerDirectory[candidate.id],
+          teamId: null,
+          team: null,
+          teamName: null,
+          teamAbbr: null,
+          originTeamId: league.playerDirectory[candidate.id].originTeamId || teamId,
+          originTeamAbbr: league.playerDirectory[candidate.id].originTeamAbbr || getTeamIdentity(teamId)?.abbr || teamId,
+        };
+      }
+    });
+    Object.entries(data.defense || {}).forEach(([role, player]) => {
+      if (!player) return;
+      const candidate = createFranchiseFreeAgent(teamId, role, player);
+      if (!candidate || existingIds.has(candidate.id)) return;
+      league.freeAgents.push(candidate);
+      existingIds.add(candidate.id);
+      if (league.playerDirectory?.[candidate.id]) {
+        league.playerDirectory[candidate.id] = {
+          ...league.playerDirectory[candidate.id],
+          teamId: null,
+          team: null,
+          teamName: null,
+          teamAbbr: null,
+          originTeamId: league.playerDirectory[candidate.id].originTeamId || teamId,
+          originTeamAbbr: league.playerDirectory[candidate.id].originTeamAbbr || getTeamIdentity(teamId)?.abbr || teamId,
+        };
+      }
+    });
+    if (data.specialTeams?.K) {
+      const candidate = createFranchiseFreeAgent(teamId, 'K', data.specialTeams.K);
+      if (candidate && !existingIds.has(candidate.id)) {
+        league.freeAgents.push(candidate);
+        existingIds.add(candidate.id);
+        if (league.playerDirectory?.[candidate.id]) {
+          league.playerDirectory[candidate.id] = {
+            ...league.playerDirectory[candidate.id],
+            teamId: null,
+            team: null,
+            teamName: null,
+            teamAbbr: null,
+            originTeamId: league.playerDirectory[candidate.id].originTeamId || teamId,
+            originTeamAbbr: league.playerDirectory[candidate.id].originTeamAbbr || getTeamIdentity(teamId)?.abbr || teamId,
+          };
+        }
+      }
+    }
+  });
+  league.initialRosterDispersalComplete = true;
 }
 
 export function computeOverallFromRatings(ratings = {}, role = 'QB') {
@@ -2568,6 +2655,14 @@ export function signBestFreeAgentForRole(league, teamId, role, {
     }
   }
   assignPlayerToRoster(league, teamId, targetRole, assigned);
+  const newsContext = {};
+  if (context?.dayNumber != null) newsContext.dayNumber = context.dayNumber;
+  if (context?.totalDays != null) newsContext.totalDays = context.totalDays;
+  if (context?.inaugural != null) newsContext.inaugural = context.inaugural;
+  if (Object.keys(newsContext).length && newsContext.phase == null) {
+    newsContext.phase = 'offseason';
+  }
+  const suppressAi = !!context?.suppressAiForAcquisitions;
   recordNewsInternal(league, {
     type: 'signing',
     teamId,
@@ -2578,6 +2673,11 @@ export function signBestFreeAgentForRole(league, teamId, role, {
     playerName: `${assigned.firstName} ${assigned.lastName}`.trim(),
     role: targetRole,
     contractSummary: summarizeContractForNews(negotiation.contract),
+    ...(Object.keys(newsContext).length ? { context: newsContext } : {}),
+    ...(suppressAi ? {
+      aiSuppressed: true,
+      aiSuppressReason: context?.aiSuppressReason || 'inaugural-offseason',
+    } : {}),
   });
   refreshTeamMood(league, teamId);
   return assigned;
@@ -3123,6 +3223,7 @@ function fillRosterNeeds(league, teamId, needs, { reason, mode, limitFraction, c
 export function ensureTeamRosterComplete(league, teamId, {
   reason = 'pre-game roster fill',
   mode,
+  context = null,
 } = {}) {
   if (!league || !teamId) return false;
   ensureSeasonPersonnel(league, league.seasonNumber || 1);
@@ -3152,6 +3253,7 @@ export function ensureTeamRosterComplete(league, teamId, {
     const added = signBestFreeAgentForRole(league, teamId, role, {
       reason,
       mode: strategy,
+      context,
     });
     if (added) filledAny = true;
   });
@@ -3628,6 +3730,14 @@ function signFreeAgentToTeam(league, player, teamId, role, context, reason, nego
   applyContractToPlayer(assigned, assigned.contract);
   assignPlayerToRoster(league, teamId, role, assigned);
   const identity = getTeamIdentity(teamId)?.abbr || teamId;
+  const newsContext = {};
+  if (context?.dayNumber != null) newsContext.dayNumber = context.dayNumber;
+  if (context?.totalDays != null) newsContext.totalDays = context.totalDays;
+  if (context?.inaugural != null) newsContext.inaugural = context.inaugural;
+  if (Object.keys(newsContext).length && newsContext.phase == null) {
+    newsContext.phase = 'offseason';
+  }
+  const suppressAi = !!context?.suppressAiForAcquisitions;
   recordNewsInternal(league, {
     type: 'signing',
     teamId,
@@ -3638,6 +3748,11 @@ function signFreeAgentToTeam(league, player, teamId, role, context, reason, nego
     playerName: `${assigned.firstName} ${assigned.lastName}`.trim(),
     role,
     contractSummary: summarizeContractForNews(negotiation.contract),
+    ...(Object.keys(newsContext).length ? { context: newsContext } : {}),
+    ...(suppressAi ? {
+      aiSuppressed: true,
+      aiSuppressReason: context?.aiSuppressReason || 'inaugural-offseason',
+    } : {}),
   });
   context.events ||= [];
   context.events.push(`${assigned.firstName} ${assigned.lastName} chooses ${identity}, stirring hot-stove debate.`);
@@ -3935,13 +4050,29 @@ export function advanceLeagueOffseason(league, season, context = {}) {
   TEAM_IDS.forEach((teamId) => refreshTeamMood(league, teamId));
 }
 
-function completeLeagueOffseason(league) {
+function completeLeagueOffseason(league, context = null) {
   const state = ensureOffseasonState(league);
   if (!state) return;
   state.active = false;
   state.nextDayAt = null;
   state.completedAt = Date.now();
   state.nextSeasonReady = true;
+  const rosterContext = context?.suppressAiForAcquisitions
+    ? {
+      suppressAiForAcquisitions: true,
+      aiSuppressReason: context.aiSuppressReason || 'inaugural-offseason',
+      dayNumber: context.dayNumber || state.currentDay || state.totalDays || 5,
+      totalDays: context.totalDays || state.totalDays || 5,
+      inaugural: context.inaugural ?? state.inaugural ?? false,
+    }
+    : null;
+  TEAM_IDS.forEach((teamId) => {
+    ensureTeamRosterComplete(league, teamId, {
+      reason: 'camp roster fill',
+      mode: 'balanced',
+      context: rosterContext,
+    });
+  });
   recordNewsInternal(league, {
     type: 'league',
     text: 'Offseason complete — training camp opens',
@@ -3959,7 +4090,12 @@ function advanceLeagueOffseasonDay(league, season) {
     totalDays: state.totalDays || 5,
     championTeamId: state.championTeamId || season?.championTeamId || null,
     events: [],
+    inaugural: !!state.inaugural,
   };
+  if (context.inaugural && dayNumber <= (state.totalDays || 5)) {
+    context.suppressAiForAcquisitions = true;
+    context.aiSuppressReason = 'inaugural-offseason';
+  }
   const beforeCount = Array.isArray(league.newsFeed) ? league.newsFeed.length : 0;
   advanceLeagueOffseason(league, season, context);
   const afterCount = Array.isArray(league.newsFeed) ? league.newsFeed.length : 0;
@@ -3976,7 +4112,7 @@ function advanceLeagueOffseasonDay(league, season) {
     headlines: newEntries.map((entry) => entry.text),
   });
   if (state.currentDay >= (state.totalDays || 5)) {
-    completeLeagueOffseason(league);
+    completeLeagueOffseason(league, context);
   } else {
     state.nextDayAt = Date.now() + (state.dayDurationMs || DEFAULT_OFFSEASON_DAY_DURATION_MS);
   }
@@ -4002,6 +4138,7 @@ export function beginLeagueOffseason(league, season, summary = {}) {
   state.upcomingSeasonNumber = upcomingSeasonNumber;
   state.championTeamId = summary.championTeamId || season?.championTeamId || null;
   state.championResult = summary.championResult || season?.championResult || null;
+  state.inaugural = inaugural;
   state.nextSeasonReady = false;
   state.nextSeasonStarted = false;
   state.log = [];
