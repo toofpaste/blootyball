@@ -49,7 +49,12 @@ export default function App() {
             rafId = requestAnimationFrame(loop);
         };
         rafId = requestAnimationFrame(loop);
-        return () => cancelAnimationFrame(rafId);
+        return () => {
+            cancelAnimationFrame(rafId);
+            if (typeof performance !== 'undefined' && typeof performance.clearMeasures === 'function') {
+                performance.clearMeasures();
+            }
+        };
     }, [running, simSpeed, state, cameraFollowBall]);
 
     const onNextPlay = () => setState(s => betweenPlays(s));
