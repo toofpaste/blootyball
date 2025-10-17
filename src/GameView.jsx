@@ -53,6 +53,26 @@ const GameView = React.forwardRef(function GameView({
         league: state.league,
       };
     },
+    advanceOffseasonDay() {
+      setState((prev) => {
+        const offseason = prev?.league?.offseason;
+        if (!offseason || !offseason.active || offseason.nextSeasonReady) {
+          return prev;
+        }
+        const nowTs = Date.now();
+        const next = {
+          ...prev,
+          league: {
+            ...prev.league,
+            offseason: {
+              ...offseason,
+              nextDayAt: nowTs,
+            },
+          },
+        };
+        return progressOffseason(next, nowTs);
+      });
+    },
   }), [label, state]);
 
   useEffect(() => {
