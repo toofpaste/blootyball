@@ -449,6 +449,7 @@ export function moveBall(s, dt) {
             const r = _resolveOffensivePlayer(off, ball.targetId);
             if (r) {
                 const nearestDef = Object.values(def).reduce((best, d) => {
+                    if (!d?.pos) return best;
                     const dd = Math.hypot(d.pos.x - r.pos.x, d.pos.y - r.pos.y);
                     return dd < best.d ? { d: dd, t: d } : best;
                 }, { d: 1e9, t: null });
