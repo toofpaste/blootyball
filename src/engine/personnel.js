@@ -1139,14 +1139,44 @@ function generateFreeAgentClass(league, seasonNumber, count = 36) {
   return pool;
 }
 
+function hasFreeAgentForRole(freeAgents, role) {
+  if (!Array.isArray(freeAgents) || !freeAgents.length) return false;
+  return freeAgents.some((player) => {
+    if (!player) return false;
+    const candidateRole = player.role || player.preferredRole || null;
+    if (!candidateRole) return false;
+    if (role === 'K') {
+      return candidateRole === 'K';
+    }
+    return candidateRole === role;
+  });
+}
+
+function ensureFreeAgentRoleCoverage(league, seasonNumber, roles = null) {
+  if (!league) return;
+  const pool = league.freeAgents || (league.freeAgents = []);
+  const resolvedSeason = seasonNumber || league.seasonNumber || 1;
+  const roleList = roles
+    ? (Array.isArray(roles) ? roles.filter(Boolean) : [roles]).filter(Boolean)
+    : [...ROLES_OFF, ...ROLES_DEF, 'K'];
+  roleList.forEach((role) => {
+    if (!role || hasFreeAgentForRole(pool, role)) return;
+    for (let i = 0; i < 3; i += 1) {
+      pool.push(buildFreeAgent(role, null, 'balanced', resolvedSeason));
+    }
+  });
+}
+
 function ensureFreeAgentPool(league, seasonNumber) {
   if (!Array.isArray(league.freeAgents)) {
     league.freeAgents = [];
   }
-  if (league.lastFreeAgentSeason === seasonNumber) return;
-  const generated = generateFreeAgentClass(league, seasonNumber, 42);
-  league.freeAgents.push(...generated);
-  league.lastFreeAgentSeason = seasonNumber;
+  if (league.lastFreeAgentSeason !== seasonNumber) {
+    const generated = generateFreeAgentClass(league, seasonNumber, 42);
+    league.freeAgents.push(...generated);
+    league.lastFreeAgentSeason = seasonNumber;
+  }
+  ensureFreeAgentRoleCoverage(league, seasonNumber);
 }
 
 let coachFreeAgentCounter = 1;
@@ -2699,6 +2729,7 @@ export function signBestFreeAgentForRole(league, teamId, role, {
       aiSuppressReason: context?.aiSuppressReason || 'inaugural-offseason',
     } : {}),
   });
+  ensureFreeAgentRoleCoverage(league, league.seasonNumber || 1, targetRole);
   refreshTeamMood(league, teamId);
   return assigned;
 }

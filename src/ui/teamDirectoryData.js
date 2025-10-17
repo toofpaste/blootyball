@@ -249,9 +249,16 @@ export function buildTeamDirectoryData(season, league) {
         [TEAM_BLK]: getTeamIdentity(fallbackId) || null,
       },
     };
-    const rosters = createTeams(matchup, league);
-    const coaches = prepareCoachesForMatchup(matchup, league);
-    applyLongTermAdjustments(rosters, coaches, development);
+    let fallbackGroup = null;
+    const resolveFallback = () => {
+      if (!fallbackGroup) {
+        const generated = createTeams(matchup, league) || {};
+        fallbackGroup = generated[TEAM_RED] || { off: {}, def: {}, special: {} };
+        const coaches = prepareCoachesForMatchup(matchup, league);
+        applyLongTermAdjustments(generated, coaches, development);
+      }
+      return fallbackGroup;
+    };
     const identity = getTeamIdentity(teamId) || team.info || { id: teamId, displayName: teamId };
     const record = team.record || { wins: 0, losses: 0, ties: 0 };
     const titles = teamTitles[teamId]?.seasons || [];
@@ -272,10 +279,26 @@ export function buildTeamDirectoryData(season, league) {
           .sort((a, b) => (b.seasonNumber ?? 0) - (a.seasonNumber ?? 0))
       : [];
 
-    const group = rosters[TEAM_RED] || { off: {}, def: {}, special: {} };
-    const offense = buildRosterGroup(group.off, ROLES_OFF, 'Offense', statsMap, league, teamId, 'offense');
-    const defense = buildRosterGroup(group.def, ROLES_DEF, 'Defense', statsMap, league, teamId, 'defense');
-    const special = buildSpecialGroup(group.special, statsMap, league, teamId);
+    const rosterSource = league?.teamRosters?.[teamId] || null;
+    const offenseCollection = (() => {
+      const current = rosterSource?.offense;
+      if (current && Object.keys(current).length) return current;
+      return resolveFallback().off || {};
+    })();
+    const defenseCollection = (() => {
+      const current = rosterSource?.defense;
+      if (current && Object.keys(current).length) return current;
+      return resolveFallback().def || {};
+    })();
+    const specialCollection = (() => {
+      const current = rosterSource?.special;
+      if (current && (current.K || Object.keys(current).length)) return current;
+      return resolveFallback().special || {};
+    })();
+
+    const offense = buildRosterGroup(offenseCollection, ROLES_OFF, 'Offense', statsMap, league, teamId, 'offense');
+    const defense = buildRosterGroup(defenseCollection, ROLES_DEF, 'Defense', statsMap, league, teamId, 'defense');
+    const special = buildSpecialGroup(specialCollection, statsMap, league, teamId);
     const offenseRating = computeGroupRating(offense);
     const defenseRating = computeGroupRating(defense);
     const payroll = league?.teamPayroll?.[teamId] ?? 0;
