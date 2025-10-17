@@ -252,21 +252,32 @@ export function buildPlayerDirectory(teams, slotToTeam = {}, identities = {}) {
 export function rosterForPossession(teams, offenseTeam) {
     const defenseTeam = offenseTeam === TEAM_RED ? TEAM_BLK : TEAM_RED;
     const off = {}, def = {};
+    const offenseGroup = teams?.[offenseTeam]?.off || {};
+    const defenseGroup = teams?.[defenseTeam]?.def || {};
     ROLES_OFF.forEach(r => {
-        const base = teams[offenseTeam].off[r];
+        const base = offenseGroup?.[r];
+        if (!base) {
+            off[r] = null;
+            return;
+        }
         off[r] = { ...base, pos: { ...base.pos }, home: base.home ? { ...base.home } : null };
         if (base.baseAttrs) off[r].baseAttrs = { ...base.baseAttrs };
         resetMotion(off[r]);
     });
     ROLES_DEF.forEach(r => {
-        const base = teams[defenseTeam].def[r];
+        const base = defenseGroup?.[r];
+        if (!base) {
+            def[r] = null;
+            return;
+        }
         def[r] = { ...base, pos: { ...base.pos }, home: base.home ? { ...base.home } : null };
         if (base.baseAttrs) def[r].baseAttrs = { ...base.baseAttrs };
         resetMotion(def[r]);
     });
     const special = {};
-    if (teams[offenseTeam].special?.K) {
-        const base = teams[offenseTeam].special.K;
+    const specialGroup = teams?.[offenseTeam]?.special;
+    if (specialGroup?.K) {
+        const base = specialGroup.K;
         special.K = { ...base };
     }
     return { off, def, special };
