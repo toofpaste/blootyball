@@ -3,7 +3,7 @@ import { clamp, rand, yardsToPixY } from './helpers';
 import { ENDZONE_YARDS, FIELD_PIX_W } from './constants';
 import { resetMotion } from './motion';
 import { getTeamData, getTeamIdentity } from './data/teamLibrary';
-import { initializeLeaguePersonnel, enforceGameDayRosterMinimums } from './personnel';
+import { initializeLeaguePersonnel } from './personnel';
 
 /* =========================================================
    Player factories (persistent per-team pools)
@@ -145,10 +145,6 @@ export function createTeams(matchup = null, league = null) {
     const identities = matchup?.identities || {};
     if (league) {
         initializeLeaguePersonnel(league);
-        const targets = [...new Set(Object.values(slotToTeam || {}).filter(Boolean))];
-        if (targets.length) {
-            enforceGameDayRosterMinimums(league, targets);
-        }
     }
     const leagueRosters = league?.teamRosters || null;
 

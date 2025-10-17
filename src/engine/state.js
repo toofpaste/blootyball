@@ -1,6 +1,6 @@
 import {
     FIELD_PIX_W, FIELD_PIX_H, ENDZONE_YARDS, PLAYING_YARDS_H,
-    TEAM_RED, TEAM_BLK, PLAYBOOK, PX_PER_YARD,
+    TEAM_RED, TEAM_BLK, PLAYBOOK, PX_PER_YARD, ROLES_OFF, ROLES_DEF,
 } from './constants';
 import { clamp, yardsToPixY, pixYToYards, rand, choice } from './helpers';
 import { createTeams, rosterForPossession, lineUpFormation, buildPlayerDirectory } from './rosters';
@@ -48,6 +48,7 @@ import {
     assignReplacementForAbsence,
     ensureTeamRosterComplete,
     maybeGenerateLeagueHeadlines,
+    enforceGameDayRosterMinimums,
 } from './personnel';
 import { applyTeamMoodToMatchup } from './temperament';
 
@@ -91,6 +92,22 @@ function uniqueNonEmpty(values) {
         result.push(value);
     }
     return result;
+}
+
+function teamsWithEmptyRosterSpots(league, teamIds = []) {
+    if (!league || !Array.isArray(teamIds) || !teamIds.length) return [];
+    const rosters = league.teamRosters || {};
+    return teamIds.filter((teamId) => {
+        const roster = rosters?.[teamId];
+        if (!roster) return false;
+        const offense = roster.offense || {};
+        const defense = roster.defense || {};
+        const special = roster.special || {};
+        const offenseHole = ROLES_OFF.some((role) => !offense?.[role]);
+        const defenseHole = ROLES_DEF.some((role) => !defense?.[role]);
+        const specialHole = !special?.K;
+        return offenseHole || defenseHole || specialHole;
+    });
 }
 
 function lookupPlayerMeta(state, playerId) {
@@ -640,6 +657,10 @@ function prepareGameForMatchup(state, matchup) {
         uniqueTeams.forEach((teamId) => {
             ensureTeamRosterComplete(state.league, teamId, { reason: 'pre-game roster fill' });
         });
+        const punishmentTargets = teamsWithEmptyRosterSpots(state.league, uniqueTeams);
+        if (punishmentTargets.length) {
+            enforceGameDayRosterMinimums(state.league, punishmentTargets, { reason: 'pre-kickoff roster penalty' });
+        }
     }
     ensureSeasonProgression(state.season);
     state.coaches = prepareCoachesForMatchup(matchup, state.league);
