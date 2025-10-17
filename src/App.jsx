@@ -1172,6 +1172,21 @@ export default function App() {
     setSimSpeed(value);
   }, []);
 
+  const collectSeasonSnapshots = useCallback(() => {
+    const snapshots = gameRefs.current.map((ref, index) => {
+      if (ref && typeof ref.getSeasonSnapshot === 'function') {
+        const snapshot = ref.getSeasonSnapshot();
+        return {
+          ...snapshot,
+          label: snapshot?.label || `Game ${index + 1}`,
+        };
+      }
+      return null;
+    });
+    setSeasonSnapshots(snapshots);
+    return snapshots;
+  }, []);
+
   const handleAdvanceOffseasonDay = useCallback(() => {
     const controller = gameRefs.current.find((instance) => (
       instance && typeof instance.advanceOffseasonDay === 'function'
@@ -1193,21 +1208,6 @@ export default function App() {
       const teams = update.teams && typeof update.teams === 'object' ? update.teams : {};
       return { seasonNumber: nextSeason, teams };
     });
-  }, []);
-
-  const collectSeasonSnapshots = useCallback(() => {
-    const snapshots = gameRefs.current.map((ref, index) => {
-      if (ref && typeof ref.getSeasonSnapshot === 'function') {
-        const snapshot = ref.getSeasonSnapshot();
-        return {
-          ...snapshot,
-          label: snapshot?.label || `Game ${index + 1}`,
-        };
-      }
-      return null;
-    });
-    setSeasonSnapshots(snapshots);
-    return snapshots;
   }, []);
 
   useEffect(() => {
