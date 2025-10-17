@@ -126,7 +126,6 @@ function RosterSection({ title, players, onPlayerSelect }) {
         background: 'rgba(4,28,4,0.92)',
         display: 'flex',
         flexDirection: 'column',
-        minHeight: 0,
       }}
     >
       <div
@@ -145,10 +144,6 @@ function RosterSection({ title, players, onPlayerSelect }) {
       <div
         style={{
           overflowX: 'auto',
-          overflowY: 'auto',
-          maxHeight: '35vh',
-          flex: 1,
-          minHeight: 0,
         }}
       >
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
@@ -592,9 +587,6 @@ export default function TeamDirectoryModal({ open, onClose, season, league = nul
                 border: '1px solid rgba(26,92,26,0.35)',
                 borderRadius: 12,
                 padding: 12,
-                maxHeight: '75vh',
-                overflowY: 'auto',
-                minHeight: 0,
               }}
             >
               <div style={{ fontWeight: 700, fontSize: 14, letterSpacing: 0.4, marginBottom: 4 }}>Teams</div>
@@ -633,9 +625,6 @@ export default function TeamDirectoryModal({ open, onClose, season, league = nul
                 display: 'flex',
                 flexDirection: 'column',
                 gap: 16,
-                overflowY: 'auto',
-                maxHeight: '75vh',
-                minHeight: 0,
                 paddingRight: 8,
               }}
             >
@@ -705,7 +694,7 @@ export default function TeamDirectoryModal({ open, onClose, season, league = nul
                   >
                     Season History
                   </div>
-                  <div style={{ maxHeight: 180, overflowY: 'auto' }}>
+                  <div>
                     {selectedTeam.history?.length ? (
                       <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                         <thead>
