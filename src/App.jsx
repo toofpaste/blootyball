@@ -1172,6 +1172,19 @@ export default function App() {
     setSimSpeed(value);
   }, []);
 
+  const handleAdvanceOffseasonDay = useCallback(() => {
+    const controller = gameRefs.current.find((instance) => (
+      instance && typeof instance.advanceOffseasonDay === 'function'
+    ));
+    if (!controller) return;
+    controller.advanceOffseasonDay();
+    const nowTs = Date.now();
+    setNow(nowTs);
+    setTimeout(() => {
+      collectSeasonSnapshots();
+    }, 0);
+  }, [collectSeasonSnapshots]);
+
   const handleApplyWikiOverrides = useCallback((update) => {
     if (!update || typeof update !== 'object') return;
     setWikiOverrides((prev) => {
@@ -1415,6 +1428,7 @@ export default function App() {
         onShowFreeAgents={handleOpenFreeAgents}
         onShowRecordBook={handleOpenRecordBook}
         onShowLeagueWiki={handleOpenLeagueWiki}
+        onAdvanceOffseasonDay={handleAdvanceOffseasonDay}
         seasonProgressLabel={seasonProgress.label}
         hasUnseenNews={hasUnseenNews}
         hasUnseenPressArticles={hasUnseenPressArticles}

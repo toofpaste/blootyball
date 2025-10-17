@@ -14,6 +14,7 @@ export default function GlobalControls({
   onShowFreeAgents,
   onShowRecordBook,
   onShowLeagueWiki,
+  onAdvanceOffseasonDay,
   seasonProgressLabel,
   hasUnseenNews,
   hasUnseenPressArticles,
@@ -82,6 +83,8 @@ export default function GlobalControls({
     }
   }
 
+  const canAdvanceOffseason = Boolean(offseasonInfo?.active);
+
   return (
     <div className="global-controls">
       {offseasonContent}
@@ -89,6 +92,15 @@ export default function GlobalControls({
       <button type="button" className="global-controls__button" onClick={onToggleRunning}>
         {running ? 'Pause' : 'Start'}
       </button>
+      {canAdvanceOffseason ? (
+        <button
+          type="button"
+          className="global-controls__button global-controls__button--secondary"
+          onClick={onAdvanceOffseasonDay}
+        >
+          Next Offseason Day
+        </button>
+      ) : null}
       <button
         type="button"
         className="global-controls__button global-controls__button--secondary"
