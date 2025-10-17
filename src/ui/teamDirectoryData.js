@@ -250,12 +250,13 @@ export function buildTeamDirectoryData(season, league) {
       },
     };
     let fallbackGroup = null;
+    let fallbackCoaches = null;
     const resolveFallback = () => {
       if (!fallbackGroup) {
         const generated = createTeams(matchup, league) || {};
         fallbackGroup = generated[TEAM_RED] || { off: {}, def: {}, special: {} };
-        const coaches = prepareCoachesForMatchup(matchup, league);
-        applyLongTermAdjustments(generated, coaches, development);
+        fallbackCoaches = prepareCoachesForMatchup(matchup, league);
+        applyLongTermAdjustments(generated, fallbackCoaches, development);
       }
       return fallbackGroup;
     };
@@ -318,7 +319,7 @@ export function buildTeamDirectoryData(season, league) {
       pointsAgainst: team.pointsAgainst ?? 0,
       mood: league?.teamMoods?.[teamId] || { score: 0, label: 'Neutral' },
       scout: league?.teamScouts?.[teamId] || null,
-      coach: league?.teamCoaches?.[teamId] || coaches?.[TEAM_RED] || null,
+      coach: league?.teamCoaches?.[teamId] || fallbackCoaches?.[TEAM_RED] || null,
       gm: league?.teamGms?.[teamId] || null,
       titles: titles.length,
       titleSeasons: titles.slice(),
