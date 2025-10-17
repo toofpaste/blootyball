@@ -692,11 +692,47 @@ function mergeLeagueData(target, source) {
     target.salaryCap = source.salaryCap;
   }
 
-  if (!target.teamRosters && source.teamRosters) {
-    target.teamRosters = Object.entries(source.teamRosters).reduce((acc, [teamId, roster]) => {
+  const sourceRosterVersion = Number.isFinite(source.teamRostersVersion)
+    ? source.teamRostersVersion
+    : null;
+  const targetRosterVersion = Number.isFinite(target.teamRostersVersion)
+    ? target.teamRostersVersion
+    : null;
+
+  const cloneRosterMap = (rosters = {}) => (
+    Object.entries(rosters).reduce((acc, [teamId, roster]) => {
       acc[teamId] = cloneTeamRoster(roster);
       return acc;
-    }, {});
+    }, {})
+  );
+
+  if (source.teamRosters) {
+    const shouldReplaceRosters = (
+      !target.teamRosters
+      || (sourceRosterVersion != null
+        && (targetRosterVersion == null || sourceRosterVersion > targetRosterVersion))
+    );
+
+    if (shouldReplaceRosters) {
+      target.teamRosters = cloneRosterMap(source.teamRosters);
+    } else if (target.teamRosters) {
+      Object.entries(source.teamRosters).forEach(([teamId, roster]) => {
+        if (!target.teamRosters[teamId]) {
+          target.teamRosters[teamId] = cloneTeamRoster(roster);
+          return;
+        }
+        const entry = target.teamRosters[teamId];
+        entry.offense ||= {};
+        entry.defense ||= {};
+        entry.special ||= {};
+      });
+    }
+
+    if (sourceRosterVersion != null) {
+      target.teamRostersVersion = targetRosterVersion == null
+        ? sourceRosterVersion
+        : Math.max(targetRosterVersion, sourceRosterVersion);
+    }
   }
 
   if (!target.freeAgents && Array.isArray(source.freeAgents)) {
