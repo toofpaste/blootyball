@@ -239,6 +239,7 @@ export default function NewsModal({ open, onClose, league, season }) {
     items.forEach((item) => {
       const existing = item.raw?.aiContent || articleMap[item.id];
       if (existing?.article) return;
+      if (item.raw?.aiSuppressed) return;
       if (inflightRef.current.has(item.id)) return;
       inflightRef.current.add(item.id);
       generatePlayerNewsContent({ league, season, entry: item.raw })
