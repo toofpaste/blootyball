@@ -191,6 +191,18 @@ function summarizeContractForNews(contract) {
   return summary;
 }
 
+function formatCurrency(amount) {
+  if (!Number.isFinite(amount)) return '$0';
+  const absolute = Math.abs(amount);
+  if (absolute >= 1_000_000) {
+    return `$${(amount / 1_000_000).toFixed(1).replace(/\.0$/, '')}M`;
+  }
+  if (absolute >= 1_000) {
+    return `$${Math.round(amount / 1_000)}K`;
+  }
+  return `$${Math.round(amount)}`;
+}
+
 function applyContractToPlayer(player, contract) {
   if (!player) return;
   if (!contract) {
@@ -2450,7 +2462,34 @@ export function signBestFreeAgentForRole(league, teamId, role, {
   });
   if (!best) return null;
   const roster = ensureTeamRosterShell(league)[teamId];
-  const current = side === 'offense' ? roster.offense[role] : side === 'defense' ? roster.defense[role] : roster.special.K;
+  if (!roster) return null;
+  const groupRoles = roleGroupFor(role);
+  const pickRoleOccupant = (roleKey) => {
+    if (side === 'offense') return roster.offense?.[roleKey] || null;
+    if (side === 'defense') return roster.defense?.[roleKey] || null;
+    return roster.special?.K || null;
+  };
+  let targetRole = role;
+  if (!temporaryContract && Array.isArray(groupRoles) && groupRoles.length > 1) {
+    const vacancy = groupRoles.find((roleKey) => !pickRoleOccupant(roleKey));
+    if (vacancy) {
+      targetRole = vacancy;
+    } else {
+      let weakest = null;
+      groupRoles.forEach((roleKey) => {
+        const occupant = pickRoleOccupant(roleKey);
+        if (!occupant) return;
+        const value = evaluatePlayerTrueValue(occupant, strategy);
+        if (!weakest || value < weakest.value - 0.0001) {
+          weakest = { role: roleKey, player: occupant, value };
+        }
+      });
+      if (weakest) {
+        targetRole = weakest.role;
+      }
+    }
+  }
+  const current = pickRoleOccupant(targetRole);
   const incumbentValue = current ? evaluatePlayerTrueValue(current, strategy) : null;
   if (current && best.trueValue < (incumbentValue ?? 0) + minImprovement) {
     return null;
@@ -2489,20 +2528,55 @@ export function signBestFreeAgentForRole(league, teamId, role, {
     return null;
   }
   const [chosen] = league.freeAgents.splice(best.index, 1);
-  const assigned = { ...chosen, role, origin: 'free-agent' };
+  const assigned = { ...chosen, role: targetRole, origin: 'free-agent' };
   assigned.loyalty = clamp((assigned.loyalty ?? 0.5) * 0.6 + rand(0.22, 0.4), 0.12, 0.96);
   assigned.contract = negotiation.contract;
   applyContractToPlayer(assigned, assigned.contract);
-  assignPlayerToRoster(league, teamId, role, assigned);
+  let removed = null;
+  if (!temporaryContract && current) {
+    removed = removePlayerFromRoster(league, teamId, targetRole);
+    if (removed) {
+      adjustPlayerMood(removed, -0.15);
+      pushPlayerToFreeAgency(league, removed, targetRole, 'replaced by signing');
+      const salary = Number.isFinite(removed.contract?.salary) ? removed.contract.salary : 0;
+      const yearsRemaining = Number.isFinite(removed.contract?.yearsRemaining)
+        ? removed.contract.yearsRemaining
+        : Number.isFinite(removed.contract?.years)
+          ? removed.contract.years
+          : 0;
+      const penaltyPerSeason = removed.contract?.temporary ? 0 : Math.round(salary * 0.1);
+      const penaltyDetail = (penaltyPerSeason > 0 && yearsRemaining > 0)
+        ? `Incurs ${formatCurrency(penaltyPerSeason)} cap penalty for ${yearsRemaining} season${yearsRemaining === 1 ? '' : 's'}.`
+        : 'Cap impact minimal.';
+      recordNewsInternal(league, {
+        type: 'release',
+        teamId,
+        text: `${removed.firstName} ${removed.lastName} (${targetRole}) released`,
+        detail: penaltyDetail,
+        seasonNumber: league.seasonNumber || null,
+        playerId: removed.id,
+        playerName: `${removed.firstName} ${removed.lastName}`.trim(),
+        role: targetRole,
+      });
+      if (context?.events) {
+        const identity = getTeamIdentity(teamId)?.abbr || teamId;
+        const awareness = (penaltyPerSeason > 0 && yearsRemaining > 0)
+          ? `${formatCurrency(penaltyPerSeason)} cap hit for ${yearsRemaining} season${yearsRemaining === 1 ? '' : 's'}`
+          : 'minimal cap impact';
+        context.events.push(`${identity} cut ${removed.firstName} ${removed.lastName} (${targetRole}) to clear space, ${awareness}.`);
+      }
+    }
+  }
+  assignPlayerToRoster(league, teamId, targetRole, assigned);
   recordNewsInternal(league, {
     type: 'signing',
     teamId,
-    text: `${getTeamIdentity(teamId)?.abbr || teamId} sign ${assigned.firstName} ${assigned.lastName} (${role})`,
+    text: `${getTeamIdentity(teamId)?.abbr || teamId} sign ${assigned.firstName} ${assigned.lastName} (${targetRole})`,
     detail: reason,
     seasonNumber: league.seasonNumber || null,
     playerId: assigned.id,
     playerName: `${assigned.firstName} ${assigned.lastName}`.trim(),
-    role,
+    role: targetRole,
     contractSummary: summarizeContractForNews(negotiation.contract),
   });
   refreshTeamMood(league, teamId);
