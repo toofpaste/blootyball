@@ -716,15 +716,31 @@ function mergeLeagueData(target, source) {
     if (shouldReplaceRosters) {
       target.teamRosters = cloneRosterMap(source.teamRosters);
     } else if (target.teamRosters) {
+      const mergeRosterSide = (targetSide = {}, sourceSide = {}) => {
+        Object.entries(sourceSide).forEach(([role, player]) => {
+          if (!player) return;
+          const existing = targetSide[role];
+          if (!existing || existing.id !== player.id) {
+            targetSide[role] = clonePlayerRecordForLeague(player);
+          }
+        });
+        return targetSide;
+      };
+
       Object.entries(source.teamRosters).forEach(([teamId, roster]) => {
         if (!target.teamRosters[teamId]) {
           target.teamRosters[teamId] = cloneTeamRoster(roster);
           return;
         }
         const entry = target.teamRosters[teamId];
-        entry.offense ||= {};
-        entry.defense ||= {};
-        entry.special ||= {};
+        entry.offense = mergeRosterSide(entry.offense || {}, roster?.offense || {});
+        entry.defense = mergeRosterSide(entry.defense || {}, roster?.defense || {});
+        const special = entry.special || {};
+        const sourceKicker = roster?.special?.K || null;
+        if (sourceKicker && (!special.K || special.K.id !== sourceKicker.id)) {
+          special.K = clonePlayerRecordForLeague(sourceKicker);
+        }
+        entry.special = special;
       });
     }
 
