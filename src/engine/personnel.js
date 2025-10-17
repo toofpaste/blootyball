@@ -4069,8 +4069,34 @@ function signFreeAgentToTeam(league, player, teamId, role, context, reason, nego
   if (!league || !player || !teamId || !role) return;
   const strategy = teamStrategyFromRecord(league?.seasonSnapshot?.teams?.[teamId]);
   const roster = ensureTeamRosterShell(league)[teamId];
-  const side = roleSide(role);
-  const incumbent = side === 'offense' ? roster.offense[role] : side === 'defense' ? roster.defense[role] : roster.special.K;
+  const groupRoles = roleGroupFor(role);
+  const pickRoleOccupant = (roleKey) => {
+    const sideKey = roleSide(roleKey);
+    if (sideKey === 'offense') return roster.offense?.[roleKey] || null;
+    if (sideKey === 'defense') return roster.defense?.[roleKey] || null;
+    return roster.special?.K || null;
+  };
+  let targetRole = role;
+  if (Array.isArray(groupRoles) && groupRoles.length > 1) {
+    const vacancy = groupRoles.find((roleKey) => !pickRoleOccupant(roleKey));
+    if (vacancy) {
+      targetRole = vacancy;
+    } else {
+      let weakest = null;
+      groupRoles.forEach((roleKey) => {
+        const occupant = pickRoleOccupant(roleKey);
+        if (!occupant) return;
+        const value = evaluatePlayerTrueValue(occupant, strategy);
+        if (!weakest || value < weakest.value - 0.0001) {
+          weakest = { role: roleKey, player: occupant, value };
+        }
+      });
+      if (weakest) {
+        targetRole = weakest.role;
+      }
+    }
+  }
+  const incumbent = pickRoleOccupant(targetRole);
   const incumbentValue = incumbent ? evaluatePlayerTrueValue(incumbent, strategy) : null;
   const candidateValue = evaluatePlayerTrueValue(player, strategy);
   const teamNeedScore = computeTeamNeedScore(incumbentValue, candidateValue);
@@ -4092,11 +4118,46 @@ function signFreeAgentToTeam(league, player, teamId, role, context, reason, nego
     }
     return;
   }
-  const assigned = { ...chosen, role, origin: 'free-agent' };
+  const assigned = { ...chosen, role: targetRole, origin: 'free-agent' };
   assigned.loyalty = clamp((assigned.loyalty ?? 0.5) * 0.6 + rand(0.22, 0.4), 0.12, 0.96);
   assigned.contract = negotiation.contract;
   applyContractToPlayer(assigned, assigned.contract);
-  assignPlayerToRoster(league, teamId, role, assigned);
+  let removed = null;
+  if (incumbent) {
+    removed = removePlayerFromRoster(league, teamId, targetRole);
+    if (removed) {
+      adjustPlayerMood(removed, -0.15);
+      pushPlayerToFreeAgency(league, removed, targetRole, 'replaced by signing');
+      const salary = Number.isFinite(removed.contract?.salary) ? removed.contract.salary : 0;
+      const yearsRemaining = Number.isFinite(removed.contract?.yearsRemaining)
+        ? removed.contract.yearsRemaining
+        : Number.isFinite(removed.contract?.years)
+          ? removed.contract.years
+          : 0;
+      const penaltyPerSeason = removed.contract?.temporary ? 0 : Math.round(salary * 0.1);
+      const penaltyDetail = (penaltyPerSeason > 0 && yearsRemaining > 0)
+        ? `Incurs ${formatCurrency(penaltyPerSeason)} cap penalty for ${yearsRemaining} season${yearsRemaining === 1 ? '' : 's'}.`
+        : 'Cap impact minimal.';
+      recordNewsInternal(league, {
+        type: 'release',
+        teamId,
+        text: `${removed.firstName} ${removed.lastName} (${targetRole}) released`,
+        detail: penaltyDetail,
+        seasonNumber: league.seasonNumber || null,
+        playerId: removed.id,
+        playerName: `${removed.firstName} ${removed.lastName}`.trim(),
+        role: targetRole,
+      });
+      if (context?.events) {
+        const identity = getTeamIdentity(teamId)?.abbr || teamId;
+        const awareness = (penaltyPerSeason > 0 && yearsRemaining > 0)
+          ? `${formatCurrency(penaltyPerSeason)} cap hit for ${yearsRemaining} season${yearsRemaining === 1 ? '' : 's'}`
+          : 'minimal cap impact';
+        context.events.push(`${identity} cut ${removed.firstName} ${removed.lastName} (${targetRole}) to clear space, ${awareness}.`);
+      }
+    }
+  }
+  assignPlayerToRoster(league, teamId, targetRole, assigned);
   const identity = getTeamIdentity(teamId)?.abbr || teamId;
   const newsContext = {};
   if (context?.dayNumber != null) newsContext.dayNumber = context.dayNumber;
@@ -4109,12 +4170,12 @@ function signFreeAgentToTeam(league, player, teamId, role, context, reason, nego
   recordNewsInternal(league, {
     type: 'signing',
     teamId,
-    text: `${identity} sign ${assigned.firstName} ${assigned.lastName} (${role})`,
+    text: `${identity} sign ${assigned.firstName} ${assigned.lastName} (${targetRole})`,
     detail: reason || 'Offseason acquisition',
     seasonNumber: league.seasonNumber || null,
     playerId: assigned.id,
     playerName: `${assigned.firstName} ${assigned.lastName}`.trim(),
-    role,
+    role: targetRole,
     contractSummary: summarizeContractForNews(negotiation.contract),
     ...(Object.keys(newsContext).length ? { context: newsContext } : {}),
     ...(suppressAi ? {
@@ -4124,6 +4185,7 @@ function signFreeAgentToTeam(league, player, teamId, role, context, reason, nego
   });
   context.events ||= [];
   context.events.push(`${assigned.firstName} ${assigned.lastName} chooses ${identity}, stirring hot-stove debate.`);
+  ensureFreeAgentRoleCoverage(league, league.seasonNumber || 1, targetRole);
   refreshTeamMood(league, teamId);
 }
 
