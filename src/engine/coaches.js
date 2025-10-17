@@ -39,6 +39,7 @@ export function buildCoachForTeam(teamId, { slot = TEAM_RED, identity = null } =
   coach.identity = identity || null;
   coach.id ||= `${teamId}-HC`;
   coach.playcallingIQ = coach.playcallingIQ ?? coach.tacticalIQ ?? 1.0;
+  coach.acquisitionFocus = coach.acquisitionFocus || coach.philosophy || 'balanced';
   coach.tendencies ||= { passBias: 0, runBias: 0, aggression: 0 };
   coach.development ||= { offense: 0.2, defense: 0.2, qb: 0.2, skill: 0.2, run: 0.2 };
   if (!coach.playerBoosts) coach.playerBoosts = { offense: { team: {}, positions: {} }, defense: { team: {}, positions: {} } };

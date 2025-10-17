@@ -1386,6 +1386,13 @@ function generateCoachCandidate() {
   coach.id = `COACH-FA-${idSuffix}`;
   coach.name = randomCoachName();
   coach.philosophy = choice(['offense', 'defense', 'balanced']);
+  if (!coach.acquisitionFocus || coach.acquisitionFocus === 'balanced') {
+    if (coach.philosophy === 'balanced') {
+      coach.acquisitionFocus = choice(['balanced', 'defense', 'offense', 'balanced']);
+    } else {
+      coach.acquisitionFocus = coach.philosophy;
+    }
+  }
   coach.tacticalIQ = clamp(tieredRandom([0.45, 0.75], [0.75, 1.28], [1.28, 1.48], { lowChance: 0.24, highChance: 0.2 }), 0.4, 1.5);
   let playBase = coach.tacticalIQ + rand(-0.2, 0.2);
   if (Math.random() < 0.18) {
@@ -1456,6 +1463,12 @@ function generateScoutCandidate() {
     origin: 'staff-free-agent',
   };
   scout.capFocus = clamp(tieredRandom([0.22, 0.45], [0.45, 0.78], [0.78, 0.96], { lowChance: 0.24, highChance: 0.18 }), 0.2, 0.95);
+  if (!scout.sidePreference) {
+    const roll = Math.random();
+    if (roll < 0.33) scout.sidePreference = 'offense';
+    else if (roll > 0.67) scout.sidePreference = 'defense';
+    else scout.sidePreference = 'balanced';
+  }
   return updateScoutOverall(scout);
 }
 
@@ -2136,6 +2149,14 @@ export function maybeGenerateLeagueHeadlines(league, season, { game = null } = {
 function ensureScouts(league) {
   if (!league.teamScouts) league.teamScouts = {};
   TEAM_IDS.forEach((teamId) => {
+    const coach = league.teamCoaches?.[teamId] || null;
+    const coachFocus = (() => {
+      if (coach?.acquisitionFocus === 'defense') return 'defense';
+      if (coach?.acquisitionFocus === 'offense') return 'offense';
+      if (coach?.philosophy === 'defense') return 'defense';
+      if (coach?.philosophy === 'offense') return 'offense';
+      return 'balanced';
+    })();
     if (!league.teamScouts[teamId]) {
       const primary = clamp(rand(0.5, 0.95), 0.4, 0.98);
       league.teamScouts[teamId] = updateScoutOverall({
@@ -2146,11 +2167,21 @@ function ensureScouts(league) {
         trade: clamp(primary + rand(-0.15, 0.2), 0.35, 0.96),
         aggression: clamp(rand(0.3, 0.9), 0.2, 0.95),
         capFocus: clamp(rand(0.28, 0.75), 0.2, 0.95),
+        sidePreference: coachFocus === 'balanced'
+          ? choice(['balanced', 'defense', 'offense'])
+          : coachFocus,
       });
     } else {
       const scout = league.teamScouts[teamId];
       if (scout.capFocus == null) {
         scout.capFocus = clamp(rand(0.28, 0.75), 0.2, 0.95);
+      }
+      if (!scout.sidePreference || scout.sidePreference === 'balanced') {
+        if (coachFocus !== 'balanced') {
+          scout.sidePreference = coachFocus;
+        } else if (!scout.sidePreference) {
+          scout.sidePreference = 'balanced';
+        }
       }
       updateScoutOverall(scout);
     }
@@ -3530,6 +3561,55 @@ function runTradeMarket(league, season, { focusTeams, activityDial, context } = 
   }
 }
 
+function resolvePersonnelFocusWeights(league, teamId) {
+  const weights = { offense: 1, defense: 1, special: 0.6 };
+  const coach = league.teamCoaches?.[teamId] || null;
+  const scout = league.teamScouts?.[teamId] || null;
+  const apply = (focus, magnitude) => {
+    if (!focus || focus === 'balanced') return;
+    if (focus === 'defense') {
+      weights.defense += magnitude;
+      weights.offense = Math.max(0.3, weights.offense - magnitude * 0.55);
+    } else if (focus === 'offense') {
+      weights.offense += magnitude;
+      weights.defense = Math.max(0.3, weights.defense - magnitude * 0.55);
+    }
+  };
+  apply(coach?.philosophy, 0.12);
+  apply(coach?.acquisitionFocus, 0.22);
+  apply(scout?.sidePreference, 0.18);
+  weights.offense = Math.max(0.3, weights.offense);
+  weights.defense = Math.max(0.3, weights.defense);
+  weights.special = Math.max(0.2, weights.special);
+  return weights;
+}
+
+function rolePriorityValue(role, roster, weights) {
+  const side = roleSide(role);
+  const base = weights[side] ?? 1;
+  let occupant = null;
+  if (side === 'offense') occupant = roster.offense?.[role] || null;
+  else if (side === 'defense') occupant = roster.defense?.[role] || null;
+  else occupant = roster.special?.K || null;
+  const missingMultiplier = occupant ? 1 : 1.35;
+  const weakMultiplier = occupant && occupant.overall != null && occupant.overall < 55 ? 1.1 : 1;
+  return base * missingMultiplier * weakMultiplier;
+}
+
+function sortRolesByFocus(roles, roster, weights) {
+  return roles
+    .map((role, index) => ({
+      role,
+      index,
+      weight: rolePriorityValue(role, roster, weights),
+    }))
+    .sort((a, b) => {
+      if (Math.abs(b.weight - a.weight) > 0.0001) return b.weight - a.weight;
+      return a.index - b.index;
+    })
+    .map((entry) => entry.role);
+}
+
 function evaluateRosterNeeds(league, teamId) {
   const roster = ensureTeamRosterShell(league)[teamId];
   const needs = [];
@@ -3545,7 +3625,8 @@ function evaluateRosterNeeds(league, teamId) {
     else if (player.overall < 55 && Math.random() < 0.35) needs.push(role);
   });
   if (!roster.special.K || roster.special.K.overall < 55) needs.push('K');
-  return needs;
+  const weights = resolvePersonnelFocusWeights(league, teamId);
+  return sortRolesByFocus(needs, roster, weights);
 }
 
 function fillRosterNeeds(league, teamId, needs, { reason, mode, limitFraction, context } = {}) {
@@ -3582,9 +3663,11 @@ export function ensureTeamRosterComplete(league, teamId, {
   });
   if (!roster.special?.K) missing.push('K');
   if (!missing.length) return false;
+  const weights = resolvePersonnelFocusWeights(league, teamId);
+  const orderedMissing = sortRolesByFocus(missing, roster, weights);
   const strategy = mode || teamStrategyFromRecord(league?.seasonSnapshot?.teams?.[teamId]);
   let filledAny = false;
-  missing.forEach((role) => {
+  orderedMissing.forEach((role) => {
     const side = roleSide(role);
     const currentRoster = ensureTeamRosterShell(league)[teamId];
     const occupant = side === 'offense'
