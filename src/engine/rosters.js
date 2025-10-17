@@ -3,7 +3,7 @@ import { clamp, rand, yardsToPixY } from './helpers';
 import { ENDZONE_YARDS, FIELD_PIX_W } from './constants';
 import { resetMotion } from './motion';
 import { getTeamData, getTeamIdentity } from './data/teamLibrary';
-import { initializeLeaguePersonnel } from './personnel';
+import { initializeLeaguePersonnel, enforceGameDayRosterMinimums } from './personnel';
 
 /* =========================================================
    Player factories (persistent per-team pools)
@@ -143,7 +143,13 @@ function makeKicker(team, data = {}, meta = {}) {
 export function createTeams(matchup = null, league = null) {
     const slotToTeam = matchup?.slotToTeam || { [TEAM_RED]: TEAM_RED, [TEAM_BLK]: TEAM_BLK };
     const identities = matchup?.identities || {};
-    if (league) initializeLeaguePersonnel(league);
+    if (league) {
+        initializeLeaguePersonnel(league);
+        const targets = [...new Set(Object.values(slotToTeam || {}).filter(Boolean))];
+        if (targets.length) {
+            enforceGameDayRosterMinimums(league, targets);
+        }
+    }
     const leagueRosters = league?.teamRosters || null;
 
     const buildSide = (team) => {
