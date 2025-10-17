@@ -1273,6 +1273,9 @@ function buildPunishmentReplacementPlayer(teamId, role, seasonNumber) {
 
 export function enforceGameDayRosterMinimums(league, teamIds = null, { reason = 'game-day penalty' } = {}) {
   if (!league) return [];
+  if (league?.offseason?.active) {
+    return [];
+  }
   const rosters = ensureTeamRosterShell(league);
   const targets = teamIds
     ? [...new Set((Array.isArray(teamIds) ? teamIds : [teamIds]).filter(Boolean))]
