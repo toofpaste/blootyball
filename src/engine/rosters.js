@@ -149,11 +149,12 @@ export function createTeams(matchup = null, league = null) {
     const buildSide = (team) => {
         const actualId = slotToTeam[team] || team;
         const rosterSource = leagueRosters?.[actualId] || null;
-        const teamData = rosterSource ? null : (getTeamData(actualId) || {});
+        const teamData = !league ? (getTeamData(actualId) || {}) : null;
         const identity = identities[team] || getTeamIdentity(actualId) || { id: actualId, displayName: actualId };
         const off = {}; const def = {};
         ROLES_OFF.forEach((r) => {
-            const data = rosterSource?.offense?.[r] || teamData?.offense?.[r] || {};
+            const data = rosterSource?.offense?.[r] || (!league ? teamData?.offense?.[r] : null);
+            if (!data) return;
             off[r] = makePlayer(team, r, data, {
                 teamId: actualId,
                 colors: identity.colors,
@@ -162,7 +163,8 @@ export function createTeams(matchup = null, league = null) {
             });
         });
         ROLES_DEF.forEach((r) => {
-            const data = rosterSource?.defense?.[r] || teamData?.defense?.[r] || {};
+            const data = rosterSource?.defense?.[r] || (!league ? teamData?.defense?.[r] : null);
+            if (!data) return;
             def[r] = makePlayer(team, r, data, {
                 teamId: actualId,
                 colors: identity.colors,
@@ -170,15 +172,16 @@ export function createTeams(matchup = null, league = null) {
                 abbr: identity.abbr,
             });
         });
-        const kickerData = rosterSource?.special?.K || teamData?.specialTeams?.K || {};
-        const special = {
-            K: makeKicker(team, kickerData, {
+        const kickerData = rosterSource?.special?.K || (!league ? teamData?.specialTeams?.K : null);
+        const special = {};
+        if (kickerData) {
+            special.K = makeKicker(team, kickerData, {
                 teamId: actualId,
                 colors: identity.colors,
                 displayName: identity.displayName,
                 abbr: identity.abbr,
-            }),
-        };
+            });
+        }
         return { off, def, special };
     };
     return {
