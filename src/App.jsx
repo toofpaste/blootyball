@@ -1273,11 +1273,14 @@ export default function App() {
   }, []);
 
   const handleAdvanceOffseasonDay = useCallback(() => {
-    const controller = gameRefs.current.find((instance) => (
-      instance && typeof instance.advanceOffseasonDay === 'function'
-    ));
-    if (!controller) return;
-    controller.advanceOffseasonDay();
+    let advanced = false;
+    gameRefs.current.forEach((instance) => {
+      if (instance && typeof instance.advanceOffseasonDay === 'function') {
+        instance.advanceOffseasonDay();
+        advanced = true;
+      }
+    });
+    if (!advanced) return;
     const nowTs = Date.now();
     setNow(nowTs);
     setTimeout(() => {
