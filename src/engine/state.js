@@ -2310,29 +2310,47 @@ export function resumeAssignedMatchup(state) {
 export function progressOffseason(state, now = Date.now()) {
     if (!state?.league) return state;
     const { progressed, readyForNextSeason } = progressLeagueOffseason(state.league, state.season, now);
-    if (!progressed && !readyForNextSeason) {
-        return state;
-    }
+    const league = state.league;
 
-    if (readyForNextSeason) {
-        state.league.offseason.nextSeasonStarted = true;
-        const stride = state.season?.assignmentStride || state.season?.assignment?.stride || 1;
-        const offset = state.season?.assignmentOffset ?? state.season?.assignment?.offset ?? 0;
+    const stride = state.season?.assignmentStride || state.season?.assignment?.stride || 1;
+    const offset = state.season?.assignmentOffset ?? state.season?.assignment?.offset ?? 0;
+
+    const restartSeasonState = () => {
+        league.offseason ||= {};
+        league.offseason.nextSeasonStarted = true;
         const restart = createInitialGameState({
             assignmentOffset: offset,
             assignmentStride: stride,
-            league: state.league,
+            league,
             lockstepAssignments: state.lockstepAssignments,
         });
         restart.debug = state.debug;
         restart.lockstepAssignments = state.lockstepAssignments;
-        if (restart.league?.offseason) {
-            restart.league.offseason.nextSeasonStarted = true;
-        }
+        restart.league.offseason ||= {};
+        restart.league.offseason.nextSeasonStarted = true;
         return restart;
+    };
+
+    const seasonNumber = state.season?.seasonNumber ?? null;
+    const leagueSeasonNumber = league.seasonNumber ?? seasonNumber;
+    const nextSeasonStarted = !!league.offseason?.nextSeasonStarted;
+    const seasonMissing = !state.season || seasonNumber == null;
+    const seasonBehindLeague = Number.isFinite(leagueSeasonNumber)
+        && (!Number.isFinite(seasonNumber) || seasonNumber < leagueSeasonNumber);
+
+    if (readyForNextSeason) {
+        return restartSeasonState();
     }
 
-    return { ...state, league: { ...state.league } };
+    if (nextSeasonStarted && (seasonMissing || seasonBehindLeague)) {
+        return restartSeasonState();
+    }
+
+    if (!progressed) {
+        return state;
+    }
+
+    return { ...state, league: { ...league } };
 }
 
 
