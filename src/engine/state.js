@@ -624,6 +624,48 @@ function finalizeLeagueForSeason(state, result) {
     });
 }
 
+function buildSeasonFinalSummary(state, latestResult, currentTag, game) {
+    const season = state?.season || null;
+    const bracket = season?.playoffBracket || null;
+    const championship = bracket?.championshipGame || null;
+    const fallbackScore = latestResult?.score || championship?.score || {};
+    const fallbackHome = latestResult?.homeTeamId
+        ?? championship?.homeTeam
+        ?? game?.homeTeam
+        ?? null;
+    const fallbackAway = latestResult?.awayTeamId
+        ?? championship?.awayTeam
+        ?? game?.awayTeam
+        ?? null;
+
+    if (currentTag === 'playoff-championship' && latestResult) {
+        return latestResult;
+    }
+
+    if (championship) {
+        return {
+            gameId: championship.id ?? latestResult?.gameId ?? null,
+            index: championship.index ?? latestResult?.index ?? null,
+            homeTeamId: fallbackHome,
+            awayTeamId: fallbackAway,
+            score: championship.score || fallbackScore || {},
+            winner: championship.winner ?? bracket?.champion ?? latestResult?.winner ?? null,
+            tag: 'playoff-championship',
+        };
+    }
+
+    const resolvedWinner = bracket?.champion ?? latestResult?.winner ?? null;
+    return {
+        gameId: latestResult?.gameId ?? null,
+        index: latestResult?.index ?? null,
+        homeTeamId: fallbackHome,
+        awayTeamId: fallbackAway,
+        score: fallbackScore || {},
+        winner: resolvedWinner,
+        tag: resolvedWinner ? 'playoff-championship' : (latestResult?.tag ?? currentTag ?? null),
+    };
+}
+
 function prepareGameForMatchup(state, matchup) {
     if (!matchup) {
         state.matchup = null;
@@ -759,10 +801,8 @@ function finalizeCurrentGame(state) {
         }
 
         if (!nextMatchup && seasonCompleted(state.season)) {
-            if (currentTag === 'playoff-championship' && latestResult) {
-                finalizeLeagueForSeason(state, latestResult);
-            } else if (state.season.playoffBracket?.champion && state.league) {
-                const summary = state.season.playoffBracket.championshipGame || latestResult;
+            if (state.league) {
+                const summary = buildSeasonFinalSummary(state, latestResult, currentTag, game);
                 finalizeLeagueForSeason(state, summary);
             }
             state.matchup = null;
@@ -773,10 +813,6 @@ function finalizeCurrentGame(state) {
             state.play = { phase: 'COMPLETE', resultText: 'Season complete' };
             return { ...state, season: { ...state.season } };
         }
-    }
-
-    if (currentTag === 'playoff-championship' && latestResult) {
-        finalizeLeagueForSeason(state, latestResult);
     }
 
     if (state.lockstepAssignments) {
