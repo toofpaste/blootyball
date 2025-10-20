@@ -546,34 +546,6 @@ export function moveBall(s, dt) {
                 const dropProbability = clamp(dropBase + dropHands + dropContact + dropRisk + depthDrop + traitDrop + accuracyDrop - openDropRelief, 0.03, 0.6);
                 const completionChance = clamp(catchProbability * (1 - dropProbability), 0, 1);
 
-                if (typeof console !== 'undefined' && console?.log) {
-                    const targetName = r.profile?.fullName || r.role || r.id;
-                    console.log('[Pass Target]', {
-                        target: {
-                            id: r.id,
-                            name: targetName,
-                            role: r.role ?? null,
-                        },
-                        catchModifiers: {
-                            baseCatch: r.attrs?.catch ?? null,
-                            hands,
-                            handsTrait,
-                            precisionTrait,
-                            qbAccBoost,
-                            ballAcc,
-                            separationPixels: separation ?? null,
-                            separationYards,
-                            openRatio,
-                            openBonus,
-                            baseCatchChance,
-                            catchProbability,
-                            dropProbability,
-                            completionChance,
-                            completionPercent: Math.round(completionChance * 1000) / 10,
-                        },
-                    });
-                }
-
                 if (Math.random() < catchProbability) {
                     if (Math.random() < dropProbability) {
                         s.play.deadAt = s.play.elapsed;

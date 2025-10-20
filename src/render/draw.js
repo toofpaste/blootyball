@@ -448,13 +448,7 @@ function drawField(ctx, state) {
     }
 
     if (isBluperBowl) {
-        const centerpieceColor = blendTeamColors(
-            homeIdentity?.color,
-            awayIdentity?.color,
-            0.5,
-            '#d7b957',
-        );
-        drawBluperBowlCenterpiece(ctx, centerpieceColor);
+        drawBluperBowlCenterpiece(ctx);
     }
 
     const homeLabel = homeIdentity?.shortName || homeIdentity?.displayName || null;
@@ -675,18 +669,47 @@ function drawEndzoneLabel(ctx, centerY, text, color, rotate180 = false) {
     ctx.restore();
 }
 
-function drawBluperBowlCenterpiece(ctx, fillColor = '#d7b957') {
+function drawBluperBowlCenterpiece(ctx) {
+    const baseColor = '#d7b957';
+    const accentColor = '#eddc86';
+    const highlightColor = '#fff6ce';
+    const shadowColor = '#b58c2a';
+    const shimmerCycleMs = 2200;
+    const now = (typeof performance !== 'undefined' && typeof performance.now === 'function')
+        ? performance.now()
+        : Date.now();
+    const phase = (now % shimmerCycleMs) / shimmerCycleMs;
+    const bandWidth = 0.18;
+    const clamp01 = (value) => Math.max(0, Math.min(1, value));
+    const start = clamp01(phase - bandWidth);
+    const end = clamp01(phase + bandWidth);
+    const leftMid = clamp01(start + (phase - start) * 0.5);
+    const rightMid = clamp01(phase + (end - phase) * 0.5);
+
+    const gradient = ctx.createLinearGradient(-420, 0, 420, 0);
+    gradient.addColorStop(0, shadowColor);
+    gradient.addColorStop(start, baseColor);
+    if (leftMid > start) gradient.addColorStop(leftMid, accentColor);
+    gradient.addColorStop(clamp01(phase), highlightColor);
+    if (rightMid < end) gradient.addColorStop(rightMid, accentColor);
+    gradient.addColorStop(end, baseColor);
+    gradient.addColorStop(1, shadowColor);
+
     ctx.save();
     ctx.translate(FIELD_PIX_W / 2, FIELD_PIX_H / 2);
-    ctx.rotate(-Math.PI / 2);
+    ctx.rotate(Math.PI / 2);
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.font = '800 58px "Arial Black", "Oswald", sans-serif';
     ctx.lineWidth = 6;
-    ctx.globalAlpha = 0.72;
     ctx.strokeStyle = 'rgba(0, 0, 0, 0.35)';
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.3)';
+    ctx.shadowBlur = 10;
     ctx.strokeText('BLUPERBOWL', 0, 0);
-    ctx.fillStyle = fillColor || '#d7b957';
+    ctx.globalAlpha = 0.85;
+    ctx.shadowColor = 'rgba(255, 225, 128, 0.45)';
+    ctx.shadowBlur = 20;
+    ctx.fillStyle = gradient;
     ctx.fillText('BLUPERBOWL', 0, 0);
     ctx.restore();
 }
