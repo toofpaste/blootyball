@@ -34,4 +34,22 @@ describe('progressOffseason', () => {
     expect(updated.season.teams[teamId].record.wins).toBe(0);
     expect(updated.season.teams[teamId].pointsFor).toBe(0);
   });
+
+  test('both assignment slots resume play after inaugural offseason', () => {
+    const slots = [
+      createInitialGameState({ assignmentOffset: 0, assignmentStride: 2, lockstepAssignments: true }),
+      createInitialGameState({ assignmentOffset: 1, assignmentStride: 2, lockstepAssignments: true }),
+    ];
+
+    slots.forEach((state) => {
+      state.league.offseason.active = false;
+      state.league.offseason.nextSeasonReady = true;
+      state.league.offseason.nextSeasonStarted = false;
+    });
+
+    const progressed = slots.map((state) => progressOffseason(state));
+
+    expect(progressed[0].matchup).not.toBeNull();
+    expect(progressed[1].matchup).not.toBeNull();
+  });
 });
