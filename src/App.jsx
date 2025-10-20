@@ -990,8 +990,8 @@ function pickLastCompletedGame(snapshots) {
   };
 }
 
-function combineSeasonSnapshots(rawSnapshots) {
-  const snapshots = rawSnapshots
+export function combineSeasonSnapshots(rawSnapshots) {
+  let snapshots = rawSnapshots
     .map((snapshot, index) => ({
       snapshot,
       season: snapshot?.season || null,
@@ -1000,6 +1000,18 @@ function combineSeasonSnapshots(rawSnapshots) {
     .filter((entry) => entry.season);
 
   if (!snapshots.length) return null;
+
+  const seasonNumbers = snapshots
+    .map(({ season }) => season?.seasonNumber)
+    .filter((value) => Number.isFinite(value));
+
+  if (seasonNumbers.length) {
+    const latestSeason = Math.max(...seasonNumbers);
+    const sameSeason = snapshots.filter(({ season }) => season?.seasonNumber === latestSeason);
+    if (sameSeason.length) {
+      snapshots = sameSeason;
+    }
+  }
 
   snapshots.sort((a, b) => {
     const aOffset = a.season?.assignmentOffset ?? a.season?.currentGameIndex ?? 0;
@@ -1041,8 +1053,8 @@ function combineSeasonSnapshots(rawSnapshots) {
     combinedSeason.currentGameIndex = Math.min(...nextIndexCandidates);
   }
 
-  const leagueEntries = rawSnapshots
-    .map((snapshot, index) => ({
+  const leagueEntries = snapshots
+    .map(({ snapshot, index }) => ({
       league: snapshot?.league || null,
       index,
     }))
