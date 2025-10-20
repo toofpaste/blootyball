@@ -1,5 +1,5 @@
 import { createInitialGameState, progressOffseason } from './state';
-import { TEAM_IDS } from './constants';
+import { TEAM_IDS } from './data/teamLibrary';
 
 describe('progressOffseason', () => {
   test('restarts season when league has already advanced', () => {

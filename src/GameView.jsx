@@ -180,6 +180,16 @@ const GameView = React.forwardRef(function GameView({
   }, [state.gameComplete, globalRunning, localRunning, gameIndex, onGameComplete]);
 
   useEffect(() => {
+    const offseason = state?.league?.offseason;
+    if (!offseason) return;
+    if (!offseason.nextSeasonReady || offseason.nextSeasonStarted) return;
+    setState((prev) => {
+      const next = progressOffseason(prev);
+      return next === prev ? prev : next;
+    });
+  }, [state]);
+
+  useEffect(() => {
     const token = resetSignal?.token ?? 0;
     const previousConfig = lastSeasonConfigRef.current;
     const currentConfig = seasonConfig;
