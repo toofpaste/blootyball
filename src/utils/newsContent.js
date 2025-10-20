@@ -322,7 +322,7 @@ function fallbackPressArticle(context) {
   };
 }
 
-async function generatePressArticle({ league, season, seasonProgress, coverageWeek, angle }) {
+async function generatePressArticle({ league, season, seasonProgress, coverageWeek, angle, allowAi = true }) {
   if (!league || !season) return null;
   const standings = buildStandings(season, league);
   const recentResults = buildRecentResults(season, seasonProgress, 8);
@@ -346,6 +346,10 @@ async function generatePressArticle({ league, season, seasonProgress, coverageWe
   };
 
   const fallback = fallbackPressArticle(context);
+
+  if (!allowAi) {
+    return fallback;
+  }
 
   const angleFocus = [
     angle?.description ? `Angle description: ${angle.description}` : null,
