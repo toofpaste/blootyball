@@ -5,6 +5,8 @@ export default function GlobalControls({
   onToggleRunning,
   simSpeed,
   onSimSpeedChange,
+  onToggleSeasonLength,
+  longSeasonEnabled,
   onShowTeamDirectory,
   onShowSeasonStats,
   onShowSchedule,
@@ -27,7 +29,8 @@ export default function GlobalControls({
     }
   };
 
-  const progressText = seasonProgressLabel || 'Week 1 of 16';
+  const defaultProgressText = longSeasonEnabled ? 'Week 1 of 14' : 'Week 1 of 7';
+  const progressText = seasonProgressLabel || defaultProgressText;
 
   const formatCountdown = (ms) => {
     if (!Number.isFinite(ms)) return '--:--';
@@ -91,6 +94,14 @@ export default function GlobalControls({
       <span className="global-controls__season" aria-live="polite">{progressText}</span>
       <button type="button" className="global-controls__button" onClick={onToggleRunning}>
         {running ? 'Pause' : 'Start'}
+      </button>
+      <button
+        type="button"
+        className="global-controls__button global-controls__button--secondary"
+        onClick={() => onToggleSeasonLength?.()}
+        aria-pressed={!!longSeasonEnabled}
+      >
+        Long Season: {longSeasonEnabled ? 'On' : 'Off'}
       </button>
       {canAdvanceOffseason ? (
         <button

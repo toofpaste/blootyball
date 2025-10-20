@@ -3,7 +3,7 @@ import { TEAM_IDS } from './data/teamLibrary';
 
 describe('generateSeasonSchedule', () => {
   it('creates a balanced 14-game season for each team', () => {
-    const schedule = generateSeasonSchedule();
+    const schedule = generateSeasonSchedule(TEAM_IDS, { longSeason: true });
     const counts = new Map(TEAM_IDS.map((id) => [id, 0]));
     const pairCounts = new Map();
 
@@ -67,3 +67,27 @@ describe('generateSeasonSchedule', () => {
     });
   });
 });
+  it('creates a single round robin when long season is disabled', () => {
+    const schedule = generateSeasonSchedule(TEAM_IDS, { longSeason: false });
+    const counts = new Map(TEAM_IDS.map((id) => [id, 0]));
+    const pairCounts = new Map();
+
+    schedule.forEach(({ homeTeam, awayTeam }) => {
+      counts.set(homeTeam, counts.get(homeTeam) + 1);
+      counts.set(awayTeam, counts.get(awayTeam) + 1);
+      const sortedKey = [homeTeam, awayTeam].sort().join(' vs ');
+      pairCounts.set(sortedKey, (pairCounts.get(sortedKey) || 0) + 1);
+    });
+
+    TEAM_IDS.forEach((id) => {
+      expect(counts.get(id)).toBe(7);
+    });
+
+    pairCounts.forEach((count) => {
+      expect(count).toBe(1);
+    });
+
+    const weekSet = new Set(schedule.map((game) => game.week));
+    expect(weekSet.size).toBe(7);
+    expect(schedule).toHaveLength(28);
+  });

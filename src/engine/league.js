@@ -720,7 +720,8 @@ export function formatRecord(record) {
   return ties ? `${base}-${ties}` : base;
 }
 
-export function generateSeasonSchedule(teamIds = TEAM_IDS) {
+export function generateSeasonSchedule(teamIds = TEAM_IDS, options = {}) {
+  const { longSeason = true } = options || {};
   const ids = [...teamIds];
   if (!ids.length) return [];
 
@@ -777,8 +778,10 @@ export function generateSeasonSchedule(teamIds = TEAM_IDS) {
     }));
 
     const firstHalf = baseWeeks.map((pairs) => buildWeek(pairs, 'regular-season', false));
-    const secondHalf = baseWeeks.map((pairs) => buildWeek(pairs, 'regular-season-rematch', true));
-    const weeks = [...firstHalf, ...secondHalf];
+    const secondHalf = longSeason
+      ? baseWeeks.map((pairs) => buildWeek(pairs, 'regular-season-rematch', true))
+      : [];
+    const weeks = longSeason ? [...firstHalf, ...secondHalf] : firstHalf;
 
     return weeks
       .flatMap((games, weekIndex) => games.map((game, slotIndex) => ({
@@ -844,7 +847,9 @@ export function generateSeasonSchedule(teamIds = TEAM_IDS) {
       tag: 'rivalry-week',
     })));
 
-  const weeks = [...firstLegWeeks, ...rematchWeeks, ...extraWeeks];
+  const weeks = longSeason
+    ? [...firstLegWeeks, ...rematchWeeks, ...extraWeeks]
+    : firstLegWeeks;
 
   return weeks.flatMap((games, weekIndex) => games.map((game, slotIndex) => ({
     ...game,
@@ -863,9 +868,14 @@ export function createSeasonState(options = {}) {
     playerDevelopment = {},
     playerAges = {},
     previousAwards = [],
+    longSeason: longSeasonOption = null,
+    seasonConfig = {},
   } = options;
 
-  const schedule = generateSeasonSchedule();
+  const longSeason = seasonConfig.longSeason ?? (longSeasonOption ?? true);
+  const resolvedConfig = { ...seasonConfig, longSeason };
+
+  const schedule = generateSeasonSchedule(TEAM_IDS, { longSeason });
   const teams = {};
   const assignmentTotals = {};
   TEAM_IDS.forEach((id) => {
@@ -894,6 +904,7 @@ export function createSeasonState(options = {}) {
     previousAwards,
     championTeamId: null,
     championResult: null,
+    config: resolvedConfig,
   };
 }
 
