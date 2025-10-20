@@ -128,12 +128,17 @@ function fallbackPlayerArticle(context) {
     preview,
     article,
     tone: 'balanced',
+    source: 'fallback',
   };
 }
 
-async function generatePlayerNewsContent({ league, season, entry }) {
+async function generatePlayerNewsContent({ league, season, entry, allowAi = true }) {
   const context = buildNewsPromptContext({ league, season, entry });
   const fallback = fallbackPlayerArticle(context);
+
+  if (!allowAi) {
+    return fallback;
+  }
 
   const userPrompt = `You are writing a quirky yet heartfelt sports news blurb for a fictional football universe. `
     + `Use the provided JSON context to craft a new headline and an 8-10 sentence article that elaborates on the situation. `
@@ -166,6 +171,7 @@ async function generatePlayerNewsContent({ league, season, entry }) {
     preview: parsed.preview || fallback.preview,
     article: parsed.article || fallback.article,
     tone: parsed.tone || 'dynamic',
+    source: 'chatgpt',
   };
 }
 
