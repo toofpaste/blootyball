@@ -1762,20 +1762,22 @@ function maybeForceFumble(s, { carrier, carrierRole, tackler, severity = 1 } = {
     const carrierSecurity = clamp(carrier.attrs?.ballSecurity ?? 0.78, 0.4, 1.6);
     const carrierAwareness = clamp(carrier.attrs?.awareness ?? 0.9, 0.4, 1.4);
     const carrierStrength = clamp(carrier.attrs?.strength ?? 0.9, 0.4, 1.5);
-    const tacklerSkill = clamp(tackler?.attrs?.tackle ?? 0.9, 0.4, 1.5);
+    const tacklerSkill = clamp(tackler?.attrs?.tackle ?? 0.9, 0.4, 1.6);
+    const tacklerStrength = clamp(tackler?.attrs?.strength ?? 1, 0.5, 1.6);
     const stripTrait = clamp((tackler?.modifiers?.tackle ?? 0.5) - 0.5, -0.3, 0.3);
     const ballTrait = clamp((carrier?.modifiers?.ballSecurity ?? 0.5) - 0.5, -0.3, 0.3);
 
-    let chance = 0.035;
-    chance += (tacklerSkill - 1) * 0.1;
-    chance -= (carrierSecurity - 0.85) * 0.22;
-    chance -= (carrierAwareness - 1) * 0.08;
-    chance -= (carrierStrength - 1) * 0.06;
-    chance += stripTrait * 0.18;
-    chance -= ballTrait * 0.16;
-    chance += (severity - 1) * 0.08;
-    if (carrierRole === 'QB') chance += 0.03;
-    chance = clamp(chance, 0.015, 0.32);
+    let chance = 0.028;
+    chance += (tacklerSkill - 1) * 0.22;
+    chance += (tacklerStrength - 1) * 0.18;
+    chance -= (carrierSecurity - 0.85) * 0.4;
+    chance -= (carrierAwareness - 1) * 0.18;
+    chance -= (carrierStrength - 1) * 0.28;
+    chance += stripTrait * 0.22;
+    chance -= ballTrait * 0.2;
+    chance += (severity - 1) * 0.12;
+    if (carrierRole === 'QB') chance += 0.05;
+    chance = clamp(chance, 0.01, 0.5);
 
     if (!forced && Math.random() > chance) return false;
 
@@ -2830,23 +2832,31 @@ export function defenseLogic(s, dt) {
                 (s.play.events ||= []).push({ t: s.play.elapsed, type: 'tackle:wrapHold', carrierId, byId: wr.byId }); endWrap(s); return;
             }
             const tacklerSkill = (tackler?.attrs?.tackle ?? 0.9), carStr = (ballCarrier.attrs?.strength ?? 0.85), carIQ = clamp(ballCarrier.attrs?.awareness ?? 1.0, 0.4, 1.3);
+            const tacklerStrength = clamp(tackler?.attrs?.strength ?? 1.0, 0.5, 1.6);
+            const carrierAgility = clamp(ballCarrier.attrs?.agility ?? 1.0, 0.5, 1.4);
             const tackleTrait = clamp((tackler?.modifiers?.tackle ?? 0.5) - 0.5, -0.3, 0.3);
             const breakTrait = clamp((ballCarrier?.modifiers?.breakTackle ?? 0.5) - 0.5, -0.3, 0.3);
             const tacklerRole = tackler?.role || '';
             const isSecondary = tacklerRole.startsWith('CB') || tacklerRole.startsWith('S') || tacklerRole === 'NB';
-            let tackleChance = 0.66 + (tacklerSkill - carStr) * 0.22 - (carIQ - 1.0) * 0.10 + assistants * 0.08 + (Math.random() * 0.10 - 0.05);
-            tackleChance += tackleTrait * 0.25;
-            tackleChance -= breakTrait * 0.22;
+            let tackleChance = 0.62
+                + (tacklerSkill - carStr) * 0.32
+                + (tacklerStrength - carStr) * 0.24
+                - (carIQ - 1.0) * 0.12
+                - (carrierAgility - 1.0) * 0.10
+                + assistants * 0.08
+                + (Math.random() * 0.10 - 0.05);
+            tackleChance += tackleTrait * 0.28;
+            tackleChance -= breakTrait * 0.26;
             const designedRun = s.play?.playCall?.type === 'RUN' && typeof s.play?.handoffTime === 'number';
             const rbRun = designedRun && (carrierRole === 'RB' || carrierId === (off.RB?.id ?? 'RB'));
             if (rbRun) {
                 const visionTrait = clamp((ballCarrier?.modifiers?.vision ?? 0.5) - 0.5, -0.25, 0.25);
-                const powerEdge = clamp((ballCarrier.attrs?.strength ?? 0.9) - 0.95, -0.25, 0.4);
-                const runResist = clamp(0.14 + breakTrait * 0.32 + visionTrait * 0.18 + powerEdge * 0.24, -0.05, 0.42);
+                const powerEdge = clamp((ballCarrier.attrs?.strength ?? 0.9) - 0.95, -0.4, 0.6);
+                const runResist = clamp(0.16 + breakTrait * 0.36 + visionTrait * 0.18 + powerEdge * 0.38, -0.05, 0.55);
                 tackleChance -= runResist;
                 if (isSecondary) {
                     const pursuit = clamp((tackler?.attrs?.speed ?? 0.9) - 0.85, -0.2, 0.35);
-                    tackleChance += 0.14 + pursuit * 0.35;
+                    tackleChance += 0.14 + pursuit * 0.35 + (tacklerStrength - 1.0) * 0.12;
                 }
             }
             let successThreshold = 0.5;

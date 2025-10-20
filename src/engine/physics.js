@@ -54,18 +54,21 @@ function applyMomentumPush(attacker, target, normal, dt) {
     if (rel <= 0) return;
     const attackerMass = resolveMass(attacker);
     const targetMass = resolveMass(target);
+    const attackerStrength = clamp(attacker?.attrs?.strength ?? 1, 0.5, 1.6);
+    const targetStrength = clamp(target?.attrs?.strength ?? 1, 0.5, 1.6);
     const targetSpeed = target.motion.speed || Math.hypot(target.motion.vx, target.motion.vy);
-    const momentum = rel * attackerMass;
-    const resistance = Math.max(0.3, targetMass * 0.9 + targetSpeed * 0.08);
-    const impulse = Math.max(0, (momentum - resistance) * 0.32);
+    const strengthEdge = clamp(attackerStrength / Math.max(targetStrength, 0.5), 0.5, 2.2);
+    const momentum = rel * attackerMass * (0.85 + (attackerStrength - 1) * 0.35);
+    const resistance = Math.max(0.25, targetMass * (0.75 + (targetStrength - 1) * 0.6) + targetSpeed * 0.08);
+    const impulse = Math.max(0, (momentum - resistance) * 0.32 * strengthEdge);
     if (impulse <= 0) return;
     const push = clamp(impulse * (dt * 42), 0, 18);
     target.pos.x += normal.x * push;
     target.pos.y += normal.y * push;
-    target.motion.vx += normal.x * impulse * 0.45;
-    target.motion.vy += normal.y * impulse * 0.45;
-    attacker.motion.vx -= normal.x * impulse * 0.2;
-    attacker.motion.vy -= normal.y * impulse * 0.2;
+    target.motion.vx += normal.x * impulse * clamp(0.35 + (1 - targetStrength) * 0.25, 0.2, 0.6);
+    target.motion.vy += normal.y * impulse * clamp(0.35 + (1 - targetStrength) * 0.25, 0.2, 0.6);
+    attacker.motion.vx -= normal.x * impulse * clamp(0.18 + (attackerStrength - 1) * 0.12, 0.08, 0.35);
+    attacker.motion.vy -= normal.y * impulse * clamp(0.18 + (attackerStrength - 1) * 0.12, 0.08, 0.35);
     clampToField(target.pos);
     clampToField(attacker.pos);
 }
