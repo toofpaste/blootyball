@@ -270,6 +270,7 @@ function cloneSeason(season) {
     championResult: season.championResult ? cloneResult(season.championResult) : null,
     playerAges: { ...(season.playerAges || {}) },
     previousAwards: Array.isArray(season.previousAwards) ? season.previousAwards.map((entry) => cloneAwardsEntry(entry) || null).filter(Boolean) : [],
+    config: season.config ? { ...season.config } : null,
   };
 }
 
@@ -308,6 +309,10 @@ function mergeTeamEntry(target, source = {}) {
 
 function mergeSeasonData(target, source) {
   if (!target || !source) return;
+
+  if (source.config) {
+    target.config = target.config ? { ...target.config, ...source.config } : { ...source.config };
+  }
 
   Object.entries(source.teams || {}).forEach(([id, team]) => {
     if (!target.teams[id]) {
@@ -540,6 +545,10 @@ function cloneLeague(league) {
     acc[teamId] = value ?? 0;
     return acc;
   }, {});
+  const settings = league.settings ? { ...league.settings } : null;
+  if (settings?.season) {
+    settings.season = { ...settings.season };
+  }
   return {
     ...league,
     playerDevelopment: clonePlayerDevelopmentMap(league.playerDevelopment || {}),
@@ -573,12 +582,23 @@ function cloneLeague(league) {
     teamWikiAiLog,
     teamPayroll,
     salaryCap: league.salaryCap ?? 100000000,
+    settings,
   };
 }
 
 function mergeLeagueData(target, source) {
   if (!target || !source) return;
   target.seasonNumber = Math.max(target.seasonNumber || 1, source.seasonNumber || 1);
+  if (source.settings) {
+    target.settings ||= {};
+    Object.entries(source.settings).forEach(([key, value]) => {
+      if (key === 'season' && value) {
+        target.settings.season = { ...(target.settings.season || {}), ...value };
+      } else if (value != null) {
+        target.settings[key] = value;
+      }
+    });
+  }
   target.playerDevelopment ||= {};
   mergePlayerDevelopmentMap(target.playerDevelopment, source.playerDevelopment || {});
   target.playerAges = { ...(target.playerAges || {}), ...(source.playerAges || {}) };
@@ -1175,7 +1195,9 @@ export default function App() {
   const [seasonSnapshots, setSeasonSnapshots] = useState(() => []);
   const [wikiOverrides, setWikiOverrides] = useState({ seasonNumber: 0, teams: {} });
   const [now, setNow] = useState(() => Date.now());
+  const [longSeasonEnabled, setLongSeasonEnabled] = useState(false);
   const gameRefs = useRef([]);
+  const seasonConfig = useMemo(() => ({ longSeason: longSeasonEnabled }), [longSeasonEnabled]);
 
   const handleGameComplete = useCallback((index, { shouldAutoResume } = {}) => {
     setCompletionFlags(prev => {
@@ -1222,6 +1244,17 @@ export default function App() {
 
   const handleSimSpeedChange = useCallback((value) => {
     setSimSpeed(value);
+  }, []);
+
+  const handleToggleSeasonLength = useCallback(() => {
+    setGlobalRunning(false);
+    autoResumeRef.current = Array(GAME_COUNT).fill(false);
+    setCompletionFlags(Array(GAME_COUNT).fill(false));
+    setLongSeasonEnabled((prev) => !prev);
+    setResetSignal((prev) => ({
+      token: prev.token + 1,
+      autoResume: Array(GAME_COUNT).fill(false),
+    }));
   }, []);
 
   const collectSeasonSnapshots = useCallback(() => {
@@ -1352,6 +1385,10 @@ export default function App() {
     [aggregatedSeasonStats],
   );
 
+  const seasonProgressLabel = aggregatedSeasonStats?.season
+    ? seasonProgress.label
+    : (longSeasonEnabled ? 'Week 1 of 14' : 'Week 1 of 7');
+
   const offseasonState = aggregatedSeasonStats?.league?.offseason || null;
 
   const offseasonInfo = useMemo(() => {
@@ -1470,22 +1507,24 @@ export default function App() {
           running={globalRunning}
           onToggleRunning={handleToggleRunning}
           simSpeed={simSpeed}
-        onSimSpeedChange={handleSimSpeedChange}
-        onShowTeamDirectory={handleOpenTeamDirectory}
-        onShowSeasonStats={handleOpenSeasonStats}
-        onShowSchedule={handleOpenSchedule}
-        onShowLeaderboards={handleOpenLeaderboards}
-        onShowNews={handleOpenNews}
-        onShowPressArticles={handleOpenPress}
-        onShowFreeAgents={handleOpenFreeAgents}
-        onShowRecordBook={handleOpenRecordBook}
-        onShowLeagueWiki={handleOpenLeagueWiki}
-        onAdvanceOffseasonDay={handleAdvanceOffseasonDay}
-        seasonProgressLabel={seasonProgress.label}
-        hasUnseenNews={hasUnseenNews}
-        hasUnseenPressArticles={hasUnseenPressArticles}
-        offseasonInfo={offseasonInfo}
-      />
+          onSimSpeedChange={handleSimSpeedChange}
+          onToggleSeasonLength={handleToggleSeasonLength}
+          longSeasonEnabled={longSeasonEnabled}
+          onShowTeamDirectory={handleOpenTeamDirectory}
+          onShowSeasonStats={handleOpenSeasonStats}
+          onShowSchedule={handleOpenSchedule}
+          onShowLeaderboards={handleOpenLeaderboards}
+          onShowNews={handleOpenNews}
+          onShowPressArticles={handleOpenPress}
+          onShowFreeAgents={handleOpenFreeAgents}
+          onShowRecordBook={handleOpenRecordBook}
+          onShowLeagueWiki={handleOpenLeagueWiki}
+          onAdvanceOffseasonDay={handleAdvanceOffseasonDay}
+          seasonProgressLabel={seasonProgressLabel}
+          hasUnseenNews={hasUnseenNews}
+          hasUnseenPressArticles={hasUnseenPressArticles}
+          offseasonInfo={offseasonInfo}
+        />
       <div className="games-stack">
         {Array.from({ length: GAME_COUNT }).map((_, index) => (
           <GameView
@@ -1499,6 +1538,7 @@ export default function App() {
             globalRunning={globalRunning}
             simSpeed={simSpeed}
             parallelSlotCount={GAME_COUNT}
+            seasonConfig={seasonConfig}
           />
         ))}
       </div>

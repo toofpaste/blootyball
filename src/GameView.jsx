@@ -29,6 +29,7 @@ const GameView = React.forwardRef(function GameView({
   globalRunning = false,
   simSpeed = 1,
   parallelSlotCount = 1,
+  seasonConfig = null,
 }, ref) {
   const canvasRef = useRef(null);
   const [localRunning, setLocalRunning] = useState(false);
@@ -36,11 +37,13 @@ const GameView = React.forwardRef(function GameView({
     assignmentOffset: gameIndex,
     assignmentStride: parallelSlotCount,
     lockstepAssignments: true,
+    seasonConfig,
   }));
   const lastResetTokenRef = useRef(resetSignal?.token ?? 0);
   const notifiedCompleteRef = useRef(false);
   const prevGlobalRunningRef = useRef(globalRunning);
   const runningTransitionRef = useRef(globalRunning);
+  const lastSeasonConfigRef = useRef(seasonConfig);
 
   useImperativeHandle(ref, () => ({
     getSeasonSnapshot() {
@@ -178,12 +181,18 @@ const GameView = React.forwardRef(function GameView({
 
   useEffect(() => {
     const token = resetSignal?.token ?? 0;
-    if (token === lastResetTokenRef.current) return;
+    const previousConfig = lastSeasonConfigRef.current;
+    const currentConfig = seasonConfig;
+    const prevLong = previousConfig?.longSeason ?? false;
+    const nextLong = currentConfig?.longSeason ?? false;
+    const configChanged = prevLong !== nextLong;
+    lastSeasonConfigRef.current = currentConfig;
+    if (!configChanged && token === lastResetTokenRef.current) return;
     lastResetTokenRef.current = token;
-    const shouldResume = !!resetSignal?.autoResume?.[gameIndex];
+    const shouldResume = !configChanged && !!resetSignal?.autoResume?.[gameIndex];
     notifiedCompleteRef.current = false;
     setState((prev) => {
-      if (prev) {
+      if (prev && !configChanged) {
         const resumed = resumeAssignedMatchup(prev);
         if (resumed !== prev) {
           return resumed;
@@ -192,13 +201,14 @@ const GameView = React.forwardRef(function GameView({
       return createInitialGameState({
         assignmentOffset: gameIndex,
         assignmentStride: parallelSlotCount,
-        league: prev?.league || null,
+        league: configChanged ? null : (prev?.league || null),
         lockstepAssignments: true,
+        seasonConfig,
       });
     });
     setLocalRunning(shouldResume);
     onManualReset?.(gameIndex);
-  }, [resetSignal, gameIndex, onManualReset, parallelSlotCount, state?.league]);
+  }, [resetSignal, gameIndex, onManualReset, parallelSlotCount, seasonConfig]);
 
   const offseasonBlockingGames = Boolean(
     state?.league?.offseason?.active && !state?.league?.offseason?.nextSeasonStarted,

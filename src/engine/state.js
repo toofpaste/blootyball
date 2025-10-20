@@ -2023,10 +2023,16 @@ export function createInitialGameState(options = {}) {
         assignmentStride = 1,
         league: inputLeague = null,
         lockstepAssignments = false,
+        seasonConfig = null,
     } = options || {};
 
     const freshLeague = !inputLeague;
     const league = inputLeague || createLeagueContext();
+    const existingSeasonConfig = league?.settings?.season || {};
+    const longSeasonSetting = seasonConfig?.longSeason ?? existingSeasonConfig.longSeason ?? false;
+    const resolvedSeasonConfig = { ...existingSeasonConfig, ...(seasonConfig || {}), longSeason: longSeasonSetting };
+    league.settings ||= {};
+    league.settings.season = { ...resolvedSeasonConfig };
     if (freshLeague) {
         beginLeagueOffseason(league, { seasonNumber: 0 }, { inaugural: true, completedSeasonNumber: 0 });
     }
@@ -2035,6 +2041,7 @@ export function createInitialGameState(options = {}) {
         playerDevelopment: league.playerDevelopment || {},
         playerAges: league.playerAges || {},
         previousAwards: league.awardsHistory?.slice(-3) || [],
+        seasonConfig: resolvedSeasonConfig,
     });
     ensureSeasonPersonnel(league, season.seasonNumber);
     league.seasonSnapshot = season;
@@ -2086,6 +2093,7 @@ export function createInitialGameState(options = {}) {
         lockstepAssignments: !!lockstepAssignments,
         pendingMatchup: null,
         awaitingNextMatchup: false,
+        seasonConfig: { ...resolvedSeasonConfig },
     };
     if (matchup) {
         prepareGameForMatchup(state, matchup);
@@ -2281,6 +2289,9 @@ export function resumeAssignedMatchup(state) {
     if (next.season) {
         next.season = { ...next.season };
     }
+    if (next.seasonConfig) {
+        next.seasonConfig = { ...next.seasonConfig };
+    }
 
     if (!next.lockstepAssignments) {
         const matchup = prepareSeasonMatchup(next.season);
@@ -2314,6 +2325,7 @@ export function progressOffseason(state, now = Date.now()) {
 
     const stride = state.season?.assignmentStride || state.season?.assignment?.stride || 1;
     const offset = state.season?.assignmentOffset ?? state.season?.assignment?.offset ?? 0;
+    const baseSeasonConfig = state.seasonConfig || league?.settings?.season || {};
 
     const restartSeasonState = () => {
         league.offseason ||= {};
@@ -2323,6 +2335,7 @@ export function progressOffseason(state, now = Date.now()) {
             assignmentStride: stride,
             league,
             lockstepAssignments: state.lockstepAssignments,
+            seasonConfig: baseSeasonConfig,
         });
         restart.debug = state.debug;
         restart.lockstepAssignments = state.lockstepAssignments;
