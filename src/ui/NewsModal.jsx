@@ -3,6 +3,8 @@ import Modal from './Modal';
 import { getTeamIdentity } from '../engine/data/teamLibrary';
 import { generatePlayerNewsContent } from '../utils/newsContent';
 
+const LOCAL_ONLY_STORAGE_KEY = 'leagueNews.useLocalOnly';
+
 function formatTimestamp(value) {
   if (!value) return '';
   try {
@@ -204,6 +206,22 @@ export default function NewsModal({ open, onClose, league, season }) {
   const [selectedId, setSelectedId] = useState(null);
   const [articleMap, setArticleMap] = useState({});
   const inflightRef = useRef(new Set());
+  const [useLocalOnly, setUseLocalOnly] = useState(() => {
+    if (typeof window === 'undefined' || !window?.localStorage) {
+      return true;
+    }
+    try {
+      const stored = window.localStorage.getItem(LOCAL_ONLY_STORAGE_KEY);
+      if (stored == null) {
+        return true;
+      }
+      return stored === 'true';
+    } catch (err) {
+      console.warn('[LeagueNews] Failed to read local preference', err);
+      return true;
+    }
+  });
+  const allowAi = !useLocalOnly;
 
   const items = useMemo(() => {
     if (!league?.newsFeed) return [];
@@ -238,11 +256,11 @@ export default function NewsModal({ open, onClose, league, season }) {
     }
     items.forEach((item) => {
       const existing = item.raw?.aiContent || articleMap[item.id];
-      if (existing?.article) return;
+      if (existing?.article && (!allowAi || existing?.source === 'chatgpt')) return;
       if (item.raw?.aiSuppressed) return;
       if (inflightRef.current.has(item.id)) return;
       inflightRef.current.add(item.id);
-      generatePlayerNewsContent({ league, season, entry: item.raw })
+      generatePlayerNewsContent({ league, season, entry: item.raw, allowAi })
         .then((result) => {
           if (!result) return;
           setArticleMap((prev) => ({ ...prev, [item.id]: result }));
@@ -254,7 +272,7 @@ export default function NewsModal({ open, onClose, league, season }) {
           inflightRef.current.delete(item.id);
         });
     });
-  }, [open, items, league, season, articleMap]);
+  }, [open, items, league, season, articleMap, allowAi]);
 
   const handleCloseArticle = useCallback(() => {
     setSelectedId(null);
@@ -263,6 +281,21 @@ export default function NewsModal({ open, onClose, league, season }) {
   const handleOpenArticle = useCallback((item) => {
     setSelectedId(item?.id || null);
   }, []);
+
+  const handleLocalOnlyChange = useCallback((event) => {
+    setUseLocalOnly(event.target.checked);
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window?.localStorage) {
+      return;
+    }
+    try {
+      window.localStorage.setItem(LOCAL_ONLY_STORAGE_KEY, useLocalOnly ? 'true' : 'false');
+    } catch (err) {
+      console.warn('[LeagueNews] Failed to persist local preference', err);
+    }
+  }, [useLocalOnly]);
 
   const displayItems = useMemo(() => {
     return items.map((item) => {
@@ -319,94 +352,113 @@ export default function NewsModal({ open, onClose, league, season }) {
         title="League News"
         width="min(96vw, 720px)"
       >
-        {displayItems.length === 0 ? (
-          <div style={{ color: '#cde8cd', fontSize: 14 }}>
-            No transactions, injuries, or headlines have been recorded yet.
-          </div>
-        ) : (
-          <div
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <label
             style={{
-              display: 'flex',
-              flexDirection: 'column',
-              gap: '12px',
-              maxHeight: '70vh',
-              overflowY: 'auto',
-              paddingRight: 4,
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 8,
+              fontSize: 12,
+              color: 'rgba(205,232,205,0.75)',
             }}
           >
-            {displayItems.map((item) => {
-              const headline = item.simpleHeadline || item.creativeHeadline || item.text;
-              const secondaryHeadline = item.simpleHeadline
-                && item.creativeHeadline
-                && item.creativeHeadline !== item.simpleHeadline
-                  ? item.creativeHeadline
-                  : null;
-              const preview = item.previewText;
-              return (
-                <button
-                  key={item.id}
-                  type="button"
-                  onClick={() => handleOpenArticle(item)}
-                  style={{
-                    border: '1px solid rgba(26,92,26,0.4)',
-                    borderRadius: 12,
-                    background: 'rgba(4,28,4,0.92)',
-                    padding: '12px 16px',
-                    boxShadow: '0 2px 6px rgba(0,0,0,0.35)',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    alignItems: 'flex-start',
-                    gap: 6,
-                    cursor: 'pointer',
-                    textAlign: 'left',
-                  }}
-                >
-                  <header style={{ display: 'flex', width: '100%', justifyContent: 'space-between', alignItems: 'baseline' }}>
-                    <div style={{ fontWeight: 700, color: '#e0ffd7', fontSize: 15, letterSpacing: 0.4 }}>
-                      {item.type}
-                    </div>
-                    {item.createdAt && (
-                      <div style={{ fontSize: 11, color: 'rgba(205,232,205,0.7)' }}>{item.createdAt}</div>
-                    )}
-                  </header>
-                  {item.context && (
-                    <div style={{ fontSize: 12, color: 'rgba(205,232,205,0.75)' }}>{item.context}</div>
-                  )}
-                  <div
+            <input
+              type="checkbox"
+              checked={useLocalOnly}
+              onChange={handleLocalOnlyChange}
+              style={{ width: 16, height: 16 }}
+            />
+            <span>Use local article backups only (disable GPT responses)</span>
+          </label>
+          {displayItems.length === 0 ? (
+            <div style={{ color: '#cde8cd', fontSize: 14 }}>
+              No transactions, injuries, or headlines have been recorded yet.
+            </div>
+          ) : (
+            <div
+              style={{
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '12px',
+                maxHeight: '70vh',
+                overflowY: 'auto',
+                paddingRight: 4,
+              }}
+            >
+              {displayItems.map((item) => {
+                const headline = item.simpleHeadline || item.creativeHeadline || item.text;
+                const secondaryHeadline = item.simpleHeadline
+                  && item.creativeHeadline
+                  && item.creativeHeadline !== item.simpleHeadline
+                    ? item.creativeHeadline
+                    : null;
+                const preview = item.previewText;
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => handleOpenArticle(item)}
                     style={{
-                      fontSize: 15,
-                      color: item.headlineColor || '#f0fff0',
-                      fontWeight: 700,
-                      letterSpacing: 0.2,
+                      border: '1px solid rgba(26,92,26,0.4)',
+                      borderRadius: 12,
+                      background: 'rgba(4,28,4,0.92)',
+                      padding: '12px 16px',
+                      boxShadow: '0 2px 6px rgba(0,0,0,0.35)',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'flex-start',
+                      gap: 6,
+                      cursor: 'pointer',
+                      textAlign: 'left',
                     }}
                   >
-                    {headline}
-                  </div>
-                  {secondaryHeadline && (
+                    <header style={{ display: 'flex', width: '100%', justifyContent: 'space-between', alignItems: 'baseline' }}>
+                      <div style={{ fontWeight: 700, color: '#e0ffd7', fontSize: 15, letterSpacing: 0.4 }}>
+                        {item.type}
+                      </div>
+                      {item.createdAt && (
+                        <div style={{ fontSize: 11, color: 'rgba(205,232,205,0.7)' }}>{item.createdAt}</div>
+                      )}
+                    </header>
+                    {item.context && (
+                      <div style={{ fontSize: 12, color: 'rgba(205,232,205,0.75)' }}>{item.context}</div>
+                    )}
                     <div
                       style={{
-                        fontSize: 13,
-                        color: 'rgba(205,232,205,0.92)',
-                        fontWeight: 600,
-                        letterSpacing: 0.15,
+                        fontSize: 15,
+                        color: item.headlineColor || '#f0fff0',
+                        fontWeight: 700,
+                        letterSpacing: 0.2,
                       }}
                     >
-                      {secondaryHeadline}
+                      {headline}
                     </div>
-                  )}
-                  <div style={{ fontSize: 13, color: 'rgba(205,232,205,0.85)', lineHeight: 1.45 }}>
-                    {preview}
-                  </div>
-                  {item.generating && (
-                    <div style={{ fontSize: 12, color: 'rgba(205,232,205,0.65)', fontStyle: 'italic' }}>
-                      Generating article with ChatGPT…
+                    {secondaryHeadline && (
+                      <div
+                        style={{
+                          fontSize: 13,
+                          color: 'rgba(205,232,205,0.92)',
+                          fontWeight: 600,
+                          letterSpacing: 0.15,
+                        }}
+                      >
+                        {secondaryHeadline}
+                      </div>
+                    )}
+                    <div style={{ fontSize: 13, color: 'rgba(205,232,205,0.85)', lineHeight: 1.45 }}>
+                      {preview}
                     </div>
-                  )}
-                </button>
-              );
-            })}
-          </div>
-        )}
+                    {item.generating && (
+                      <div style={{ fontSize: 12, color: 'rgba(205,232,205,0.65)', fontStyle: 'italic' }}>
+                        {allowAi ? 'Generating article with ChatGPT…' : 'Loading local article…'}
+                      </div>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
       </Modal>
 
       <Modal
