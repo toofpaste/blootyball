@@ -1,3 +1,5 @@
+import { Engine, World, Bodies, Body } from 'matter-js';
+
 import { clamp } from './helpers';
 import { FIELD_PIX_W, FIELD_PIX_H } from './constants';
 import { applyCollisionSlowdown } from './motion';
@@ -6,6 +8,57 @@ function clampToField(pos) {
     if (!pos) return;
     pos.x = clamp(pos.x, 8, FIELD_PIX_W - 8);
     pos.y = clamp(pos.y, 0, FIELD_PIX_H - 6);
+}
+
+function createPhysicsEngine() {
+    const engine = Engine.create({ enableSleeping: false, gravity: { x: 0, y: 0 } });
+    engine.positionIterations = 8;
+    engine.velocityIterations = 6;
+    engine.world.gravity.x = 0;
+    engine.world.gravity.y = 0;
+    return engine;
+}
+
+function syncPlayerFromBody(player, body) {
+    if (!player?.pos || !body) return;
+    const targetX = clamp(body.position.x, 8, FIELD_PIX_W - 8);
+    const targetY = clamp(body.position.y, 0, FIELD_PIX_H - 6);
+    const hitWallX = Math.abs(targetX - body.position.x) > 1e-4;
+    const hitWallY = Math.abs(targetY - body.position.y) > 1e-4;
+
+    player.pos.x = targetX;
+    player.pos.y = targetY;
+
+    if (!player.motion) return;
+
+    const finalVx = hitWallX ? 0 : body.velocity.x;
+    const finalVy = hitWallY ? 0 : body.velocity.y;
+    player.motion.vx = finalVx;
+    player.motion.vy = finalVy;
+    player.motion.speed = Math.hypot(finalVx, finalVy);
+    if (player.motion.speed > 0.01) {
+        player.motion.heading = { x: finalVx / player.motion.speed, y: finalVy / player.motion.speed };
+    }
+}
+
+function buildPlayerBody(player) {
+    const radius = resolveRadius(player);
+    const mass = resolveMass(player);
+    const pos = player?.pos || { x: FIELD_PIX_W / 2, y: FIELD_PIX_H / 2 };
+    const motion = player?.motion || { vx: 0, vy: 0 };
+
+    const body = Bodies.circle(pos.x, pos.y, radius, {
+        frictionAir: clamp(0.1 + ((player?.attrs?.agility ?? 1) - 1) * 0.08, 0.04, 0.22),
+        friction: 0,
+        frictionStatic: 0,
+        restitution: 0.18,
+        inertia: Infinity,
+    });
+
+    Body.setMass(body, mass);
+    Body.setVelocity(body, { x: motion.vx ?? 0, y: motion.vy ?? 0 });
+    body.plugin = { player, radius, mass };
+    return body;
 }
 
 function resolveRadius(player) {
@@ -78,63 +131,92 @@ export function applyPlayerPhysics(play, dt = 0.016) {
     const offPlayers = Object.values(play.formation.off || {}).filter(p => p && p.pos);
     const defPlayers = Object.values(play.formation.def || {}).filter(p => p && p.pos);
     const allPlayers = [...offPlayers, ...defPlayers];
-    if (allPlayers.length < 2) return;
+    if (allPlayers.length === 0) return;
 
-    for (let i = 0; i < allPlayers.length; i++) {
-        for (let j = i + 1; j < allPlayers.length; j++) {
-            const a = allPlayers[i];
-            const b = allPlayers[j];
-            const ax = a.pos?.x ?? 0;
-            const ay = a.pos?.y ?? 0;
-            const bx = b.pos?.x ?? 0;
-            const by = b.pos?.y ?? 0;
-            let dx = bx - ax;
-            let dy = by - ay;
-            let d = Math.hypot(dx, dy);
-            if (d < 1e-3) {
-                d = 1e-3;
-                const angle = Math.random() * Math.PI * 2;
-                dx = Math.cos(angle) * d;
-                dy = Math.sin(angle) * d;
-            }
+    const engine = createPhysicsEngine();
+    const world = engine.world;
+    const bodies = [];
 
-            const radiusA = resolveRadius(a);
-            const radiusB = resolveRadius(b);
-            const allowOverlap = 2.2;
-            const minDist = radiusA + radiusB - allowOverlap;
-            if (d >= minDist) continue;
+    for (const player of allPlayers) {
+        bodies.push(buildPlayerBody(player));
+    }
 
-            const normal = { x: dx / d, y: dy / d };
-            const penetration = minDist - d;
-            const massA = resolveMass(a);
-            const massB = resolveMass(b);
-            const totalMass = Math.max(massA + massB, 1e-3);
-            const moveA = penetration * (massB / totalMass);
-            const moveB = penetration * (massA / totalMass);
+    if (bodies.length === 0) return;
 
-            a.pos.x -= normal.x * moveA;
-            a.pos.y -= normal.y * moveA;
-            b.pos.x += normal.x * moveB;
-            b.pos.y += normal.y * moveB;
-            clampToField(a.pos);
-            clampToField(b.pos);
+    World.add(world, bodies);
+    Engine.update(engine, dt * 1000);
 
-            const severity = clamp(penetration / (radiusA + radiusB), 0.1, 1.0);
-            const heavier = massA > massB ? a : b;
-            const lighter = heavier === a ? b : a;
-            const heavyBias = clamp(Math.abs(massA - massB) / (massA + massB + 1e-3), 0, 0.35);
-            applyCollisionSlowdown(heavier, severity * (0.35 - heavyBias * 0.2));
-            applyCollisionSlowdown(lighter, severity * (0.55 + heavyBias * 0.6));
+    for (const body of bodies) {
+        const player = body.plugin?.player;
+        if (!player) continue;
+        syncPlayerFromBody(player, body);
+        clampToField(player.pos);
+    }
 
-            const aCarrier = isCarrier(play, a);
-            const bCarrier = isCarrier(play, b);
-            if (aCarrier && !sameTeam(a, b)) {
-                applyMomentumPush(a, b, normal, dt);
-            } else if (bCarrier && !sameTeam(a, b)) {
-                applyMomentumPush(b, a, { x: -normal.x, y: -normal.y }, dt);
-            }
+    const processed = new Set();
+    for (const pair of engine.pairs.list || []) {
+        if (!pair?.isActive || pair.isSensor) continue;
+        const playerA = pair.bodyA?.plugin?.player;
+        const playerB = pair.bodyB?.plugin?.player;
+        if (!playerA || !playerB || playerA === playerB) continue;
+
+        const key = playerA.id && playerB.id ? `${playerA.id}:${playerB.id}` : `${playerA.role}:${playerB.role}`;
+        if (processed.has(key) || processed.has(`${playerB?.id ?? playerB?.role}:${playerA?.id ?? playerA?.role}`)) continue;
+        processed.add(key);
+
+        const radiusA = pair.bodyA?.plugin?.radius ?? resolveRadius(playerA);
+        const radiusB = pair.bodyB?.plugin?.radius ?? resolveRadius(playerB);
+        const ax = playerA.pos?.x ?? 0;
+        const ay = playerA.pos?.y ?? 0;
+        const bx = playerB.pos?.x ?? 0;
+        const by = playerB.pos?.y ?? 0;
+        let dx = bx - ax;
+        let dy = by - ay;
+        let dist = Math.hypot(dx, dy);
+        if (dist < 1e-5) {
+            dist = 1e-5;
+            const angle = Math.random() * Math.PI * 2;
+            dx = Math.cos(angle) * dist;
+            dy = Math.sin(angle) * dist;
+        }
+
+        const normal = { x: dx / dist, y: dy / dist };
+        const overlap = Math.max(radiusA + radiusB - dist, 0);
+        const penetration = Math.max(pair.collision?.depth ?? 0, overlap);
+        if (penetration <= 0) continue;
+
+        const massA = resolveMass(playerA);
+        const massB = resolveMass(playerB);
+        const severity = clamp(penetration / (radiusA + radiusB), 0.05, 1.0);
+        const heavier = massA >= massB ? playerA : playerB;
+        const lighter = heavier === playerA ? playerB : playerA;
+        const heavyBias = clamp(Math.abs(massA - massB) / (massA + massB + 1e-3), 0, 0.35);
+        applyCollisionSlowdown(heavier, severity * (0.35 - heavyBias * 0.2));
+        applyCollisionSlowdown(lighter, severity * (0.55 + heavyBias * 0.6));
+
+        const aCarrier = isCarrier(play, playerA);
+        const bCarrier = isCarrier(play, playerB);
+        if (aCarrier && !sameTeam(playerA, playerB)) {
+            applyMomentumPush(playerA, playerB, normal, dt);
+        } else if (bCarrier && !sameTeam(playerA, playerB)) {
+            applyMomentumPush(playerB, playerA, { x: -normal.x, y: -normal.y }, dt);
         }
     }
+
+    for (const player of allPlayers) {
+        if (!player?.motion) continue;
+        player.motion.speed = Math.hypot(player.motion.vx, player.motion.vy);
+        if (player.motion.speed > 0.01) {
+            player.motion.heading = {
+                x: player.motion.vx / player.motion.speed,
+                y: player.motion.vy / player.motion.speed,
+            };
+        }
+        clampToField(player.pos);
+    }
+
+    World.clear(world, false);
+    Engine.clear(engine);
 }
 
 export function getPlayerMass(player) {
