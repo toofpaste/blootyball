@@ -41,6 +41,8 @@ const GameView = React.forwardRef(function GameView({
     lockstepAssignments: true,
     seasonConfig,
   }));
+  const stateRef = useRef(state);
+  stateRef.current = state;
   const lastResetTokenRef = useRef(resetSignal?.token ?? 0);
   const notifiedCompleteRef = useRef(false);
   const prevGlobalRunningRef = useRef(globalRunning);
@@ -98,10 +100,15 @@ const GameView = React.forwardRef(function GameView({
       const dt = Math.min(0.033, (now - last) / 1000) * simSpeed;
       last = now;
       if (globalRunning && localRunning) {
-        setState(prev => stepGame(prev, dt));
+        setState((prev) => {
+          const next = stepGame(prev, dt);
+          stateRef.current = next;
+          return next;
+        });
       }
-      if (canvasRef.current) {
-        drawSafe(canvasRef.current, state);
+      const snapshot = stateRef.current;
+      if (canvasRef.current && snapshot) {
+        drawSafe(canvasRef.current, snapshot);
       }
       rafId = requestAnimationFrame(loop);
     };
@@ -112,7 +119,7 @@ const GameView = React.forwardRef(function GameView({
         performance.clearMeasures();
       }
     };
-  }, [globalRunning, localRunning, simSpeed, state]);
+  }, [globalRunning, localRunning, simSpeed]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
