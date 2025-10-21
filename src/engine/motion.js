@@ -46,6 +46,7 @@ function roleToTemplateKey(role = '') {
 }
 
 const BASE_SPEED_BOOST = 1.08;
+const PLAYER_SPEED_MULTIPLIER = 2;
 
 function resolveTemplate(role) {
     const key = roleToTemplateKey(role);
@@ -120,8 +121,19 @@ export function resolveMaxSpeed(player, { speedMultiplier = 1 } = {}) {
     const weightAdj = clamp(1 - ((player?.phys?.weight ?? 210) - 215) / 420, 0.75, 1.12);
     const strength = clamp(player?.attrs?.strength ?? 1, 0.5, 1.5);
     const strengthDrag = clamp(1 - (Math.max(1 - strength, 0) * 0.12), 0.82, 1.05);
-    return mphToPixelsPerSecond(mph) * speedMultiplier * stamina * weightAdj * strengthDrag * BASE_SPEED_BOOST;
+    return (
+        mphToPixelsPerSecond(mph) *
+        speedMultiplier *
+        stamina *
+        weightAdj *
+        strengthDrag *
+        BASE_SPEED_BOOST *
+        PLAYER_SPEED_MULTIPLIER
+    );
 }
+
+const ACCEL_MIN = PX_PER_YARD * 2.0;
+const ACCEL_MAX = PX_PER_YARD * 14.5;
 
 export function resolveAcceleration(player, { accelMultiplier = 1 } = {}) {
     const template = resolveTemplate(player?.role);
@@ -129,7 +141,8 @@ export function resolveAcceleration(player, { accelMultiplier = 1 } = {}) {
     const strength = clamp(player?.attrs?.strength ?? 1, 0.5, 1.5);
     const strengthBoost = clamp((strength - 1) * 0.9, -0.3, 0.45);
     const massAdj = clamp(1.05 - ((player?.phys?.mass ?? 1) - 1) * 0.35 + strengthBoost, 0.45, 1.35);
-    return clamp(base * PX_PER_YARD * accelMultiplier * massAdj, PX_PER_YARD * 2.0, PX_PER_YARD * 14.5);
+    const accel = base * PX_PER_YARD * accelMultiplier * massAdj * PLAYER_SPEED_MULTIPLIER;
+    return clamp(accel, ACCEL_MIN * PLAYER_SPEED_MULTIPLIER, ACCEL_MAX * PLAYER_SPEED_MULTIPLIER);
 }
 
 export function dampMotion(player, dt, damping = 4.0) {
