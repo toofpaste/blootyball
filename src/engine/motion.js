@@ -45,6 +45,8 @@ function roleToTemplateKey(role = '') {
     return 'DEFAULT';
 }
 
+const BASE_SPEED_BOOST = 1.08;
+
 function resolveTemplate(role) {
     const key = roleToTemplateKey(role);
     return {
@@ -118,7 +120,7 @@ export function resolveMaxSpeed(player, { speedMultiplier = 1 } = {}) {
     const weightAdj = clamp(1 - ((player?.phys?.weight ?? 210) - 215) / 420, 0.75, 1.12);
     const strength = clamp(player?.attrs?.strength ?? 1, 0.5, 1.5);
     const strengthDrag = clamp(1 - (Math.max(1 - strength, 0) * 0.12), 0.82, 1.05);
-    return mphToPixelsPerSecond(mph) * speedMultiplier * stamina * weightAdj * strengthDrag;
+    return mphToPixelsPerSecond(mph) * speedMultiplier * stamina * weightAdj * strengthDrag * BASE_SPEED_BOOST;
 }
 
 export function resolveAcceleration(player, { accelMultiplier = 1 } = {}) {
