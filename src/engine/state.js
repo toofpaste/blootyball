@@ -49,7 +49,10 @@ import {
     ensureTeamRosterComplete,
     maybeGenerateLeagueHeadlines,
     enforceGameDayRosterMinimums,
+    replaceScout,
+    recordLeagueNews,
 } from './personnel';
+import { getTeamIdentity } from './data/teamLibrary';
 import { applyTeamMoodToMatchup } from './temperament';
 
 /* =========================================================
@@ -701,6 +704,57 @@ function prepareGameForMatchup(state, matchup) {
         });
         const punishmentTargets = teamsWithEmptyRosterSpots(state.league, uniqueTeams);
         if (punishmentTargets.length) {
+            const seasonNumber = state.season?.seasonNumber ?? state.league?.seasonNumber ?? 1;
+            const rosterFailures = punishmentTargets.map((teamId) => {
+                const roster = state.league?.teamRosters?.[teamId] || {};
+                const missingRoles = [];
+                ROLES_OFF.forEach((role) => {
+                    if (!roster?.offense?.[role]) missingRoles.push(role);
+                });
+                ROLES_DEF.forEach((role) => {
+                    if (!roster?.defense?.[role]) missingRoles.push(role);
+                });
+                if (!roster?.special?.K) missingRoles.push('K');
+                return { teamId, missingRoles };
+            });
+            rosterFailures.forEach(({ teamId, missingRoles }) => {
+                if (!missingRoles.length) return;
+                const scout = state.league?.teamScouts?.[teamId] || null;
+                if (scout) {
+                    scout.rosterFailureCount = (scout.rosterFailureCount || 0) + 1;
+                    scout.lastRosterFailure = {
+                        seasonNumber,
+                        missingRoles: missingRoles.slice(),
+                        timestamp: Date.now(),
+                        reason: 'game-day roster failure',
+                    };
+                }
+                const identity = getTeamIdentity(teamId) || { abbr: teamId, displayName: teamId };
+                recordLeagueNews(state.league, {
+                    type: 'roster',
+                    teamId,
+                    text: `${identity.abbr || teamId} discipline scouting staff after missing roles: ${missingRoles.join(', ')}`,
+                    detail: 'GM warns scouting department to keep the roster full on game day.',
+                    seasonNumber,
+                });
+                replaceScout(state.league, teamId, scout, seasonNumber, {
+                    reason: 'Scout fired for game-day roster failure',
+                    context: {
+                        rosterFailure: true,
+                        missingRoles,
+                    },
+                });
+                const newScout = state.league?.teamScouts?.[teamId] || null;
+                if (newScout) {
+                    newScout.rosterIntegrityFocus = Math.max(newScout.rosterIntegrityFocus ?? 0.65, 0.9);
+                    newScout.lastRosterFailure = {
+                        seasonNumber,
+                        missingRoles: missingRoles.slice(),
+                        timestamp: Date.now(),
+                        reason: 'predecessor dismissed for roster failure',
+                    };
+                }
+            });
             enforceGameDayRosterMinimums(state.league, punishmentTargets, { reason: 'pre-kickoff roster penalty' });
         }
     }

@@ -2464,7 +2464,7 @@ function replaceCoach(league, teamId, coach, seasonNumber, { reason, context } =
   return true;
 }
 
-function replaceScout(league, teamId, scout, seasonNumber, { reason, context } = {}) {
+export function replaceScout(league, teamId, scout, seasonNumber, { reason, context } = {}) {
   if (!league || !teamId) return false;
   ensureStaffFreeAgents(league);
   const identity = getTeamIdentity(teamId) || { id: teamId, abbr: teamId, displayName: teamId };
@@ -2475,6 +2475,12 @@ function replaceScout(league, teamId, scout, seasonNumber, { reason, context } =
       origin: 'released',
       releasedFrom: teamId,
       releasedSeason: seasonNumber,
+      disciplineRecord: {
+        type: 'roster-failure',
+        reason: reason || 'Talent department shake-up',
+        missingRoles: Array.isArray(context?.missingRoles) ? context.missingRoles.slice() : [],
+        timestamp: Date.now(),
+      },
     }));
     recordNewsInternal(league, {
       type: 'staff_move',
@@ -2494,6 +2500,20 @@ function replaceScout(league, teamId, scout, seasonNumber, { reason, context } =
     ? Math.max(assigned.capFocus ?? 0.6, 0.72)
     : clamp(assigned.capFocus ?? rand(0.3, 0.75), 0.2, 0.95);
   assigned.capFocus = clamp(targetCapFocus, 0.2, 0.98);
+  assigned.directives ||= {};
+  assigned.directives.rosterIntegrity = {
+    issuedSeason: seasonNumber,
+    issuedAt: new Date().toISOString(),
+    emphasis: 'Maintain a fully staffed roster for every game day.',
+    reason: reason || 'Roster discipline directive',
+    missingRoles: Array.isArray(context?.missingRoles) ? context.missingRoles.slice() : [],
+  };
+  assigned.lastRosterCrisis = {
+    seasonNumber,
+    missingRoles: Array.isArray(context?.missingRoles) ? context.missingRoles.slice() : [],
+    issuedAt: Date.now(),
+    reason: reason || 'Roster discipline directive',
+  };
   league.teamScouts[teamId] = assigned;
   recordNewsInternal(league, {
     type: 'staff_move',
