@@ -60,17 +60,24 @@ function resolveTemplate(role) {
 function ratingToBonusMph(rating = 5.5) {
     // Ratings are roughly centred on 5.5 (see roster factory). Increase the
     // spread so that elite athletes create a clear separation on the field and
-    // plodders noticeably lag behind.
-    const delta = clamp(rating - 5.5, -2.5, 2.5);
-    return delta * 1.15;
+    // plodders noticeably lag behind. A light curve on the extremes keeps blue-
+    // chip burners well ahead of middling players without letting the floor fall
+    // out entirely for slower bodies.
+    const delta = clamp(rating - 5.5, -2.8, 2.8);
+    const scaled = delta * 1.6;
+    const curved = Math.sign(delta) * Math.min(1.2, (delta * delta) * 0.18);
+    return scaled + curved;
 }
 
 function ratingToAccelBonus(accelRating = 12) {
     // accel rating in roster factory is roughly 8..25 (yards/s^2). Amplify the
     // influence so explosive runners hit top speed much faster while slower
-    // players feel laboured out of their breaks.
-    const delta = clamp(accelRating - 15, -8, 10);
-    return delta * 0.28;
+    // players feel laboured out of their breaks. A curved response keeps the
+    // extremes feeling appropriately drastic without destabilising tuning.
+    const delta = clamp(accelRating - 15, -10, 12);
+    const linear = delta * 0.42;
+    const curved = Math.sign(delta) * Math.min(3.5, Math.pow(Math.abs(delta), 1.35) * 0.08);
+    return linear + curved;
 }
 
 function ensureMotion(player) {
@@ -132,10 +139,11 @@ export function resolveMaxSpeed(player, { speedMultiplier = 1 } = {}) {
     const template = resolveTemplate(player?.role);
     const rating = player?.attrs?.speed ?? 5.5;
     const stamina = clamp(player?.motion?.stamina ?? 1, 0.5, 1.0);
-    const mph = clamp(template.topSpeedMph + ratingToBonusMph(rating), 13.5, 24.5);
+    const mph = clamp(template.topSpeedMph + ratingToBonusMph(rating), 12.5, 26.5);
     const weightAdj = clamp(1 - ((player?.phys?.weight ?? 210) - 215) / 420, 0.75, 1.12);
     const strength = clamp(player?.attrs?.strength ?? 1, 0.5, 1.5);
-    const strengthDrag = clamp(1 - (Math.max(1 - strength, 0) * 0.12), 0.82, 1.05);
+    const strengthEdge = clamp(1 + (strength - 1) * 0.24, 0.72, 1.28);
+    const strengthDrag = clamp(strengthEdge - Math.max(1 - strength, 0) * 0.32, 0.68, 1.28);
     const baseSpeed =
         mphToPixelsPerSecond(mph) *
         stamina *
@@ -160,8 +168,8 @@ export function resolveAcceleration(player, { accelMultiplier = 1 } = {}) {
     const template = resolveTemplate(player?.role);
     const base = template.accelYds + ratingToAccelBonus(player?.attrs?.accel ?? 12);
     const strength = clamp(player?.attrs?.strength ?? 1, 0.5, 1.5);
-    const strengthBoost = clamp((strength - 1) * 0.9, -0.3, 0.45);
-    const massAdj = clamp(1.05 - ((player?.phys?.mass ?? 1) - 1) * 0.35 + strengthBoost, 0.45, 1.35);
+    const strengthBoost = clamp((strength - 1) * 1.4, -0.45, 0.8);
+    const massAdj = clamp(1.05 - ((player?.phys?.mass ?? 1) - 1) * 0.45 + strengthBoost, 0.38, 1.55);
     const accel = base * PX_PER_YARD * accelMultiplier * massAdj * PLAYER_SPEED_MULTIPLIER;
     return clamp(accel, ACCEL_MIN * PLAYER_SPEED_MULTIPLIER, ACCEL_MAX * PLAYER_SPEED_MULTIPLIER);
 }
@@ -242,7 +250,7 @@ export function steerPlayer(player, target, dt, opts = {}) {
     const agilityBias = tuning.agilityBias ?? 1;
     const agilityMin = tuning.agilityMin ?? 0.6;
     const agilityMax = tuning.agilityMax ?? 1.35;
-    const agilityBoost = clamp(agility * agilityBias, agilityMin, agilityMax);
+    const agilityBoost = clamp(Math.pow(agility, 1.35) * agilityBias, agilityMin, agilityMax);
     const maxDelta = accel * agilityBoost * dt;
     const { vx, vy } = projectVelocity(motion.vx, motion.vy, desiredVx, desiredVy, maxDelta);
 
