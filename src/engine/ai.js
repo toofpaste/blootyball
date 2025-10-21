@@ -226,6 +226,22 @@ const CFG = {
     RAC_SIDESTEP: 8,
     RAC_SPEED: 0.9,
 
+    // ---- Open field jukes & convoy help ----
+    JUKE_TRIGGER_R: 26,
+    JUKE_BASE_CHANCE: 0.28,
+    JUKE_AGI_WEIGHT: 0.36,
+    JUKE_IQ_WEIGHT: 0.22,
+    JUKE_DEF_SPEED_WEIGHT: 0.25,
+    JUKE_DURATION: 0.38,
+    JUKE_COOLDOWN: 0.75,
+    JUKE_LATERAL_IMPULSE: 1.35,
+    JUKE_FAIL_PENALTY: 0.55,
+    JUKE_FAIL_SLOW_FACTOR: 0.32,
+
+    HELP_BLOCK_R: 60,
+    HELP_BLOCK_THREAT_R: 36,
+    HELP_BLOCK_PUSH: 22,
+
     // ---- Coverage & pursuit (new) ----
     COVER_CUSHION_YDS: 2.8,     // desired vertical cushion in man
     COVER_SWITCH_DIST: 26,      // when crossers get closer to another DB, switch
@@ -399,7 +415,7 @@ function _nearestDefender(def, pos, maxR = 1e9) {
     return best;
 }
 
-function _racAdvance(off, def, p, dt) {
+function _racAdvance(off, def, p, dt, play = null) {
     // On first possession, clear leftover route/scramble targets
     if (!p._hasBallInit) {
         p._hasBallInit = true;
@@ -414,6 +430,8 @@ function _racAdvance(off, def, p, dt) {
     // Base desire: go downfield
     let desired = { x: 0, y: 1 };
 
+    const jukeAdjust = _updateCarrierJuke(p, def, dt, play);
+
     // Gently avoid nearest defender
     const nd = _nearestDefender(def, p.pos, CFG.RAC_AVOID_R);
     if (nd && nd.p) {
@@ -425,6 +443,9 @@ function _racAdvance(off, def, p, dt) {
     const leftBound = 16, rightBound = FIELD_PIX_W - 16;
     if (p.pos.x < leftBound + 8) desired.x += 0.6;
     if (p.pos.x > rightBound - 8) desired.x -= 0.6;
+
+    desired.x += jukeAdjust.lateral;
+    desired.y += jukeAdjust.forward;
 
     // Smooth heading to eliminate zig-zag / stop-go
     const mag = Math.hypot(desired.x, desired.y) || 1;
@@ -440,7 +461,106 @@ function _racAdvance(off, def, p, dt) {
         y: p.pos.y + (p._racHeading.y / hMag) * CFG.RAC_LOOKAHEAD,
     };
 
-    moveToward(p, stepTarget, dt, CFG.RAC_SPEED);
+    const speedMul = clamp(CFG.RAC_SPEED * jukeAdjust.speedScale, 0.6, 1.35);
+    moveToward(p, stepTarget, dt, speedMul);
+}
+
+function _updateCarrierJuke(player, def, dt, play) {
+    const ai = _ensureAI(player);
+    const state = ai.juke ||= {
+        cooldown: 0,
+        active: 0,
+        duration: 0,
+        dir: 0,
+        burst: 0,
+        slow: 0,
+        slowTotal: 0,
+    };
+
+    state.cooldown = Math.max(0, (state.cooldown || 0) - dt);
+    state.active = Math.max(0, (state.active || 0) - dt);
+    state.slow = Math.max(0, (state.slow || 0) - dt);
+
+    const adjustments = { lateral: 0, forward: 0, speedScale: 1 };
+
+    if (state.active > 0 && state.dir) {
+        const phase = clamp(state.active / Math.max(state.duration || CFG.JUKE_DURATION, 1e-3), 0, 1);
+        adjustments.lateral += state.dir * CFG.JUKE_LATERAL_IMPULSE * (0.6 + 0.4 * phase);
+        adjustments.speedScale += (state.burst || 0) * (0.5 + 0.5 * phase);
+    }
+
+    if (state.slow > 0 && state.slowTotal > 0) {
+        const slowPhase = clamp(state.slow / state.slowTotal, 0, 1);
+        adjustments.speedScale -= slowPhase * CFG.JUKE_FAIL_SLOW_FACTOR;
+        adjustments.forward -= slowPhase * 0.18;
+    }
+
+    if (!play || play.ball?.inAir || isBallLoose(play.ball)) {
+        adjustments.speedScale = clamp(adjustments.speedScale, 0.55, 1.4);
+        adjustments.forward = Math.max(-0.4, adjustments.forward);
+        return adjustments;
+    }
+
+    const defenders = def || {};
+    let tackler = null;
+    if (play.primaryTacklerId) tackler = findDefById(defenders, play.primaryTacklerId);
+    if (!tackler?.pos) {
+        const nearest = _nearestDefender(defenders, player.pos, CFG.JUKE_TRIGGER_R);
+        tackler = nearest?.p || null;
+    }
+    if (!tackler?.pos) {
+        adjustments.speedScale = clamp(adjustments.speedScale, 0.55, 1.4);
+        adjustments.forward = Math.max(-0.4, adjustments.forward);
+        return adjustments;
+    }
+
+    const distTo = dist(player.pos, tackler.pos);
+    const engaged = tackler.engagedId && tackler.engagedId !== player.id;
+    const ahead = tackler.pos.y <= player.pos.y + PX_PER_YARD * 1.8;
+
+    if (state.cooldown <= 0 && !engaged && ahead && distTo < CFG.JUKE_TRIGGER_R) {
+        const carrierAgility = clamp(player.attrs?.agility ?? 1.0, 0.5, 1.6);
+        const carrierIQ = clamp(player.attrs?.awareness ?? 1.0, 0.4, 1.5);
+        const defenderAgility = clamp(tackler.attrs?.agility ?? 0.9, 0.4, 1.5);
+        const defenderIQ = clamp(tackler.attrs?.awareness ?? 0.9, 0.4, 1.5);
+        const defenderSpeed = clamp(tackler.attrs?.speed ?? 0.9, 0.4, 1.6);
+
+        let chance = CFG.JUKE_BASE_CHANCE;
+        chance += (carrierAgility - defenderAgility) * CFG.JUKE_AGI_WEIGHT;
+        chance += (carrierIQ - defenderIQ) * CFG.JUKE_IQ_WEIGHT;
+        chance -= (defenderSpeed - 1.0) * CFG.JUKE_DEF_SPEED_WEIGHT;
+        chance = clamp(chance, 0.05, 0.85);
+
+        if (Math.random() < chance) {
+            const duration = CFG.JUKE_DURATION * clamp(0.85 + (carrierAgility - 1.0) * 0.4, 0.6, 1.4);
+            state.active = duration;
+            state.duration = duration;
+            state.dir = Math.sign(player.pos.x - tackler.pos.x) || (Math.random() < 0.5 ? -1 : 1);
+            state.burst = clamp(0.12 + (carrierAgility - 1.0) * 0.18 + (carrierIQ - 1.0) * 0.06, 0.06, 0.3);
+            state.cooldown = CFG.JUKE_COOLDOWN;
+            state.slow = 0;
+            state.slowTotal = 0;
+            adjustments.lateral += state.dir * CFG.JUKE_LATERAL_IMPULSE;
+            adjustments.speedScale += state.burst;
+            if (play) (play.events ||= []).push({ t: play.elapsed, type: 'juke:success', carrierId: player.id, againstId: tackler.id });
+        } else {
+            const slow = CFG.JUKE_FAIL_PENALTY * clamp(1 + (defenderAgility - carrierAgility) * 0.35, 0.7, 1.5);
+            state.active = 0;
+            state.duration = 0;
+            state.dir = 0;
+            state.burst = 0;
+            state.slow = slow;
+            state.slowTotal = slow;
+            state.cooldown = CFG.JUKE_COOLDOWN * 1.2;
+            adjustments.speedScale -= CFG.JUKE_FAIL_SLOW_FACTOR * 0.5;
+            adjustments.forward -= 0.25;
+            if (play) (play.events ||= []).push({ t: play.elapsed, type: 'juke:fail', carrierId: player.id, againstId: tackler.id });
+        }
+    }
+
+    adjustments.speedScale = clamp(adjustments.speedScale, 0.55, 1.4);
+    adjustments.forward = Math.max(-0.4, adjustments.forward);
+    return adjustments;
 }
 
 function _readOptionBreak(baseTarget, player, def, losY) {
@@ -667,6 +787,7 @@ function _chooseRunBlockTarget(player, off, def, context) {
 }
 
 function _runSupportReceiver(player, off, def, dt, context) {
+    if (_assistCarrierBlock(player, def, dt, context)) return;
     const target = _chooseRunBlockTarget(player, off, def, context);
     if (!target) {
         const seal = { x: context.runHoleX ?? player.pos.x, y: player.pos.y + PX_PER_YARD * 2.5 };
@@ -683,6 +804,7 @@ function _runSupportReceiver(player, off, def, dt, context) {
 
 function _runSupportTightEnd(player, off, def, dt, context) {
     const ai = _ensureAI(player);
+    if (_assistCarrierBlock(player, def, dt, context)) return;
     const rightSide = player.pos.x > FIELD_PIX_W / 2;
     const edgeKeys = rightSide ? ['RE', 'LB2'] : ['LE', 'LB1'];
     let target = ai.blockTargetId ? Object.values(def).find(d => d && d.id === ai.blockTargetId) : null;
@@ -899,6 +1021,9 @@ export function moveReceivers(off, dt, s = null) {
     const def = s?.play?.formation?.def || null;
     const ball = s?.play?.ball || null;
     const losY = off.__losPixY ?? (qb?.pos?.y ?? yardsToPixY(25)) - PX_PER_YARD;
+    const carrierInfo = s ? normalizeCarrier(off, ball) : null;
+    const carrier = carrierInfo?.player || null;
+    const tackler = s?.play?.primaryTacklerId ? findDefById(def || {}, s.play.primaryTacklerId) : null;
     const context = {
         qb,
         def,
@@ -907,6 +1032,8 @@ export function moveReceivers(off, dt, s = null) {
         scrambleMode: s?.play?.qbMoveMode,
         off,
         play: s?.play,
+        carrier,
+        tackler,
     };
 
     ['WR1', 'WR2', 'WR3'].forEach((key) => {
@@ -919,9 +1046,11 @@ export function moveReceivers(off, dt, s = null) {
         }
 
         // If this WR currently has the ball, switch to RAC logic
-        if (s && _isCarrier(off, ball, p)) { _racAdvance(off, def, p, dt); return; }
+        if (s && _isCarrier(off, ball, p)) { _racAdvance(off, def, p, dt, s.play); return; }
 
         if (off.__carrierWrapped === key) return;
+
+        if (carrier && carrier !== p && _assistCarrierBlock(p, def || {}, dt, context)) return;
 
         if (off.__runFlag) {
             _runSupportReceiver(p, off, def || {}, dt, context);
@@ -962,10 +1091,13 @@ export function moveTE(off, dt, s = null) {
     }
 
     // If TE is the ball carrier, use RAC logic
-    if (s && _isCarrier(off, ball, p)) { _racAdvance(off, def, p, dt); return; }
+    if (s && _isCarrier(off, ball, p)) { _racAdvance(off, def, p, dt, s.play); return; }
 
     const qb = off.QB;
     const losY = off.__losPixY ?? (qb?.pos?.y ?? yardsToPixY(25)) - PX_PER_YARD;
+    const carrierInfo = s ? normalizeCarrier(off, ball) : null;
+    const carrier = carrierInfo?.player || null;
+    const tackler = s?.play?.primaryTacklerId ? findDefById(def || {}, s.play.primaryTacklerId) : null;
     const context = {
         qb,
         def,
@@ -974,7 +1106,11 @@ export function moveTE(off, dt, s = null) {
         scrambleMode: s?.play?.qbMoveMode,
         off,
         play: s?.play,
+        carrier,
+        tackler,
     };
+
+    if (carrier && carrier !== p && _assistCarrierBlock(p, def || {}, dt, context)) return;
 
     if (off.__runFlag) {
         _runSupportTightEnd(p, off, def || {}, dt, context);
@@ -1676,8 +1812,15 @@ export function rbLogic(s, dt) {
         return;
     }
 
+    const ball = s.play?.ball || null;
+    const carrierInfo = normalizeCarrier(off, ball);
+    const carrier = carrierInfo.player;
+    const tackler = s.play?.primaryTacklerId ? findDefById(def || {}, s.play.primaryTacklerId) : null;
+
     // If RB has the ball (after catch or handoff), use RAC logic
-    if (_isCarrier(off, s.play.ball, rb)) { _racAdvance(off, def, rb, dt); return; }
+    if (_isCarrier(off, ball, rb)) { _racAdvance(off, def, rb, dt, s.play); return; }
+
+    if (carrier && carrier !== rb && _assistCarrierBlock(rb, def || {}, dt, { off, def, play: s.play, carrier, tackler })) return;
 
     const qb = off.QB;
     const losY = off.__losPixY ?? (qb?.pos?.y ?? yardsToPixY(25)) - PX_PER_YARD;
@@ -1687,6 +1830,10 @@ export function rbLogic(s, dt) {
         losY,
         runHoleX: off.__runHoleX,
         runLaneY: off.__runLaneY,
+        off,
+        play: s.play,
+        carrier,
+        tackler,
     };
 
     if (call.type === 'RUN') {
@@ -1744,6 +1891,7 @@ export function rbLogic(s, dt) {
    Defense — respect engagement & try to shed
    ========================================================= */
 function findOffRoleById(off, id) { for (const [role, p] of Object.entries(off || {})) { if (p && p.id === id) return role; } return null; }
+function findDefById(def, id) { return Object.values(def || {}).find((p) => p && p.id === id) || null; }
 function normalizeCarrier(off, ball) {
     if (isBallLoose(ball)) return { role: null, player: null, id: null };
     let role = null, player = null, id = null;
@@ -1751,6 +1899,69 @@ function normalizeCarrier(off, ball) {
     if (!player && ball.carrierId != null) { player = Object.values(off || {}).find(p => p && p.id === ball.carrierId) || null; role = player ? findOffRoleById(off, player.id) : role; id = player?.id ?? id; }
     if (!player) { role = 'QB'; player = off.QB || null; id = player?.id ?? 'QB'; }
     return { role, player, id };
+}
+
+function _assistCarrierBlock(player, def, dt, context = {}) {
+    if (!player?.pos) return false;
+    const play = context.play || null;
+    if (!play || play.ball?.inAir || isBallLoose(play.ball)) return false;
+
+    let carrier = context.carrier || null;
+    if (!carrier && context.off && play.ball) {
+        carrier = normalizeCarrier(context.off, play.ball).player;
+    }
+    if (!carrier?.pos || carrier === player) return false;
+
+    const qb = context.off?.QB || null;
+    const qbMode = context.play?.qbMoveMode || null;
+    if (carrier === qb && (qbMode === 'DROP' || qbMode === 'SET')) return false;
+
+    const defenders = def || context.def || {};
+    let tackler = context.tackler || null;
+    if (!tackler?.pos && play.primaryTacklerId) {
+        tackler = findDefById(defenders, play.primaryTacklerId);
+    }
+    if (!tackler?.pos) return false;
+
+    const distToCarrier = dist(player.pos, carrier.pos);
+    if (distToCarrier > CFG.HELP_BLOCK_R) return false;
+
+    const tacklerDist = dist(tackler.pos, carrier.pos);
+    if (tacklerDist > CFG.HELP_BLOCK_THREAT_R) return false;
+
+    if (tackler.engagedId && tackler.engagedId !== player.id && tackler.engagedId !== carrier.id) return false;
+
+    const ai = _ensureAI(player);
+    ai.blockTargetId = tackler.id;
+
+    if (player.targets) player.targets = null;
+    player.routeIdx = null;
+
+    const leverage = Math.sign(carrier.pos.x - tackler.pos.x) || (player.pos.x < carrier.pos.x ? -1 : 1);
+    const meet = {
+        x: clamp(tackler.pos.x + leverage * 6, 16, FIELD_PIX_W - 16),
+        y: Math.min(carrier.pos.y, tackler.pos.y + PX_PER_YARD * 0.6),
+    };
+    moveToward(player, meet, dt, 1.02);
+
+    const d = dist(player.pos, tackler.pos);
+    if (d < CFG.OL_ENGAGE_R - 1.5) {
+        player.engagedId = tackler.id;
+        if (!tackler.engagedId || tackler.engagedId === player.id) tackler.engagedId = player.id;
+        const pushDx = carrier.pos.x - tackler.pos.x;
+        const pushDy = carrier.pos.y - tackler.pos.y;
+        const mag = Math.hypot(pushDx, pushDy) || 1;
+        const push = CFG.HELP_BLOCK_PUSH * dt;
+        tackler.pos.x -= (pushDx / mag) * push;
+        tackler.pos.y -= (pushDy / mag) * push;
+        applyCollisionSlowdown(tackler, 0.24);
+        applyCollisionSlowdown(player, 0.18);
+    } else if (player.engagedId === tackler.id && d > CFG.OL_ENGAGE_R + 4) {
+        player.engagedId = null;
+        if (tackler.engagedId === player.id) tackler.engagedId = null;
+    }
+
+    return true;
 }
 
 function maybeForceFumble(s, { carrier, carrierRole, tackler, severity = 1 } = {}) {
@@ -2714,6 +2925,9 @@ export function defenseLogic(s, dt) {
         const defenders = Object.values(def || {}).filter(p => p && p.pos);
         defenders.forEach((p) => { if (p) p.engagedId = null; });
         pursueLooseBallGroup(defenders, ball, dt, 1.24, 12);
+        s.play.primaryTacklerId = null;
+        s.play.primaryTacklerDist = null;
+        off.__primaryTacklerId = null;
         return;
     }
 
@@ -2803,6 +3017,33 @@ export function defenseLogic(s, dt) {
 
     const { player: ballCarrier, id: carrierId } = carrierInfo;
     if (!ballCarrier) return;
+
+    let primaryTackler = null;
+    if (!ball?.inAir && ballCarrier.pos) {
+        Object.values(def || {}).forEach((d) => {
+            if (!d?.pos) return;
+            const distance = dist(d.pos, ballCarrier.pos);
+            if (!Number.isFinite(distance)) return;
+            const speed = clamp(d.attrs?.speed ?? 0.9, 0.4, 1.5);
+            const agility = clamp(d.attrs?.agility ?? 0.9, 0.4, 1.5);
+            const engagedPenalty = d.engagedId && d.engagedId !== ballCarrier.id ? 26 : 0;
+            const depthBias = Math.max(0, ballCarrier.pos.y - d.pos.y) * 0.05;
+            const score = distance - (speed - 1) * 12 - (agility - 1) * 8 - depthBias + engagedPenalty;
+            if (!primaryTackler || score < primaryTackler.score) {
+                primaryTackler = { defender: d, score, dist: distance };
+            }
+        });
+    }
+
+    if (primaryTackler?.defender) {
+        s.play.primaryTacklerId = primaryTackler.defender.id;
+        s.play.primaryTacklerDist = primaryTackler.dist;
+        off.__primaryTacklerId = primaryTackler.defender.id;
+    } else {
+        s.play.primaryTacklerId = null;
+        s.play.primaryTacklerDist = null;
+        off.__primaryTacklerId = null;
+    }
 
     off.__carrierWrapped = isWrapped(s, carrierId) ? (carrierRole || carrierId) : null;
     off.__carrierWrappedId = isWrapped(s, carrierId) ? carrierId : null;
