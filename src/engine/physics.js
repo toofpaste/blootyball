@@ -19,7 +19,7 @@ function createPhysicsEngine() {
     return engine;
 }
 
-function syncPlayerFromBody(player, body) {
+function syncPlayerFromBody(player, body, dt) {
     if (!player?.pos || !body) return;
     const targetX = clamp(body.position.x, 8, FIELD_PIX_W - 8);
     const targetY = clamp(body.position.y, 0, FIELD_PIX_H - 6);
@@ -31,8 +31,10 @@ function syncPlayerFromBody(player, body) {
 
     if (!player.motion) return;
 
-    const finalVx = hitWallX ? 0 : body.velocity.x;
-    const finalVy = hitWallY ? 0 : body.velocity.y;
+    const safeDt = dt > 1e-4 ? dt : 1e-4;
+    const invDt = 1 / safeDt;
+    const finalVx = hitWallX ? 0 : body.velocity.x * invDt;
+    const finalVy = hitWallY ? 0 : body.velocity.y * invDt;
     player.motion.vx = finalVx;
     player.motion.vy = finalVy;
     player.motion.speed = Math.hypot(finalVx, finalVy);
@@ -41,11 +43,12 @@ function syncPlayerFromBody(player, body) {
     }
 }
 
-function buildPlayerBody(player) {
+function buildPlayerBody(player, dt) {
     const radius = resolveRadius(player);
     const mass = resolveMass(player);
     const pos = player?.pos || { x: FIELD_PIX_W / 2, y: FIELD_PIX_H / 2 };
     const motion = player?.motion || { vx: 0, vy: 0 };
+    const safeDt = dt > 1e-4 ? dt : 1e-4;
 
     const body = Bodies.circle(pos.x, pos.y, radius, {
         frictionAir: clamp(0.1 + ((player?.attrs?.agility ?? 1) - 1) * 0.08, 0.04, 0.22),
@@ -56,7 +59,10 @@ function buildPlayerBody(player) {
     });
 
     Body.setMass(body, mass);
-    Body.setVelocity(body, { x: motion.vx ?? 0, y: motion.vy ?? 0 });
+    Body.setVelocity(body, {
+        x: (motion.vx ?? 0) * safeDt,
+        y: (motion.vy ?? 0) * safeDt,
+    });
     body.plugin = { player, radius, mass };
     return body;
 }
@@ -128,6 +134,7 @@ function applyMomentumPush(attacker, target, normal, dt) {
 
 export function applyPlayerPhysics(play, dt = 0.016) {
     if (!play?.formation) return;
+    if (!Number.isFinite(dt) || dt <= 0) return;
     const offPlayers = Object.values(play.formation.off || {}).filter(p => p && p.pos);
     const defPlayers = Object.values(play.formation.def || {}).filter(p => p && p.pos);
     const allPlayers = [...offPlayers, ...defPlayers];
@@ -138,7 +145,7 @@ export function applyPlayerPhysics(play, dt = 0.016) {
     const bodies = [];
 
     for (const player of allPlayers) {
-        bodies.push(buildPlayerBody(player));
+        bodies.push(buildPlayerBody(player, dt));
     }
 
     if (bodies.length === 0) return;
@@ -149,7 +156,7 @@ export function applyPlayerPhysics(play, dt = 0.016) {
     for (const body of bodies) {
         const player = body.plugin?.player;
         if (!player) continue;
-        syncPlayerFromBody(player, body);
+        syncPlayerFromBody(player, body, dt);
         clampToField(player.pos);
     }
 
