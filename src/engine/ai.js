@@ -40,7 +40,7 @@ function pursueLooseBallGroup(players, ball, dt, speedMul = 1, jitter = 8) {
             x: clamp(target.x + rand(-jitter, jitter), 16, FIELD_PIX_W - 16),
             y: clamp(target.y + rand(-jitter, jitter), 0, FIELD_PIX_H - 6),
         };
-        moveToward(p, aim, dt, speedMul);
+        moveToward(p, aim, dt, speedMul, { behavior: 'PURSUIT' });
         acted = true;
     });
     return acted;
@@ -382,13 +382,18 @@ export function initRoutesAfterSnap(s) {
 /* =========================================================
    Shared helpers
    ========================================================= */
-export function moveToward(p, target, dt, speedMul = 1) {
+export function moveToward(p, target, dt, speedMul = 1, options = {}) {
     if (!p) return;
     if (!target || Number.isNaN(target.x) || Number.isNaN(target.y)) {
-        dampMotion(p, dt);
+        if (options.settleDamping) {
+            dampMotion(p, dt, options.settleDamping);
+        } else {
+            dampMotion(p, dt);
+        }
         return;
     }
-    steerPlayer(p, target, dt, { speedMultiplier: speedMul });
+    const steerOpts = { speedMultiplier: speedMul, ...options };
+    steerPlayer(p, target, dt, steerOpts);
 }
 
 function _olKeys(off) { return ['LT', 'LG', 'C', 'RG', 'RT'].filter(k => off[k]); }
@@ -462,7 +467,7 @@ function _racAdvance(off, def, p, dt, play = null) {
     };
 
     const speedMul = clamp(CFG.RAC_SPEED * jukeAdjust.speedScale, 0.6, 1.35);
-    moveToward(p, stepTarget, dt, speedMul);
+    moveToward(p, stepTarget, dt, speedMul, { behavior: 'CARRY' });
 }
 
 function _updateCarrierJuke(player, def, dt, play) {
@@ -620,7 +625,7 @@ function _updateRouteRunner(player, context, dt) {
             x: clamp(player.pos.x + blend.x * look, 16, FIELD_PIX_W - 16),
             y: player.pos.y + blend.y * look,
         };
-        moveToward(player, stepTarget, dt, 0.95);
+        moveToward(player, stepTarget, dt, 0.95, { behavior: 'SCRAMBLE' });
         ai.prevHeading = blend;
         return true;
     }
@@ -663,7 +668,10 @@ function _updateRouteRunner(player, context, dt) {
     };
 
     const speedMul = clamp((adjusted.speed || 1) * (route.throttle || 1), 0.6, 1.15);
-    moveToward(player, stepTarget, dt, speedMul);
+    moveToward(player, stepTarget, dt, speedMul, {
+        behavior: 'ROUTE',
+        pursuitTarget: nearest?.defender || null,
+    });
 
     const closeEnough = dist(player.pos, aim) < 6 + Math.min(8, Math.max(0, (nearest?.dist || 40) - 18) * 0.1);
     if (closeEnough) {
@@ -791,7 +799,7 @@ function _runSupportReceiver(player, off, def, dt, context) {
     const target = _chooseRunBlockTarget(player, off, def, context);
     if (!target) {
         const seal = { x: context.runHoleX ?? player.pos.x, y: player.pos.y + PX_PER_YARD * 2.5 };
-        moveToward(player, seal, dt, 0.92);
+        moveToward(player, seal, dt, 0.92, { behavior: 'RUNFIT' });
         return;
     }
     const leverage = Math.sign((context.runHoleX ?? player.pos.x) - target.pos.x) || (player.pos.x < target.pos.x ? -1 : 1);
@@ -799,7 +807,10 @@ function _runSupportReceiver(player, off, def, dt, context) {
         x: clamp(target.pos.x + leverage * 8, 18, FIELD_PIX_W - 18),
         y: target.pos.y - PX_PER_YARD * 0.8,
     };
-    moveToward(player, fit, dt, 0.96);
+    moveToward(player, fit, dt, 0.96, {
+        behavior: 'BLOCK',
+        pursuitTarget: target,
+    });
 }
 
 function _runSupportTightEnd(player, off, def, dt, context) {
@@ -819,7 +830,13 @@ function _runSupportTightEnd(player, off, def, dt, context) {
     }
     ai.blockTargetId = target?.id || null;
     if (!target?.pos) {
-        moveToward(player, { x: context.runHoleX ?? player.pos.x, y: player.pos.y + PX_PER_YARD * 1.5 }, dt, 0.95);
+        moveToward(
+            player,
+            { x: context.runHoleX ?? player.pos.x, y: player.pos.y + PX_PER_YARD * 1.5 },
+            dt,
+            0.95,
+            { behavior: 'RUNFIT' },
+        );
         return;
     }
     const leverage = rightSide ? -1 : 1;
@@ -827,7 +844,10 @@ function _runSupportTightEnd(player, off, def, dt, context) {
         x: clamp(target.pos.x + leverage * 6, 16, FIELD_PIX_W - 16),
         y: target.pos.y - PX_PER_YARD * 0.6,
     };
-    moveToward(player, fit, dt, 0.98);
+    moveToward(player, fit, dt, 0.98, {
+        behavior: 'BLOCK',
+        pursuitTarget: target,
+    });
 }
 
 function _updatePassBlocker(ol, key, context, dt) {
@@ -869,7 +889,10 @@ function _updatePassBlocker(ol, key, context, dt) {
         };
     }
 
-    moveToward(ol, target, dt, CFG.OL_REACH_SPEED);
+    moveToward(ol, target, dt, CFG.OL_REACH_SPEED, {
+        behavior: 'BLOCK',
+        pursuitTarget: currentDef,
+    });
 
     if (currentDef) {
         const d = dist(ol.pos, currentDef.pos);
@@ -936,7 +959,7 @@ function _updateRunBlocker(ol, key, context, dt) {
     };
 
     if (!target?.pos) {
-        moveToward(ol, baseFit, dt, 1.02);
+        moveToward(ol, baseFit, dt, 1.02, { behavior: 'RUNFIT' });
         return;
     }
 
@@ -945,7 +968,10 @@ function _updateRunBlocker(ol, key, context, dt) {
         x: clamp(target.pos.x + leverage * 6, 16, FIELD_PIX_W - 16),
         y: Math.min(target.pos.y + PX_PER_YARD * 0.6, laneY),
     };
-    moveToward(ol, fit, dt, 1.08);
+    moveToward(ol, fit, dt, 1.08, {
+        behavior: 'BLOCK',
+        pursuitTarget: target,
+    });
 
     const d = dist(ol.pos, target.pos);
     if (d < CFG.OL_ENGAGE_R + 2) {
@@ -968,7 +994,13 @@ function _updateRunBlocker(ol, key, context, dt) {
     ai.comboTimer = (ai.comboTimer || 0) + dt;
     if (ai.comboTimer > 0.9 && dist(target.pos, { x: laneX, y: laneY }) > 18) {
         ai.blockTargetId = null;
-        moveToward(ol, { x: laneX, y: laneY + PX_PER_YARD * 1.2 }, dt, 1.02);
+        moveToward(
+            ol,
+            { x: laneX, y: laneY + PX_PER_YARD * 1.2 },
+            dt,
+            1.02,
+            { behavior: 'RUNFIT' },
+        );
     }
 }
 
@@ -1071,7 +1103,7 @@ export function moveReceivers(off, dt, s = null) {
             ai._scrUntil = ai._scrClock + rand(0.5, 0.9);
         }
         const target = ai._scrTarget || { x: p.pos.x, y: p.pos.y + PX_PER_YARD * 2 };
-        moveToward(p, target, dt, 0.96);
+        moveToward(p, target, dt, 0.96, { behavior: 'SCRAMBLE' });
     });
 }
 
@@ -1128,7 +1160,7 @@ export function moveTE(off, dt, s = null) {
         ai._scrTarget = { x: settleX, y: settleY };
         ai._scrUntil = ai._scrClock + rand(0.45, 0.8);
     }
-    moveToward(p, ai._scrTarget, dt, 0.94);
+    moveToward(p, ai._scrTarget, dt, 0.94, { behavior: 'SCRAMBLE' });
 }
 
 /* =========================================================
@@ -1304,13 +1336,13 @@ export function qbLogic(s, dt) {
             x: clamp((handoffRunner.pos.x * 2 + meshX) / 3, 20, FIELD_PIX_W - 20),
             y: meshY,
         };
-        moveToward(qb, meshPoint, dt, 0.92);
+        moveToward(qb, meshPoint, dt, 0.92, { behavior: 'QB_DROP' });
     } else if (s.play.qbMoveMode === 'DROP') {
         const t =
             Array.isArray(qb.targets) && qb.targets.length > 0
                 ? qb.targets[Math.max(0, Math.min(qb.routeIdx, qb.targets.length - 1))]
                 : dropTarget;
-        moveToward(qb, { x: t.x, y: Math.max(t.y, minY) }, dt, 0.9);
+        moveToward(qb, { x: t.x, y: Math.max(t.y, minY) }, dt, 0.9, { behavior: 'QB_DROP' });
         if (t && dist(qb.pos, t) < 4 && Array.isArray(qb.targets)) {
             qb.routeIdx = Math.min(qb.routeIdx + 1, qb.targets.length);
         }
@@ -1322,7 +1354,7 @@ export function qbLogic(s, dt) {
             x: clamp(settle.x - heatSlide, 20, FIELD_PIX_W - 20),
             y: Math.min(settle.y + stepUp, qb.pos.y + PX_PER_YARD * 0.6),
         };
-        moveToward(qb, aim, dt, 0.82);
+        moveToward(qb, aim, dt, 0.82, { behavior: 'QB_DROP' });
     } else {
         if (!s.play.scrambleMode) s.play.scrambleMode = 'LATERAL';
         const lateral = {
@@ -1334,7 +1366,7 @@ export function qbLogic(s, dt) {
             y: qb.pos.y + PX_PER_YARD * 4,
         };
         const tgt = s.play.scrambleMode === 'LATERAL' ? lateral : forward;
-        moveToward(qb, tgt, dt, 1.05);
+        moveToward(qb, tgt, dt, 1.05, { behavior: 'SCRAMBLE' });
         if (time > (s.play.scrambleUntil || 0)) s.play.scrambleMode = 'FORWARD';
     }
 
@@ -1772,7 +1804,10 @@ function _rbPassProtect(rb, off, def, dt, context) {
             x: clamp(target.pos.x + (qb.pos.x - target.pos.x) * 0.3, 20, FIELD_PIX_W - 20),
             y: Math.min(qb.pos.y - PX_PER_YARD * 0.6, losY + PX_PER_YARD * 0.5),
         };
-        moveToward(rb, meet, dt, 1.05);
+        moveToward(rb, meet, dt, 1.05, {
+            behavior: 'BLOCK',
+            pursuitTarget: target,
+        });
         const d = dist(rb.pos, target.pos);
         if (d < CFG.OL_ENGAGE_R) {
             rb.engagedId = target.id;
@@ -1792,7 +1827,7 @@ function _rbPassProtect(rb, off, def, dt, context) {
 
     if (ai.passClock < 0.45) {
         const settle = { x: rb.pos.x, y: Math.min(rb.pos.y, losY + PX_PER_YARD * 0.6) };
-        moveToward(rb, settle, dt, 0.9);
+        moveToward(rb, settle, dt, 0.9, { behavior: 'BLOCK' });
         return true;
     }
     ai.blockTargetId = null;
@@ -1846,7 +1881,7 @@ export function rbLogic(s, dt) {
             const firstTarget = Array.isArray(s.play.rbTargets) ? s.play.rbTargets[0] : null;
             const meshX = clamp(firstTarget?.x ?? qb.pos.x, 18, FIELD_PIX_W - 18);
             const meshY = Math.min(firstTarget?.y ?? (qb.pos.y + PX_PER_YARD * 0.6), qb.pos.y + PX_PER_YARD * 0.6);
-            moveToward(rb, { x: meshX, y: meshY }, dt, 1.04 * burst);
+            moveToward(rb, { x: meshX, y: meshY }, dt, 1.04 * burst, { behavior: 'RUNFIT' });
             return;
         }
 
@@ -1859,14 +1894,14 @@ export function rbLogic(s, dt) {
 
         if (patiencePhase) {
             const settle = { x: laneX, y: Math.min(rb.pos.y + PX_PER_YARD, losY + PX_PER_YARD * 0.8) };
-            moveToward(rb, settle, dt, 0.8 * burst);
+            moveToward(rb, settle, dt, 0.8 * burst, { behavior: 'RUNFIT' });
         } else {
-            moveToward(rb, depthTarget, dt, 1.18 * burst);
+            moveToward(rb, depthTarget, dt, 1.18 * burst, { behavior: 'RUNFIT' });
         }
 
         if (s.play.rbTargets && s.play.rbTargets.length > 1 && ai.patienceClock < ai.patience + 0.35) {
             const next = s.play.rbTargets[Math.min(1, s.play.rbTargets.length - 1)];
-            moveToward(rb, next, dt, 1.05 * burst);
+            moveToward(rb, next, dt, 1.05 * burst, { behavior: 'RUNFIT' });
         }
         return;
     }
@@ -1884,7 +1919,7 @@ export function rbLogic(s, dt) {
         x: clamp(qb.pos.x + rand(-28, 28), 24, FIELD_PIX_W - 24),
         y: qb.pos.y + PX_PER_YARD * 2.4,
     };
-    moveToward(rb, check, dt, 0.92 * burst);
+    moveToward(rb, check, dt, 0.92 * burst, { behavior: 'ROUTE' });
 }
 
 /* =========================================================
@@ -1942,7 +1977,10 @@ function _assistCarrierBlock(player, def, dt, context = {}) {
         x: clamp(tackler.pos.x + leverage * 6, 16, FIELD_PIX_W - 16),
         y: Math.min(carrier.pos.y, tackler.pos.y + PX_PER_YARD * 0.6),
     };
-    moveToward(player, meet, dt, 1.02);
+    moveToward(player, meet, dt, 1.02, {
+        behavior: 'BLOCK',
+        pursuitTarget: tackler,
+    });
 
     const d = dist(player.pos, tackler.pos);
     if (d < CFG.OL_ENGAGE_R - 1.5) {
@@ -2438,14 +2476,20 @@ function _handleZoneCoverage(ctx, key, defender) {
                 y: Math.max(chase.dest.y - PX_PER_YARD * 0.8, ctx.cover.losY + PX_PER_YARD * 1.5),
             };
             const burst = targetedIntercept ? 1.12 : attackSpeed;
-            moveToward(defender, aim, ctx.dt, burst);
+            moveToward(defender, aim, ctx.dt, burst, {
+                behavior: 'PURSUIT',
+                pursuitTarget: chase.player || ctx.passTarget?.player || null,
+            });
         } else {
             const aim = {
                 x: clamp(chase.player.pos.x, 16, FIELD_PIX_W - 16),
                 y: Math.max(chase.player.pos.y - PX_PER_YARD * 0.6, ctx.cover.losY + PX_PER_YARD * 1.2),
             };
             const speed = chase.priority ? Math.max(chaseSpeed, 1.02) : chaseSpeed;
-            moveToward(defender, aim, ctx.dt, speed);
+            moveToward(defender, aim, ctx.dt, speed, {
+                behavior: 'MIRROR',
+                pursuitTarget: chase.player,
+            });
         }
         return true;
     }
@@ -2455,7 +2499,7 @@ function _handleZoneCoverage(ctx, key, defender) {
         x: clamp(drop.x, 16, FIELD_PIX_W - 16),
         y: Math.max(drop.y, ctx.cover.losY + PX_PER_YARD * 1.4),
     };
-    moveToward(defender, settle, ctx.dt, dropSpeed);
+    moveToward(defender, settle, ctx.dt, dropSpeed, { behavior: 'ZONE' });
     return true;
 }
 
@@ -2488,7 +2532,10 @@ function _pursueCarrierIfNeeded(ctx, key, defender, assignedTarget) {
         y: Math.min(lead.y, carrierPos.y + PX_PER_YARD * 0.2),
     };
     const speedMul = CFG.PURSUIT_SPEED * (assigned ? 1.18 : recentPossession ? 1.08 : 1.0);
-    moveToward(defender, aim, ctx.dt, speedMul);
+    moveToward(defender, aim, ctx.dt, speedMul, {
+        behavior: 'PURSUIT',
+        pursuitTarget: carrier,
+    });
     return true;
 }
 
@@ -2514,12 +2561,15 @@ function _updateManCoverageForKey(ctx, key) {
             zoneDrop,
             targetRole,
         });
-        moveToward(defender, aim.point, ctx.dt, aim.speedMul);
+        moveToward(defender, aim.point, ctx.dt, aim.speedMul, {
+            behavior: 'MIRROR',
+            pursuitTarget: target,
+        });
         return;
     }
 
     const zone = _findZoneHelpAim(ctx, defender, key);
-    moveToward(defender, zone.point, ctx.dt, zone.speedMul);
+    moveToward(defender, zone.point, ctx.dt, zone.speedMul, { behavior: 'ZONE' });
 }
 
 function _updateSafetyCoverage(ctx, key, idx, coverables) {
@@ -2528,7 +2578,7 @@ function _updateSafetyCoverage(ctx, key, idx, coverables) {
 
     if (ctx.ball.inAir) {
         const tgt = ctx.ball.to || ctx.qbPos;
-        moveToward(defender, tgt, ctx.dt, 1.04);
+        moveToward(defender, tgt, ctx.dt, 1.04, { behavior: 'PURSUIT' });
         return;
     }
 
@@ -2556,9 +2606,12 @@ function _updateSafetyCoverage(ctx, key, idx, coverables) {
                     x: clamp(_lerp(landmark.x, lead.x, 0.6), 20, FIELD_PIX_W - 20),
                     y: Math.max(landmark.y, lead.y - PX_PER_YARD * 5.2),
                 };
-                moveToward(defender, aim, ctx.dt, 0.95);
+                moveToward(defender, aim, ctx.dt, 0.95, {
+                    behavior: 'MIRROR',
+                    pursuitTarget: threat.player,
+                });
             } else {
-                moveToward(defender, landmark, ctx.dt, 0.92);
+                moveToward(defender, landmark, ctx.dt, 0.92, { behavior: 'ZONE' });
             }
         } else {
             const landmark = drop || {
@@ -2582,9 +2635,12 @@ function _updateSafetyCoverage(ctx, key, idx, coverables) {
                     x: clamp(_lerp(landmark.x, lead.x, 0.6), 20, FIELD_PIX_W - 20),
                     y: Math.max(landmark.y, Math.min(landmark.y + PX_PER_YARD * 4.2, lead.y - PX_PER_YARD * 2.2)),
                 };
-                moveToward(defender, aim, ctx.dt, 0.96);
+                moveToward(defender, aim, ctx.dt, 0.96, {
+                    behavior: 'MIRROR',
+                    pursuitTarget: threat.player,
+                });
             } else {
-                moveToward(defender, landmark, ctx.dt, 0.9);
+                moveToward(defender, landmark, ctx.dt, 0.9, { behavior: 'ZONE' });
             }
         }
         return;
@@ -2610,9 +2666,12 @@ function _updateSafetyCoverage(ctx, key, idx, coverables) {
                 x: clamp(_lerp(landmark.x, lead.x, 0.55), 20, FIELD_PIX_W - 20),
                 y: Math.max(landmark.y, lead.y - PX_PER_YARD * 5.2),
             };
-            moveToward(defender, aim, ctx.dt, 0.94);
+            moveToward(defender, aim, ctx.dt, 0.94, {
+                behavior: 'MIRROR',
+                pursuitTarget: threat.player,
+            });
         } else {
-            moveToward(defender, landmark, ctx.dt, 0.92);
+            moveToward(defender, landmark, ctx.dt, 0.92, { behavior: 'ZONE' });
         }
         return;
     }
@@ -2638,9 +2697,12 @@ function _updateSafetyCoverage(ctx, key, idx, coverables) {
                 x: clamp(_lerp(landmark.x, lead.x, mix), 20, FIELD_PIX_W - 20),
                 y: Math.max(landmark?.y ?? depthFloor, Math.max(depthFloor, lead.y - PX_PER_YARD * (ctx.cover.isTwoMan ? 5.2 : 4.6))),
             };
-            moveToward(defender, aim, ctx.dt, ctx.cover.isTwoMan ? 0.96 : 0.94);
+            moveToward(defender, aim, ctx.dt, ctx.cover.isTwoMan ? 0.96 : 0.94, {
+                behavior: 'MIRROR',
+                pursuitTarget: threat.player,
+            });
         } else if (landmark) {
-            moveToward(defender, landmark, ctx.dt, 0.92);
+            moveToward(defender, landmark, ctx.dt, 0.92, { behavior: 'ZONE' });
         }
         return;
     }
@@ -2659,13 +2721,16 @@ function _updateSafetyCoverage(ctx, key, idx, coverables) {
             x: clamp(lead.x - shade * 12, 18, FIELD_PIX_W - 18),
             y: Math.max(lead.y - PX_PER_YARD * 4.8, ctx.cover.losY + PX_PER_YARD * 8.2),
         };
-        moveToward(defender, aim, ctx.dt, 0.96);
+        moveToward(defender, aim, ctx.dt, 0.96, {
+            behavior: 'MIRROR',
+            pursuitTarget: deepThreat,
+        });
     } else {
         const robber = {
             x: clamp(ctx.qbPos.x + (defender.pos.x < FIELD_PIX_W / 2 ? -22 : 22), 20, FIELD_PIX_W - 20),
             y: ctx.cover.losY + PX_PER_YARD * 7.2,
         };
-        moveToward(defender, robber, ctx.dt, 0.9);
+        moveToward(defender, robber, ctx.dt, 0.9, { behavior: 'ZONE' });
     }
 }
 
@@ -2975,9 +3040,12 @@ export function defenseLogic(s, dt) {
             // still move (reduced), trying to get around blocker
             const sideWish = Math.sign((qbPos.x + laneBias) - d.pos.x) || (Math.random() < 0.5 ? -1 : 1);
             const around = { x: clamp(d.pos.x + sideWish * 20, 20, FIELD_PIX_W - 20), y: d.pos.y + PX_PER_YARD * 0.8 };
-            moveToward(d, around, dt, CFG.DL_ENGAGED_SLOW);
+            moveToward(d, around, dt, CFG.DL_ENGAGED_SLOW, { behavior: 'BLOCK' });
         } else {
-            moveToward(d, aim, dt, 0.98);
+            moveToward(d, aim, dt, 0.98, {
+                behavior: 'PURSUIT',
+                pursuitTarget: ball.inAir ? off.QB : carrier,
+            });
         }
     });
 
@@ -3052,7 +3120,10 @@ export function defenseLogic(s, dt) {
         freezeCarrierIfWrapped(s);
         const wr = s.play.wrap;
         const tackler = Object.values(def).find((d) => d && d.id === wr.byId);
-        if (tackler) moveToward(tackler, ballCarrier.pos, dt, 1.2);
+        if (tackler) moveToward(tackler, ballCarrier.pos, dt, 1.2, {
+            behavior: 'PURSUIT',
+            pursuitTarget: ballCarrier,
+        });
 
         const wrapsSoFar = (s.play.wrapCounts && s.play.wrapCounts[carrierId]) || 1;
         if (wrapsSoFar >= 2) {
@@ -3110,7 +3181,9 @@ export function defenseLogic(s, dt) {
                 (s.play.events ||= []).push({ t: s.play.elapsed, type: 'tackle:wrapHoldWin', carrierId, byId: wr.byId }); endWrap(s); return;
             } else {
                 breaks[carrierId] = (breaks[carrierId] || 0) + 1;
-                moveToward(ballCarrier, { x: ballCarrier.pos.x, y: ballCarrier.pos.y + PX_PER_YARD * 3.7 }, dt, 7.0);
+                moveToward(ballCarrier, { x: ballCarrier.pos.x, y: ballCarrier.pos.y + PX_PER_YARD * 3.7 }, dt, 7.0, {
+                    behavior: 'CARRY',
+                });
                 s.play.noWrapUntil = s.play.elapsed + CFG.GLOBAL_IMMUNITY;
                 s.play.lastBreakPos = { x: ballCarrier.pos.x, y: ballCarrier.pos.y };
                 (s.play.wrapCooldown ||= {}); if (tackler) s.play.wrapCooldown[tackler.id] = s.play.elapsed + CFG.TACKLER_COOLDOWN;
