@@ -142,6 +142,8 @@ export default function StatsSummary({ stats = {}, directory = {}, teams = [], t
     }));
 
     const hasAnyRows = teamSections.some(section => section.rows.length > 0);
+    const columnCount = Math.max(1, teamSections.length);
+    const useColumns = columnCount > 1;
 
     return (
         <>
@@ -170,15 +172,26 @@ export default function StatsSummary({ stats = {}, directory = {}, teams = [], t
                     {title}
                 </div>
                 {hasAnyRows ? (
-                    <div style={{ display: 'flex', flexDirection: 'column' }}>
-                        {teamSections.map(({ team, rows }) => (
-                            <div key={team.id} style={{ borderTop: '1px solid rgba(14,74,14,0.7)' }}>
+                    <div
+                        style={{
+                            display: 'grid',
+                            gridTemplateColumns: `repeat(${columnCount}, minmax(0, 1fr))`,
+                            borderTop: '1px solid rgba(14,74,14,0.7)',
+                        }}
+                    >
+                        {teamSections.map(({ team, rows }, index) => (
+                            <div
+                                key={team.id}
+                                style={{
+                                    borderLeft: useColumns && index > 0 ? '1px solid rgba(14,74,14,0.6)' : 'none',
+                                }}
+                            >
                                 <div
                                     style={{
                                         display: 'flex',
                                         justifyContent: 'space-between',
                                         alignItems: 'center',
-                                        padding: '10px 18px',
+                                        padding: '10px 16px',
                                         background: 'rgba(8,59,8,0.85)',
                                         fontWeight: 600,
                                         fontSize: 14,
@@ -192,8 +205,8 @@ export default function StatsSummary({ stats = {}, directory = {}, teams = [], t
                                             color: '#f2fff2',
                                             border: '1px solid rgba(232,255,232,0.25)',
                                             borderRadius: 999,
-                                            padding: '6px 12px',
-                                            fontSize: 11,
+                                            padding: '5px 10px',
+                                            fontSize: 10,
                                             cursor: 'pointer',
                                             transition: 'all 140ms ease',
                                             boxShadow: '0 6px 12px rgba(0,0,0,0.25)',
