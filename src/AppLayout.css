@@ -10,6 +10,7 @@
   color: #e8ffe8;
   padding: 18px 0 64px;
   box-sizing: border-box;
+  overflow-x: hidden;
 }
 
 .global-header {
@@ -580,6 +581,22 @@
     width: 100%;
   }
 
+  .global-header,
+  .scoreboard,
+  .last-play-banner {
+    width: min(100%, 520px);
+  }
+
+  .scoreboard {
+    padding: 16px;
+    gap: 12px;
+  }
+
+  .scoreboard__info {
+    gap: 10px;
+    padding: 10px 6px;
+  }
+
   .global-header__menu-panel {
     width: min(100%, 360px);
     right: 50%;
@@ -607,13 +624,104 @@
     align-items: stretch;
   }
 
+  .global-header,
+  .scoreboard,
+  .last-play-banner {
+    width: calc(100% - 24px);
+  }
+
+  .scoreboard {
+    padding: 14px;
+    gap: 10px;
+  }
+
+  .scoreboard__team {
+    padding: 12px;
+    gap: 10px;
+  }
+
+  .scoreboard__stats-button {
+    width: 100%;
+  }
+
+  .scoreboard__status {
+    gap: 12px;
+  }
+
+  .global-header__primary {
+    width: 100%;
+  }
+
   .global-header__menu-button {
     width: 100%;
   }
 
   .global-header__menu-panel {
-    right: 0;
-    left: 0;
+    right: 16px;
+    left: 16px;
     margin: 0 auto;
+    width: auto;
+  }
+}
+
+@media (max-width: 480px) {
+  .app-root {
+    padding: 14px 0 44px;
+  }
+
+  .global-header,
+  .scoreboard,
+  .last-play-banner {
+    width: calc(100% - 18px);
+    border-radius: 16px;
+    box-shadow: 0 12px 26px rgba(0, 0, 0, 0.35);
+  }
+
+  .global-header__actions {
+    gap: 12px;
+  }
+
+  .global-header__menu-panel {
+    padding: 16px;
+    gap: 16px;
+  }
+
+  .scoreboard {
+    padding: 12px;
+  }
+
+  .scoreboard__team {
+    padding: 10px 12px;
+    gap: 8px;
+  }
+
+  .scoreboard__team-abbr {
+    font-size: 11px;
+  }
+
+  .scoreboard__team-name {
+    font-size: 13px;
+  }
+
+  .scoreboard__team-record {
+    font-size: 11px;
+  }
+
+  .scoreboard__score {
+    font-size: clamp(28px, 12vw, 34px);
+  }
+
+  .scoreboard__info {
+    gap: 8px;
+  }
+
+  .scoreboard__label {
+    font-size: 12px;
+  }
+
+  .scoreboard__status {
+    flex-direction: column;
+    gap: 6px;
+    font-size: 15px;
   }
 }
