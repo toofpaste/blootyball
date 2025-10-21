@@ -7,7 +7,9 @@ const MPH_TO_YARDS_PER_SEC = 0.488889; // 1 mph ≈ 0.4889 yards/sec
 export const mphToPixelsPerSecond = (mph) => mph * MPH_TO_YARDS_PER_SEC * PX_PER_YARD;
 
 // Typical NFL top speeds by archetype (mph). Numbers are grounded in publicly
-// available player-tracking data from the Next Gen Stats era.
+// available player-tracking data from the Next Gen Stats era. Defensive backs
+// are aligned with perimeter receivers to avoid identical speed ratings feeling
+// slower on defence.
 const ROLE_SPEED_TEMPLATES = {
     QB: 18.5,
     RB: 20.6,
@@ -15,8 +17,8 @@ const ROLE_SPEED_TEMPLATES = {
     TE: 19.1,
     OL: 17.2,
     DL: 17.6,
-    LB: 19.3,
-    DB: 20.8,
+    LB: 19.8,
+    DB: 21.4,
     DEFAULT: 18.8,
 };
 
@@ -27,8 +29,8 @@ const ROLE_ACCEL_TEMPLATES = {
     TE: 7.2,
     OL: 5.0,
     DL: 5.6,
-    LB: 7.8,
-    DB: 8.4,
+    LB: 8.2,
+    DB: 8.9,
     DEFAULT: 6.6,
 };
 
