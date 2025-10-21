@@ -88,6 +88,7 @@ const MAX_CONTRACT_LENGTH = 6;
 const CONTRACT_ROUNDING = 50_000;
 const LONG_TERM_DISCOUNT = 0.06;
 const SHORT_TERM_PREMIUM = 0.08;
+const REUNION_EXEMPT_RELEASE_REASONS = ['injury replacement released', 'contract expired', 'inaugural dispersal'];
 
 function ensureSalaryStructures(league) {
   if (!league) return;
@@ -361,6 +362,123 @@ function computeTeamNeedScore(incumbentValue, candidateValue) {
   const delta = candidateValue - incumbentValue;
   if (delta <= 0) return 0;
   return clamp(delta / 10, 0.05, 1.1);
+}
+
+function resolvePlayerOverall(player, role = 'WR1') {
+  if (!player) return 0;
+  if (Number.isFinite(player.overall)) return player.overall;
+  const ratingSource = player.ratings || player.attrs || null;
+  if (ratingSource) {
+    return computeOverallFromRatings(ratingSource, role);
+  }
+  return 60;
+}
+
+function resolveSeasonPlayerStats(league, playerId) {
+  if (!league || !playerId) return null;
+  const currentSeason = league.season || null;
+  const snapshot = league.seasonSnapshot || null;
+  if (currentSeason?.playerStats?.[playerId]) {
+    return currentSeason.playerStats[playerId];
+  }
+  if (snapshot?.playerStats?.[playerId]) {
+    return snapshot.playerStats[playerId];
+  }
+  return null;
+}
+
+function resolveSeasonAwards(league) {
+  if (!league) return null;
+  const season = league.season || null;
+  if (season?.awards) return season.awards;
+  if (league.seasonSnapshot?.awards) return league.seasonSnapshot.awards;
+  return null;
+}
+
+function normalizeImpactRole(role = '') {
+  if (!role) return 'GEN';
+  if (role === 'QB') return 'QB';
+  if (role === 'RB') return 'RB';
+  if (role.startsWith('WR')) return 'WR';
+  if (role === 'TE') return 'WR';
+  if (role === 'K') return 'K';
+  if (role === 'LE' || role === 'RE' || role === 'DT' || role === 'RTk') return 'DL';
+  if (role.startsWith('LB')) return 'LB';
+  if (role === 'NB') return 'DB';
+  if (role.startsWith('CB')) return 'DB';
+  if (role.startsWith('S')) return 'DB';
+  return 'GEN';
+}
+
+function computePlayerSeasonImpact(league, player, role = 'WR1') {
+  if (!player) return 0;
+  const impactRole = normalizeImpactRole(role);
+  const stats = resolveSeasonPlayerStats(league, player.id) || {};
+  const passing = stats.passing || {};
+  const rushing = stats.rushing || {};
+  const receiving = stats.receiving || {};
+  const defense = stats.defense || {};
+  const kicking = stats.kicking || {};
+  let statsScore = 0;
+  if (impactRole === 'QB') {
+    statsScore = (passing.yards || 0) / 3500 * 0.9
+      + (passing.touchdowns || 0) / 30 * 0.9
+      - (passing.interceptions || 0) / 18 * 0.4
+      + (rushing.yards || 0) / 400 * 0.35;
+  } else if (impactRole === 'RB') {
+    statsScore = (rushing.yards || 0) / 1200 * 1.0
+      + (rushing.touchdowns || 0) / 14 * 0.8
+      + (receiving.yards || 0) / 600 * 0.35;
+  } else if (impactRole === 'WR') {
+    statsScore = (receiving.yards || 0) / 1200 * 1.0
+      + (receiving.touchdowns || 0) / 10 * 0.8
+      + (rushing.yards || 0) / 250 * 0.25;
+  } else if (impactRole === 'DL' || impactRole === 'LB') {
+    statsScore = (defense.tackles || 0) / 110 * 0.65
+      + (defense.sacks || 0) / 16 * 0.95
+      + (defense.interceptions || 0) / 6 * 0.6;
+  } else if (impactRole === 'DB') {
+    statsScore = (defense.interceptions || 0) / 6 * 1.05
+      + (defense.tackles || 0) / 95 * 0.5
+      + (defense.sacks || 0) / 6 * 0.45;
+  } else if (impactRole === 'K') {
+    statsScore = (kicking.made || 0) / 35 * 0.8
+      + Math.max(0, (kicking.long || 0) - 45) / 20 * 0.4;
+  } else {
+    statsScore = 0;
+  }
+  const awards = resolveSeasonAwards(league);
+  let awardBonus = 0;
+  if (awards) {
+    if (awards.mvp?.playerId === player.id) awardBonus += 1.4;
+    if (awards.offensive?.playerId === player.id) awardBonus += 0.85;
+    if (awards.defensive?.playerId === player.id) awardBonus += 0.85;
+  }
+  const teamId = player.currentTeamId || player.contract?.teamId || player.originalTeamId || null;
+  let teamBoost = 0;
+  if (teamId) {
+    const seasonSource = league?.season || league?.seasonSnapshot || null;
+    const results = resolveTeamResultsProfile(league, seasonSource, teamId);
+    if (results) {
+      teamBoost += Math.max(0, (results.winPct ?? 0.5) - 0.55) * 1.2;
+      teamBoost += Math.max(0, (results.pointDiff ?? 0) / 120);
+    }
+  }
+  const overall = resolvePlayerOverall(player, role);
+  const overallScore = clamp(overall / 75, 0.4, 1.6);
+  const moodBonus = clamp(player?.temperament?.mood ?? 0, -1, 1) * 0.25;
+  return overallScore + statsScore + awardBonus + teamBoost + moodBonus;
+}
+
+function isCornerstonePlayer(league, player, role = 'WR1') {
+  if (!player) return false;
+  const impact = computePlayerSeasonImpact(league, player, role);
+  const overall = resolvePlayerOverall(player, role);
+  if (impact >= 1.75) return true;
+  if (impact >= 1.35 && overall >= 85) return true;
+  const awards = resolveSeasonAwards(league);
+  if (awards?.mvp?.playerId === player.id) return true;
+  return false;
 }
 
 const ATTRIBUTE_SPREAD_POWER = 0.82;
@@ -2215,19 +2333,37 @@ function coachCandidateScore(candidate = {}, context = {}) {
   );
 }
 
-function takeCoachCandidate(league, context = {}) {
+function takeCoachCandidate(league, context = {}, options = {}) {
   ensureStaffFreeAgents(league);
   const pool = league.staffFreeAgents.coaches;
   if (!pool.length) pool.push(generateCoachCandidate());
-  let bestIndex = 0;
+  let bestIndex = -1;
   let bestScore = -Infinity;
+  const avoidTeamId = options.avoidTeamId || null;
+  const currentSeasonNumber = options.avoidSeason
+    ?? options.currentSeason
+    ?? league.seasonNumber
+    ?? league.season?.seasonNumber
+    ?? league.seasonSnapshot?.seasonNumber
+    ?? null;
   pool.forEach((candidate, index) => {
+    if (avoidTeamId) {
+      const releasedFrom = candidate?.releasedFrom || candidate?.resume?.lastTeam || null;
+      const releaseSeason = candidate?.releasedSeason ?? null;
+      const sameSeason = currentSeasonNumber != null && releaseSeason === currentSeasonNumber;
+      if (releasedFrom === avoidTeamId && (!candidate?.releasedSeason || sameSeason)) {
+        return;
+      }
+    }
     const score = coachCandidateScore(candidate, context);
     if (score > bestScore) {
       bestScore = score;
       bestIndex = index;
     }
   });
+  if (bestIndex < 0) {
+    return updateCoachOverall(generateCoachCandidate());
+  }
   const [candidate] = pool.splice(bestIndex, 1);
   return updateCoachOverall(candidate || generateCoachCandidate());
 }
@@ -2252,19 +2388,37 @@ function scoutCandidateScore(candidate = {}, context = {}) {
   );
 }
 
-function takeScoutCandidate(league, context = {}) {
+function takeScoutCandidate(league, context = {}, options = {}) {
   ensureStaffFreeAgents(league);
   const pool = league.staffFreeAgents.scouts;
   if (!pool.length) pool.push(generateScoutCandidate());
-  let bestIndex = 0;
+  let bestIndex = -1;
   let bestScore = -Infinity;
+  const avoidTeamId = options.avoidTeamId || null;
+  const currentSeasonNumber = options.avoidSeason
+    ?? options.currentSeason
+    ?? league.seasonNumber
+    ?? league.season?.seasonNumber
+    ?? league.seasonSnapshot?.seasonNumber
+    ?? null;
   pool.forEach((candidate, index) => {
+    if (avoidTeamId) {
+      const releasedFrom = candidate?.releasedFrom || candidate?.resume?.lastTeam || null;
+      const releaseSeason = candidate?.releasedSeason ?? null;
+      const sameSeason = currentSeasonNumber != null && releaseSeason === currentSeasonNumber;
+      if (releasedFrom === avoidTeamId && (!candidate?.releasedSeason || sameSeason)) {
+        return;
+      }
+    }
     const score = scoutCandidateScore(candidate, context);
     if (score > bestScore) {
       bestScore = score;
       bestIndex = index;
     }
   });
+  if (bestIndex < 0) {
+    return updateScoutOverall(generateScoutCandidate());
+  }
   const [candidate] = pool.splice(bestIndex, 1);
   return updateScoutOverall(candidate || generateScoutCandidate());
 }
@@ -2288,7 +2442,10 @@ function replaceCoach(league, teamId, coach, seasonNumber, { reason, context } =
     seasonNumber,
   });
   const decisionContext = context || buildTeamDecisionContext(league, teamId, league?.season || league?.seasonSnapshot || null);
-  const candidate = takeCoachCandidate(league, decisionContext);
+  const candidate = takeCoachCandidate(league, decisionContext, {
+    avoidTeamId: teamId,
+    avoidSeason: seasonNumber,
+  });
   const assigned = updateCoachOverall({ ...candidate, teamId, identity });
   assigned.resume = { ...(candidate.resume || {}), lastTeam: teamId };
   assigned.tendencies ||= { aggression: 0, passBias: 0, runBias: 0 };
@@ -2328,7 +2485,10 @@ function replaceScout(league, teamId, scout, seasonNumber, { reason, context } =
     });
   }
   const decisionContext = context || buildTeamDecisionContext(league, teamId, league?.season || league?.seasonSnapshot || null);
-  const candidate = takeScoutCandidate(league, decisionContext);
+  const candidate = takeScoutCandidate(league, decisionContext, {
+    avoidTeamId: teamId,
+    avoidSeason: seasonNumber,
+  });
   const assigned = updateScoutOverall({ ...candidate, teamId });
   const targetCapFocus = context?.capEmergency
     ? Math.max(assigned.capFocus ?? 0.6, 0.72)
@@ -2362,6 +2522,7 @@ function evaluateStaffChanges(league, season, { focusTeams, activityDial } = {})
     const trend = decisionContext.trend ?? 0;
     const pointDiff = decisionContext.pointDiff ?? 0;
     const growthGap = Math.max(0, decisionContext.growthGap ?? 0);
+    const winningSeason = winPct >= 0.62 && trend >= -0.02 && pointDiff > 0;
     const resultPressure = clamp(
       (0.55 - winPct) * 1.8
         + Math.max(0, -trend) * 6
@@ -2433,6 +2594,9 @@ function evaluateStaffChanges(league, season, { focusTeams, activityDial } = {})
         ? clamp(coachPressure, 0, 0.9)
         : clamp((coachPressure - 0.45) * 0.55, 0, 0.45);
     fireCoachChance = clamp(fireCoachChance * dial, 0, 0.9);
+    if (winningSeason) {
+      fireCoachChance *= 0.2;
+    }
     if (coach && Math.random() < fireCoachChance) {
       const reason = coachStruggle
         ? 'Performance evaluation'
@@ -2456,6 +2620,9 @@ function evaluateStaffChanges(league, season, { focusTeams, activityDial } = {})
         ? clamp(scoutPressure, 0, 0.65)
         : clamp((scoutPressure - 0.5) * 0.4, 0, 0.32);
     fireScoutChance = clamp(fireScoutChance * dial, 0, 0.65);
+    if (winningSeason) {
+      fireScoutChance *= 0.25;
+    }
     if (Math.random() < fireScoutChance) {
       const reason = scoutStruggle && capProfile.capRatio > 1.02
         ? 'Cap discipline crackdown'
@@ -2660,6 +2827,14 @@ function pushPlayerToFreeAgency(league, player, role, reason) {
     releasedReason: reasonText || 'released',
     temperament: cloneTemperament(player.temperament),
   };
+  const seasonNumber = options.seasonNumber
+    ?? league.seasonNumber
+    ?? league.season?.seasonNumber
+    ?? league.seasonSnapshot?.seasonNumber
+    ?? 1;
+  released.releasedFrom = releaseTeamId || null;
+  released.releasedSeason = seasonNumber;
+  released.releasedAt = options.timestamp || Date.now();
   decoratePlayerMetrics(released, role);
   ensurePlayerTemperament(released);
   ensurePlayerLoyalty(released);
@@ -2769,10 +2944,22 @@ export function signBestFreeAgentForRole(league, teamId, role, {
   ensureSeasonPersonnel(league, league.seasonNumber || 1);
   const side = roleSide(role);
   league.freeAgents ||= [];
+  const currentSeasonNumber = league.seasonNumber
+    || league.season?.seasonNumber
+    || league.seasonSnapshot?.seasonNumber
+    || 1;
   const candidates = league.freeAgents
     .map((player, index) => ({ player, index }))
     .filter(({ player }) => {
       if (!player || !player.id) return false;
+      if (player.releasedFrom === teamId) {
+        const releaseReason = (player.releasedReason || '').toLowerCase();
+        const exempt = REUNION_EXEMPT_RELEASE_REASONS.includes(releaseReason);
+        const releaseSeason = player.releasedSeason ?? currentSeasonNumber;
+        if (!exempt && releaseSeason === currentSeasonNumber) {
+          return false;
+        }
+      }
       const candidateRole = player.role;
       if (role === 'K') {
         return candidateRole == null || candidateRole === 'K';
@@ -3226,11 +3413,16 @@ function reinstatePlayer(league, irEntry) {
     const base = evaluatePlayerTrueValue(player, strategy);
     const temperamentBonus = temperamentScoutAdjustment(player, { coach, teamMood }) * 0.2;
     const moodBonus = (player.temperament?.mood || 0) * 6;
+    const impact = computePlayerSeasonImpact(league, player, roleKey);
+    const cornerstone = isCornerstonePlayer(league, player, roleKey);
+    const anchorBonus = cornerstone ? 3.5 : Math.max(0, impact - 1.1);
     return {
       role: roleKey,
       player,
-      evaluation: base + temperamentBonus + moodBonus,
+      evaluation: base + temperamentBonus + moodBonus + anchorBonus,
       replacement: player.id === replacementId || (occupantId && player.id === occupantId && player.id !== returning.id),
+      impact,
+      cornerstone,
     };
   };
 
@@ -3239,10 +3431,20 @@ function reinstatePlayer(league, irEntry) {
     const entry = collectPlayer(roster, groupRole);
     if (entry) candidates.push(entry);
   });
+  const returningImpact = computePlayerSeasonImpact(league, returning, role);
   const returningEval = evaluatePlayerTrueValue(returning, strategy)
     + temperamentScoutAdjustment(returning, { coach, teamMood }) * 0.2
-    + (returning.temperament?.mood || 0) * 6;
-  candidates.push({ role, player: returning, evaluation: returningEval, returning: true });
+    + (returning.temperament?.mood || 0) * 6
+    + Math.max(0, returningImpact - 1.1);
+  const returningCornerstone = isCornerstonePlayer(league, returning, role);
+  candidates.push({
+    role,
+    player: returning,
+    evaluation: returningEval + (returningCornerstone ? 3.5 : 0),
+    returning: true,
+    cornerstone: returningCornerstone,
+    impact: returningImpact,
+  });
 
   if (candidates.length <= 1) {
     assignPlayerToRoster(league, teamId, role, returning);
@@ -3261,6 +3463,7 @@ function reinstatePlayer(league, irEntry) {
 
   let cutCandidate = null;
   candidates.forEach((entry) => {
+    if (entry.cornerstone && !entry.returning) return;
     if (!cutCandidate || entry.evaluation < cutCandidate.evaluation - 0.01) {
       cutCandidate = entry;
     } else if (cutCandidate && Math.abs(entry.evaluation - cutCandidate.evaluation) <= 0.01) {
@@ -3270,7 +3473,7 @@ function reinstatePlayer(league, irEntry) {
     }
   });
 
-  const replacementCandidates = candidates.filter((entry) => entry.replacement && !entry.returning);
+  const replacementCandidates = candidates.filter((entry) => entry.replacement && !entry.returning && !entry.cornerstone);
   const primaryReplacement = replacementCandidates.reduce((best, entry) => {
     if (!best || entry.evaluation > best.evaluation) return entry;
     return best;
@@ -3285,11 +3488,15 @@ function reinstatePlayer(league, irEntry) {
       }
     }
   }
+  if (returningCornerstone) {
+    allowReplacementRetention = false;
+  }
 
   if (cutCandidate?.returning && !allowReplacementRetention) {
     let fallback = null;
     candidates.forEach((entry) => {
       if (entry.returning) return;
+      if (entry.cornerstone) return;
       if (!fallback || entry.evaluation < fallback.evaluation - 0.01) {
         fallback = entry;
       } else if (fallback && Math.abs(entry.evaluation - fallback.evaluation) <= 0.01) {
@@ -3753,31 +3960,71 @@ function attemptTradeForUnhappyPlayer(league, teamId, role, player) {
 
 function simulateRosterCuts(league, teamId, mode, context) {
   const roster = ensureTeamRosterShell(league)[teamId];
+  if (!roster) return;
+  const decisionContext = buildTeamDecisionContext(league, teamId, league?.season || league?.seasonSnapshot || null);
+  const winPct = decisionContext.winPct ?? 0.5;
+  const trend = decisionContext.trend ?? 0;
+  const pointDiff = decisionContext.pointDiff ?? 0;
+  const losingPressure = Math.max(0, 0.55 - winPct) * 0.8 + (pointDiff < -30 ? 0.25 : pointDiff < -10 ? 0.12 : 0);
+  const winning = winPct >= 0.6 && pointDiff > -5 && trend >= -0.05;
+  const moodThreshold = winning ? -0.7 : -0.55;
+  const overallThreshold = winning ? 48 : 52;
+  const scout = league.teamScouts?.[teamId];
+  const baseLimit = Math.max(1, Math.round((scout?.aggression ?? 0.4) * 2));
+  const limit = winning ? 1 : baseLimit;
+  const considerPlayer = (player, role) => {
+    if (!player) return null;
+    const temperament = ensurePlayerTemperament(player);
+    const mood = temperament.mood ?? 0;
+    const overall = resolvePlayerOverall(player, role);
+    const impact = computePlayerSeasonImpact(league, player, role);
+    const cornerstone = isCornerstonePlayer(league, player, role);
+    if (cornerstone) return null;
+    const underperforming = overall < overallThreshold;
+    const unhappy = mood <= moodThreshold;
+    if (!underperforming && !unhappy) return null;
+    if (!underperforming && impact >= 1.25) return null;
+    const performancePenalty = underperforming ? Math.min(1.4, (overallThreshold - overall) / 6) : 0;
+    const moralePenalty = unhappy ? Math.min(1.5, Math.abs(moodThreshold - mood) * 1.6) : 0;
+    const impactProtection = Math.max(0, impact - 1) * 0.85;
+    let cutScore = performancePenalty + moralePenalty - impactProtection;
+    cutScore += losingPressure;
+    if (winning) cutScore *= 0.6;
+    cutScore += Math.random() * 0.15;
+    if (cutScore <= 0.35) return null;
+    return {
+      role,
+      player,
+      mood,
+      overall,
+      impact,
+      unhappy,
+      underperforming,
+      cutScore,
+    };
+  };
   const candidates = [];
   ROLES_OFF.forEach((role) => {
-    const player = roster.offense[role];
-    if (!player) return;
-    const temperament = ensurePlayerTemperament(player);
-    if ((player.overall < 52 && Math.random() < 0.25) || (temperament.mood <= -0.55 && Math.random() < 0.6)) {
-      candidates.push({ role, player });
-    }
+    const entry = considerPlayer(roster.offense[role], role);
+    if (entry) candidates.push(entry);
   });
   ROLES_DEF.forEach((role) => {
-    const player = roster.defense[role];
-    if (!player) return;
-    const temperament = ensurePlayerTemperament(player);
-    if ((player.overall < 52 && Math.random() < 0.25) || (temperament.mood <= -0.55 && Math.random() < 0.6)) {
-      candidates.push({ role, player });
-    }
+    const entry = considerPlayer(roster.defense[role], role);
+    if (entry) candidates.push(entry);
   });
-  if (roster.special.K && roster.special.K.overall < 52 && Math.random() < 0.25) {
-    candidates.push({ role: 'K', player: roster.special.K });
-  }
+  const specialEntry = considerPlayer(roster.special.K, 'K');
+  if (specialEntry) candidates.push(specialEntry);
   if (!candidates.length) return;
-  const scout = league.teamScouts?.[teamId];
-  const limit = Math.max(1, Math.round((scout?.aggression ?? 0.4) * 2));
-  for (let i = 0; i < Math.min(limit, candidates.length); i += 1) {
+  candidates.sort((a, b) => b.cutScore - a.cutScore);
+  const maxMoves = Math.min(limit, candidates.length);
+  for (let i = 0; i < maxMoves; i += 1) {
     const pick = candidates[i];
+    if (!pick) continue;
+    if (pick.impact >= 1.35) continue;
+    if (pick.unhappy && pick.impact >= 1.25) {
+      const traded = attemptTradeForUnhappyPlayer(league, teamId, pick.role, pick.player);
+      if (traded) continue;
+    }
     if (context && !canTeamMakeOffseasonMove(context, teamId, 2)) continue;
     let removed = null;
     if (context) {
@@ -3790,18 +4037,22 @@ function simulateRosterCuts(league, teamId, mode, context) {
     } else {
       removed = removePlayerFromRoster(league, teamId, pick.role);
     }
-    if (removed) {
-      adjustPlayerMood(removed, -0.15);
-      pushPlayerToFreeAgency(league, removed, pick.role, 'waived');
-      recordNewsInternal(league, {
-        type: 'release',
-        teamId,
-        text: `${removed.firstName} ${removed.lastName} (${pick.role}) released`,
-        detail: 'Roster spot opened',
-        seasonNumber: league.seasonNumber || null,
-      });
-      signBestFreeAgentForRole(league, teamId, pick.role, { reason: 'replacing waived player', mode, context });
+    if (!removed) continue;
+    if (isCornerstonePlayer(league, removed, pick.role)) {
+      assignPlayerToRoster(league, teamId, pick.role, removed);
+      if (context) refundOffseasonMove(context, teamId);
+      continue;
     }
+    adjustPlayerMood(removed, -0.12);
+    pushPlayerToFreeAgency(league, removed, pick.role, 'waived');
+    recordNewsInternal(league, {
+      type: 'release',
+      teamId,
+      text: `${removed.firstName} ${removed.lastName} (${pick.role}) released`,
+      detail: pick.unhappy ? 'Locker room tension eased' : 'Roster spot opened',
+      seasonNumber: league.seasonNumber || null,
+    });
+    signBestFreeAgentForRole(league, teamId, pick.role, { reason: 'replacing waived player', mode, context });
   }
   refreshTeamMood(league, teamId);
 }
@@ -4036,16 +4287,26 @@ function computeContractDemand(league, teamId, player, { teamNeedScore = 0, pres
     ask *= 1 - loyalty * 0.08;
   }
   ask *= 1 + Math.max(0, -mood) * 0.12;
+  const performanceImpact = computePlayerSeasonImpact(league, player, role);
+  const performanceBonus = Math.max(0, performanceImpact - 1);
+  if (performanceBonus > 0) {
+    ask *= 1 + Math.min(0.28, performanceBonus * 0.35);
+  }
   const preferredYears = determinePreferredContractLength(resolvePlayerAge(league, player), player);
   let floor = adjustedBase * (0.74 + loyalty * 0.18);
   floor *= 1 - Math.min(0.12, prestige * 0.08);
   floor *= 1 - Math.min(0.08, teamNeedScore * 0.05);
+  if (performanceBonus > 0) {
+    floor *= 1 + Math.min(0.2, performanceBonus * 0.22);
+  }
   floor = Math.max(minimum, Math.min(floor, ask * 0.95));
   let normalizedYears = preferredYears;
   if (bargain) {
     ask = Math.max(minimum, Math.min(ask, adjustedBase * 0.8));
     floor = minimum;
     normalizedYears = Math.max(1, Math.min(2, preferredYears));
+  } else if (performanceImpact > 1.4 && normalizedYears < MAX_CONTRACT_LENGTH) {
+    normalizedYears += 1;
   }
   return { baseSalary, ask, floor, preferredYears: normalizedYears, loyalty, mood };
 }
