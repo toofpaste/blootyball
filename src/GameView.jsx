@@ -34,7 +34,7 @@ const GameView = React.forwardRef(function GameView({
 }, ref) {
   const canvasRef = useRef(null);
   const [localRunning, setLocalRunning] = useState(false);
-  const [statsModalTeam, setStatsModalTeam] = useState(null);
+  const [statsModalOpen, setStatsModalOpen] = useState(false);
   const [state, setState] = useState(() => createInitialGameState({
     assignmentOffset: gameIndex,
     assignmentStride: parallelSlotCount,
@@ -313,6 +313,8 @@ const GameView = React.forwardRef(function GameView({
   const isValidTeam = (team) => team.id && team.id !== TEAM_RED && team.id !== TEAM_BLK;
   const homeStatsTeam = isValidTeam(homeTeam) ? homeTeam : null;
   const awayStatsTeam = isValidTeam(awayTeam) ? awayTeam : null;
+  const statsTeams = [awayStatsTeam, homeStatsTeam].filter(Boolean);
+  const hasStatsTeams = statsTeams.length > 0;
 
   return (
     <section className="game-instance">
@@ -325,8 +327,7 @@ const GameView = React.forwardRef(function GameView({
         down={state.drive?.down ?? 1}
         toGo={state.drive?.toGo ?? 10}
         gameLabel={gameLabel}
-        onShowHomeStats={homeStatsTeam ? () => setStatsModalTeam(homeStatsTeam) : undefined}
-        onShowAwayStats={awayStatsTeam ? () => setStatsModalTeam(awayStatsTeam) : undefined}
+        onShowStats={hasStatsTeams ? () => setStatsModalOpen(true) : undefined}
       />
       <div className="game-instance__body">
         <div className="field-shell">
@@ -335,20 +336,22 @@ const GameView = React.forwardRef(function GameView({
         <PlayLog items={state.playLog} />
       </div>
       <Modal
-        open={Boolean(statsModalTeam)}
-        onClose={() => setStatsModalTeam(null)}
-        title={statsModalTeam ? `${statsModalTeam.displayName || statsModalTeam.label || 'Team'} Game Leaders` : 'Game Leaders'}
-        width="min(94vw, 620px)"
+        open={statsModalOpen && hasStatsTeams}
+        onClose={() => setStatsModalOpen(false)}
+        title="Game Leaders"
+        width="min(94vw, 680px)"
       >
-        {statsModalTeam ? (
+        {hasStatsTeams ? (
           <StatsSummary
             stats={state.playerStats}
             directory={state.playerDirectory}
-            teams={[statsModalTeam]}
-            title={`${statsModalTeam.displayName || statsModalTeam.label || 'Team'} Leaders`}
+            teams={statsTeams}
+            title="Game Leaders"
             injuredReserve={state.league?.injuredReserve || {}}
           />
-        ) : null}
+        ) : (
+          <div style={{ padding: '16px', color: '#cfe9cf' }}>No player stats recorded yet.</div>
+        )}
       </Modal>
     </section>
   );

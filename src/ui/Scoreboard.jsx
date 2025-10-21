@@ -1,7 +1,7 @@
 // src/ui/Scoreboard.jsx
 import React from 'react';
 
-function TeamPanel({ team = {}, align = 'left', onShowStats }) {
+function TeamPanel({ team = {}, align = 'left' }) {
   const {
     displayName = 'Team',
     abbr = '',
@@ -12,7 +12,6 @@ function TeamPanel({ team = {}, align = 'left', onShowStats }) {
 
   const isRight = align === 'right';
   const label = displayName || abbr || 'Team';
-  const statsAvailable = typeof onShowStats === 'function';
 
   return (
     <div className={`scoreboard__team scoreboard__team--${isRight ? 'right' : 'left'}`}>
@@ -31,14 +30,6 @@ function TeamPanel({ team = {}, align = 'left', onShowStats }) {
       <div className="scoreboard__score" aria-label={`${label} score`}>
         {Number.isFinite(score) ? score : 0}
       </div>
-      <button
-        type="button"
-        className="scoreboard__stats-button"
-        onClick={statsAvailable ? onShowStats : undefined}
-        disabled={!statsAvailable}
-      >
-        View Stats
-      </button>
     </div>
   );
 }
@@ -51,18 +42,18 @@ export default function Scoreboard({
   down = 1,
   toGo = 10,
   gameLabel = '',
-  onShowHomeStats,
-  onShowAwayStats,
+  onShowStats,
 }) {
   const safeDown = Number.isFinite(down) && down > 0 ? down : 1;
   const safeToGo = Number.isFinite(toGo) && toGo > 0 ? Math.round(toGo) : 10;
   const safeQuarter = Number.isFinite(quarter) && quarter > 0 ? quarter : 1;
   const downDistanceText = `${ordinal(safeDown)} & ${Math.max(1, safeToGo)}`;
   const quarterText = `Q${safeQuarter}`;
+  const canShowStats = typeof onShowStats === 'function';
 
   return (
     <div className="scoreboard">
-      <TeamPanel team={away} align="left" onShowStats={onShowAwayStats} />
+      <TeamPanel team={away} align="left" />
       <div className="scoreboard__info">
         <div className="scoreboard__label" aria-live="polite">
           {gameLabel}
@@ -72,8 +63,17 @@ export default function Scoreboard({
           <span aria-label="Quarter">{quarterText}</span>
           <span aria-label="Game clock">{timeLeftText}</span>
         </div>
+        {canShowStats ? (
+          <button
+            type="button"
+            className="scoreboard__stats-button"
+            onClick={onShowStats}
+          >
+            Game Stats
+          </button>
+        ) : null}
       </div>
-      <TeamPanel team={home} align="right" onShowStats={onShowHomeStats} />
+      <TeamPanel team={home} align="right" />
     </div>
   );
 }
