@@ -262,14 +262,16 @@ export function startPass(s, from, to, targetId) {
     const distance = Math.max(1, dist(from, to));
     const velocityTrait = clamp((qb?.modifiers?.throwVelocity ?? 0.5) - 0.5, -0.3, 0.3);
     const touchTrait = clamp((qb?.modifiers?.touch ?? 0.5) - 0.5, -0.3, 0.3);
-    const mph = clamp(48 + (arm - 1) * 18 + velocityTrait * 12, 40, 66);
+    const mph = clamp(48 + (arm - 1) * 26 + velocityTrait * 14, 36, 70);
     const speed = Math.max(60, mphToPixelsPerSecond(mph));
     const duration = clamp(distance / speed, 0.35, 1.85);
     const distanceYards = distance / PX_PER_YARD;
     const difficulty = clamp((distanceYards - 8) / 18, 0, 1.3);
-    const rawAccuracy = acc * (0.62 + iq * 0.32 + touchTrait * 0.12);
-    const accuracyPenalty = difficulty * (1.15 - acc * 0.45 - iq * 0.2);
-    const flightAccuracy = clamp(rawAccuracy - accuracyPenalty, 0.28, 1.35);
+    const accComposite = clamp(Math.pow(acc + touchTrait * 0.14, 1.12), 0.3, 1.55);
+    const iqComposite = clamp(Math.pow(iq, 1.08), 0.35, 1.5);
+    const rawAccuracy = accComposite * (0.54 + iqComposite * 0.36);
+    const accuracyPenalty = difficulty * clamp(1.25 - accComposite * 0.55 - iqComposite * 0.25, 0.45, 1.25);
+    const flightAccuracy = clamp(rawAccuracy - accuracyPenalty, 0.2, 1.42);
 
     ball.inAir = true;
     ball.lastCarrierId = ball.carrierId || ball.lastCarrierId || qb?.id || 'QB';
@@ -468,26 +470,31 @@ export function moveBall(s, dt) {
                     picked = true;
                     s.play.__forcedIntDone = true;
                 } else if (nearestDef.t && nearestDef.d < 18) {
-                    const defenderIQ = clamp(nearestDef.t.attrs.awareness ?? 0.9, 0.4, 1.4);
-                    const qbAcc = clamp(off.QB.attrs.throwAcc ?? 0.9, 0.35, 1.4);
-                    const qbIQ = clamp(off.QB.attrs.awareness ?? 0.9, 0.4, 1.4);
-                    const wrHands = clamp(r.attrs.catch ?? 0.9, 0.4, 1.4);
+                    const defenderIQ = clamp(nearestDef.t.attrs?.awareness ?? 0.9, 0.4, 1.5);
+                    const defenderHands = clamp(nearestDef.t.attrs?.catch ?? nearestDef.t.attrs?.tackle ?? 0.85, 0.4, 1.45);
+                    const defenderAgility = clamp(nearestDef.t.attrs?.agility ?? 1, 0.5, 1.5);
+                    const qbAcc = clamp(off.QB.attrs.throwAcc ?? 0.9, 0.35, 1.45);
+                    const qbIQ = clamp(off.QB.attrs.awareness ?? 0.9, 0.4, 1.5);
+                    const wrHands = clamp(r.attrs.catch ?? 0.9, 0.4, 1.45);
+                    const wrAwareness = clamp(r.attrs.awareness ?? 0.9, 0.4, 1.4);
                     const hawkTrait = clamp((nearestDef.t.modifiers?.ballHawk ?? 0.5) - 0.5, -0.3, 0.3);
                     const wrHandsTrait = clamp((r.modifiers?.hands ?? 0.5) - 0.5, -0.3, 0.3);
                     let pickProb = 0.03;
-                    pickProb += (defenderIQ - 1) * 0.22;
-                    pickProb += (1 - qbAcc) * 0.28;
-                    pickProb += (1 - qbIQ) * 0.24;
-                    pickProb -= (wrHands - 1) * 0.14;
-                    pickProb += hawkTrait * 0.07;
-                    pickProb -= wrHandsTrait * 0.04;
+                    pickProb += (defenderIQ - qbIQ) * 0.28;
+                    pickProb += (defenderHands - 1) * 0.26;
+                    pickProb += (defenderAgility - 1) * 0.18;
+                    pickProb += (1 - qbAcc) * 0.42;
+                    pickProb -= (wrHands - 1) * 0.22;
+                    pickProb -= (wrAwareness - 1) * 0.18;
+                    pickProb += hawkTrait * 0.09;
+                    pickProb -= wrHandsTrait * 0.05;
                     const ballAccFactor = clamp(1 - (ball.flight?.accuracy ?? 1), -0.6, 0.8);
-                    pickProb += ballAccFactor * 0.36;
+                    pickProb += ballAccFactor * 0.48;
                     const tightness = clamp((16 - (nearestDef.d ?? 16)) / 16, 0, 1);
-                    pickProb += tightness * 0.24;
-                    if (s.play.passRisky) pickProb += 0.1;
-                    pickProb = clamp(pickProb, 0.015, 0.55);
-                    if (nearestDef.d > 16) pickProb *= 0.6;
+                    pickProb += tightness * 0.32;
+                    if (s.play.passRisky) pickProb += 0.12;
+                    pickProb = clamp(pickProb, 0.015, 0.65);
+                    if (nearestDef.d > 16) pickProb *= 0.55;
                     picked = Math.random() < pickProb;
                 }
 
@@ -515,35 +522,50 @@ export function moveBall(s, dt) {
 
                 const handsTrait = clamp((r.modifiers?.hands ?? 0.5) - 0.5, -0.4, 0.4);
                 const precisionTrait = clamp((r.modifiers?.routePrecision ?? 0.5) - 0.5, -0.3, 0.3);
-                const hands = clamp((r.attrs.catch ?? 0.8) + handsTrait * 0.2 + precisionTrait * 0.12, 0.4, 1.45);
+                const technique = clamp(r.attrs.agility ?? 1, 0.5, 1.5);
+                const awareness = clamp(r.attrs.awareness ?? 0.9, 0.4, 1.4);
+                const rawHands = clamp(r.attrs.catch ?? 0.8, 0.4, 1.55);
+                const handsComposite = clamp(
+                    rawHands + handsTrait * 0.28 + precisionTrait * 0.16 + (technique - 1) * 0.1,
+                    0.35,
+                    1.7,
+                );
+                const hands = clamp(Math.pow(handsComposite, 1.12), 0.35, 1.75);
                 const qbAccMods = off?.QB?.modifiers || {};
                 const qbAccTrait = clamp((qbAccMods.releaseQuickness ?? 0.5) - 0.5, -0.3, 0.3);
-                const qbIQ = clamp(off?.QB?.attrs?.awareness ?? 0.9, 0.4, 1.4);
-                const qbAccBoost = clamp((off?.QB?.attrs?.throwAcc ?? 0.9) + qbAccTrait * 0.08, 0.35, 1.4);
-                const ballAcc = clamp(ball.flight?.accuracy ?? 1, 0.4, 1.4);
+                const qbIQ = clamp(off?.QB?.attrs?.awareness ?? 0.9, 0.4, 1.5);
+                const qbProcessing = clamp(Math.pow(qbIQ, 1.05), 0.35, 1.55);
+                const qbAccBase = clamp((off?.QB?.attrs?.throwAcc ?? 0.9) + qbAccTrait * 0.1, 0.35, 1.5);
+                const qbAccBoost = clamp(Math.pow(qbAccBase, 1.1), 0.35, 1.65);
+                const ballAcc = clamp(ball.flight?.accuracy ?? 1, 0.4, 1.45);
                 const separation = nearestDef.d;
-                const sepFactor = clamp(((separation ?? 28) - 6) / 18, 0.25, 1.12);
-                const accuracyBlend = hands * 0.3 + qbAccBoost * 0.4 + ballAcc * 0.2 + qbIQ * 0.1;
+                const sepFactor = clamp(((separation ?? 28) - 6) / 18, 0.25, 1.18);
+                const accuracyBlend = hands * 0.48 + qbAccBoost * 0.3 + ballAcc * 0.14 + qbProcessing * 0.18;
                 const throwDistPx = ball.flight?.totalDist || dist(ball.from, ball.to);
                 const throwDistYards = clamp((throwDistPx || 0) / PX_PER_YARD, 0, 80);
                 const shortBonus = throwDistYards <= 7 ? (7 - throwDistYards) * 0.05 : 0;
-                const deepPenalty = throwDistYards > 10 ? (throwDistYards - 10) * 0.045 : 0;
-                const sepBonus = clamp((sepFactor - 0.7) * 0.28, -0.12, 0.2);
-                const baseCatchChance = clamp(0.18 + accuracyBlend * 0.48 + sepBonus + shortBonus - deepPenalty, 0.05, 0.75);
+                const deepPenalty = throwDistYards > 10 ? (throwDistYards - 10) * 0.048 : 0;
+                const sepBonus = clamp((sepFactor - 0.7) * 0.42, -0.2, 0.34);
+                const baseCatchChance = clamp(0.12 + accuracyBlend * 0.56 + sepBonus + shortBonus - deepPenalty, 0.03, 0.85);
                 const separationYards = (separation ?? 0) / PX_PER_YARD;
                 const openRatio = clamp((separationYards - 1.5) / 6, 0, 1);
-                const openBonus = openRatio * 0.34;
-                const catchProbability = clamp(baseCatchChance + openBonus, 0.03, 0.9);
+                const awarenessRelief = clamp((awareness - 1) * 0.18, -0.18, 0.22);
+                const openBonus = openRatio * 0.42 + awarenessRelief;
+                const catchProbability = clamp(baseCatchChance + openBonus, 0.02, 0.96);
 
-                const dropBase = clamp(0.12 - (qbAccBoost - 1) * 0.08 - (qbIQ - 1) * 0.06, 0.02, 0.16);
-                const dropHands = clamp(1.25 - hands * qbAccBoost, 0, 0.9) * 0.22;
-                const dropContact = clamp((14 - (separation ?? 18)) / 26, 0, 0.22);
+                const dropBase = clamp(0.2 - (qbAccBoost - 1) * 0.12 - (qbProcessing - 1) * 0.08, 0.03, 0.26);
+                const dropHands = clamp(Math.pow(Math.max(1.3 - hands * qbAccBoost, 0), 1.1) * 0.32, 0, 0.62);
+                const dropContact = clamp((14 - (separation ?? 18)) / 20, 0, 0.28);
                 const dropRisk = s.play.passRisky ? 0.05 : 0;
-                const depthDrop = clamp((throwDistYards - 12) * 0.015, 0, 0.14);
-                const traitDrop = clamp(-handsTrait * 0.08, -0.08, 0.08);
-                const accuracyDrop = clamp(1 - ballAcc, 0, 0.6) * 0.3;
-                const openDropRelief = openRatio * 0.16;
-                const dropProbability = clamp(dropBase + dropHands + dropContact + dropRisk + depthDrop + traitDrop + accuracyDrop - openDropRelief, 0.03, 0.6);
+                const depthDrop = clamp((throwDistYards - 12) * 0.018, 0, 0.18);
+                const traitDrop = clamp(-handsTrait * 0.1, -0.1, 0.1);
+                const accuracyDrop = clamp(1 - ballAcc, 0, 0.6) * 0.38;
+                const openDropRelief = openRatio * 0.2 + clamp((technique - 1) * 0.16, -0.16, 0.16);
+                const dropProbability = clamp(
+                    dropBase + dropHands + dropContact + dropRisk + depthDrop + traitDrop + accuracyDrop - openDropRelief,
+                    0.02,
+                    0.75,
+                );
                 const completionChance = clamp(catchProbability * (1 - dropProbability), 0, 1);
 
                 if (Math.random() < catchProbability) {

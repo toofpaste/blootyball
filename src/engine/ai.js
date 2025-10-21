@@ -858,6 +858,9 @@ function _updatePassBlocker(ol, key, context, dt) {
     const maxX = baseX + CFG.GAP_GUARDRAIL_X;
     const passSetDepth = CFG.PASS_SET_DEPTH_YDS * PX_PER_YARD;
     const setY = Math.max(losY - passSetDepth, qb.pos.y - passSetDepth);
+    const olStrength = clamp(ol.attrs?.strength ?? 1, 0.5, 1.6);
+    const olBalance = clamp(ol.attrs?.awareness ?? 1, 0.4, 1.5);
+    const reachSpeed = CFG.OL_REACH_SPEED * clamp(1 + (olBalance - 1) * 0.35, 0.6, 1.45);
 
     // Assignment stickiness
     ol._stickTimer = (ol._stickTimer || 0) - dt;
@@ -876,20 +879,27 @@ function _updatePassBlocker(ol, key, context, dt) {
     const roleBias = (key === 'LT' ? -8 : key === 'RT' ? 8 : key === 'LG' ? -3 : key === 'RG' ? 3 : 0);
     const baseSet = { x: clamp(baseX + roleBias, minX, maxX), y: setY };
     let target = baseSet;
+    let pushScale = 1;
     if (currentDef) {
         const vx = qb.pos.x - currentDef.pos.x;
         const vy = qb.pos.y - currentDef.pos.y || 1e-6;
         const t = (baseSet.y - currentDef.pos.y) / vy;
         let ix = currentDef.pos.x + vx * t;
         ix = clamp(ix, minX, maxX);
-        const blend = clamp(1 - (dist(ol.pos, currentDef.pos) / 70), 0, 1) * CFG.OL_BLOCK_MIRROR;
+        const defStrength = clamp(currentDef.attrs?.strength ?? currentDef.attrs?.tackle ?? 1, 0.5, 1.6);
+        const defQuickness = clamp(currentDef.attrs?.agility ?? 1, 0.5, 1.5);
+        const strengthDelta = olStrength - defStrength;
+        const balanceDelta = olBalance - defQuickness;
+        const mirrorScale = clamp(1 + strengthDelta * 0.3 - (defQuickness - 1) * 0.4, 0.45, 1.35);
+        pushScale = clamp(1 + strengthDelta * 0.85 + balanceDelta * 0.4, 0.35, 2.1);
+        const blend = clamp(1 - (dist(ol.pos, currentDef.pos) / 70), 0, 1) * CFG.OL_BLOCK_MIRROR * mirrorScale;
         target = {
             x: clamp(ix * (1 - blend) + baseSet.x * blend, minX, maxX),
             y: baseSet.y,
         };
     }
 
-    moveToward(ol, target, dt, CFG.OL_REACH_SPEED, {
+    moveToward(ol, target, dt, reachSpeed, {
         behavior: 'BLOCK',
         pursuitTarget: currentDef,
     });
@@ -903,7 +913,7 @@ function _updatePassBlocker(ol, key, context, dt) {
             const toQBdx = qb.pos.x - currentDef.pos.x;
             const toQBdy = qb.pos.y - currentDef.pos.y || 1e-6;
             const mag = Math.hypot(toQBdx, toQBdy) || 1;
-            const pushV = CFG.OL_BLOCK_PUSHBACK * dt;
+            const pushV = CFG.OL_BLOCK_PUSHBACK * dt * pushScale;
             currentDef.pos.x -= (toQBdx / mag) * (pushV * 0.3);
             currentDef.pos.y -= (toQBdy / mag) * pushV;
 
@@ -952,6 +962,8 @@ function _updateRunBlocker(ol, key, context, dt) {
     const target = _selectRunBlockTarget(ol, context);
     const laneX = runHoleX ?? ol.pos.x;
     const laneY = runLaneY ?? (ol.pos.y + PX_PER_YARD * 2);
+    const olStrength = clamp(ol.attrs?.strength ?? 1, 0.5, 1.6);
+    const olAgility = clamp(ol.attrs?.agility ?? 1, 0.5, 1.5);
 
     const baseFit = {
         x: clamp(laneX + (key === 'LT' || key === 'LG' ? -8 : key === 'RT' || key === 'RG' ? 8 : 0), 16, FIELD_PIX_W - 16),
@@ -980,7 +992,10 @@ function _updateRunBlocker(ol, key, context, dt) {
 
         const drive = { x: -leverage * 0.6, y: 1 };
         const mag = Math.hypot(drive.x, drive.y) || 1;
-        const pushV = CFG.OL_BLOCK_PUSHBACK * dt * 0.85;
+        const defStrength = clamp(target.attrs?.strength ?? target.attrs?.tackle ?? 1, 0.5, 1.6);
+        const defAnchor = clamp(target.attrs?.awareness ?? 1, 0.4, 1.5);
+        const pushScale = clamp(1 + (olStrength - defStrength) * 0.95 + (olAgility - defAnchor) * 0.35, 0.35, 2.3);
+        const pushV = CFG.OL_BLOCK_PUSHBACK * dt * 0.85 * pushScale;
         target.pos.x += (drive.x / mag) * pushV;
         target.pos.y += (drive.y / mag) * pushV;
         if (target.pos.y > laneY + PX_PER_YARD * 1.2) target.pos.y = laneY + PX_PER_YARD * 1.2;
@@ -3026,10 +3041,16 @@ export function defenseLogic(s, dt) {
             if (d._shedT >= CFG.SHED_INTERVAL) {
                 d._shedT = 0;
                 const blocker = Object.values(off).find(o => o && o.id === d.engagedId);
-                const dStr = d.attrs?.tackle ?? 0.9;
-                const bStr = blocker?.attrs?.strength ?? 1.0;
+                const dStr = clamp(d.attrs?.tackle ?? d.attrs?.strength ?? 0.9, 0.5, 1.6);
+                const bStr = clamp(blocker?.attrs?.strength ?? 1.0, 0.5, 1.6);
+                const dQuick = clamp(d.attrs?.agility ?? 1, 0.5, 1.5);
+                const bQuick = clamp(blocker?.attrs?.agility ?? 1, 0.5, 1.5);
                 const angleHelp = Math.abs((d.pos.x - (blocker?.pos?.x ?? d.pos.x)) / Math.max(1, d.pos.y - (blocker?.pos?.y ?? d.pos.y)));
-                const shedP = clamp(CFG.SHED_BASE + (dStr - bStr) * 0.25 + angleHelp * 0.06, 0.05, 0.65);
+                const shedP = clamp(
+                    CFG.SHED_BASE + (dStr - bStr) * 0.32 + (dQuick - bQuick) * 0.18 + angleHelp * 0.08,
+                    0.05,
+                    0.72,
+                );
                 if (Math.random() < shedP) {
                     // sidestep shed
                     const side = Math.sign(d.pos.x - (blocker?.pos?.x ?? d.pos.x)) || (Math.random() < 0.5 ? -1 : 1);
@@ -3040,7 +3061,10 @@ export function defenseLogic(s, dt) {
             // still move (reduced), trying to get around blocker
             const sideWish = Math.sign((qbPos.x + laneBias) - d.pos.x) || (Math.random() < 0.5 ? -1 : 1);
             const around = { x: clamp(d.pos.x + sideWish * 20, 20, FIELD_PIX_W - 20), y: d.pos.y + PX_PER_YARD * 0.8 };
-            moveToward(d, around, dt, CFG.DL_ENGAGED_SLOW, { behavior: 'BLOCK' });
+            const engagedBlocker = Object.values(off).find(o => o && o.id === d.engagedId);
+            const blockStrength = clamp(engagedBlocker?.attrs?.strength ?? 1, 0.5, 1.6);
+            const engagedScale = clamp(1 - (blockStrength - (d.attrs?.tackle ?? d.attrs?.strength ?? 1)) * 0.4, 0.45, 1.3);
+            moveToward(d, around, dt, CFG.DL_ENGAGED_SLOW * engagedScale, { behavior: 'BLOCK' });
         } else {
             moveToward(d, aim, dt, 0.98, {
                 behavior: 'PURSUIT',
