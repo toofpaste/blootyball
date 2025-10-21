@@ -25,6 +25,22 @@ export default function GlobalControls({
   const [menuOpen, setMenuOpen] = useState(false);
   const [hoverMenu, setHoverMenu] = useState(false);
   const menuRef = useRef(null);
+  const closeTimeoutRef = useRef(null);
+
+  const clearCloseTimeout = () => {
+    if (closeTimeoutRef.current) {
+      clearTimeout(closeTimeoutRef.current);
+      closeTimeoutRef.current = null;
+    }
+  };
+
+  const scheduleCloseMenu = () => {
+    clearCloseTimeout();
+    closeTimeoutRef.current = setTimeout(() => {
+      setMenuOpen(false);
+      closeTimeoutRef.current = null;
+    }, 160);
+  };
 
   useEffect(() => {
     if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return undefined;
@@ -44,11 +60,13 @@ export default function GlobalControls({
     const handlePointer = (event) => {
       if (!menuRef.current) return;
       if (!menuRef.current.contains(event.target)) {
+        clearCloseTimeout();
         setMenuOpen(false);
       }
     };
     const handleKey = (event) => {
       if (event.key === 'Escape') {
+        clearCloseTimeout();
         setMenuOpen(false);
       }
     };
@@ -59,6 +77,8 @@ export default function GlobalControls({
       window.removeEventListener('keydown', handleKey);
     };
   }, [menuOpen]);
+
+  useEffect(() => () => clearCloseTimeout(), []);
 
   const handleSpeedChange = (event) => {
     const value = parseFloat(event.target.value);
@@ -118,6 +138,7 @@ export default function GlobalControls({
 
   const handleMenuAction = (callback) => () => {
     callback?.();
+    clearCloseTimeout();
     setMenuOpen(false);
   };
 
@@ -191,13 +212,19 @@ export default function GlobalControls({
           <div
             className={`global-header__menu${menuOpen ? ' is-open' : ''}`}
             ref={menuRef}
-            onMouseEnter={hoverMenu ? () => setMenuOpen(true) : undefined}
-            onMouseLeave={hoverMenu ? () => setMenuOpen(false) : undefined}
+            onMouseEnter={hoverMenu ? () => {
+              clearCloseTimeout();
+              setMenuOpen(true);
+            } : undefined}
+            onMouseLeave={hoverMenu ? scheduleCloseMenu : undefined}
           >
             <button
               type="button"
               className="global-header__menu-button"
-              onClick={() => setMenuOpen((prev) => !prev)}
+              onClick={() => {
+                clearCloseTimeout();
+                setMenuOpen((prev) => !prev);
+              }}
               aria-expanded={menuOpen}
               aria-haspopup="menu"
             >
