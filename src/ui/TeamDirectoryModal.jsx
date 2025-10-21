@@ -8,6 +8,7 @@ import {
 } from './PlayerCardModal';
 import { usePlayerCard } from './PlayerCardProvider';
 import { buildTeamDirectoryData } from './teamDirectoryData';
+import './TeamDirectoryModal.css';
 
 const COACH_BADGE_DESCRIPTIONS = {
   'Tactical IQ': 'Measures how well the coach adjusts formations and matchups mid-game.',
@@ -502,6 +503,8 @@ export default function TeamDirectoryModal({ open, onClose, season, league = nul
   const [scoutFocus, setScoutFocus] = useState(null);
   const [gmFocus, setGmFocus] = useState(null);
   const [teamNewsOpen, setTeamNewsOpen] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [sidebarLocked, setSidebarLocked] = useState(false);
   const { openPlayerCard } = usePlayerCard();
 
   const teamNewsItems = useMemo(() => {
@@ -542,6 +545,27 @@ export default function TeamDirectoryModal({ open, onClose, season, league = nul
   }, [open, teams]);
 
   useEffect(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
+      setSidebarLocked(true);
+      setSidebarOpen(true);
+      return () => {};
+    }
+    const query = window.matchMedia('(min-width: 900px)');
+    const apply = (matches) => {
+      setSidebarLocked(matches);
+      setSidebarOpen(matches);
+    };
+    apply(query.matches);
+    const handler = (event) => apply(event.matches);
+    if (typeof query.addEventListener === 'function') {
+      query.addEventListener('change', handler);
+      return () => query.removeEventListener('change', handler);
+    }
+    query.addListener(handler);
+    return () => query.removeListener(handler);
+  }, []);
+
+  useEffect(() => {
     setTeamNewsOpen(false);
     setGmFocus(null);
   }, [selectedTeamId]);
@@ -576,58 +600,62 @@ export default function TeamDirectoryModal({ open, onClose, season, league = nul
     <>
       <Modal open={open} onClose={onClose} title="Team Directory" width="min(96vw, 1100px)">
         {teams.length && selectedTeam ? (
-          <div style={{ display: 'flex', gap: 18, alignItems: 'stretch', minHeight: 420 }}>
+          <div className="team-directory">
             <div
-              style={{
-                flex: '0 0 220px',
-                display: 'flex',
-                flexDirection: 'column',
-                gap: 8,
-                background: 'rgba(4,28,4,0.92)',
-                border: '1px solid rgba(26,92,26,0.35)',
-                borderRadius: 12,
-                padding: 12,
-              }}
+              className={`team-directory__overlay${sidebarOpen && !sidebarLocked ? ' is-visible' : ''}`}
+              role="presentation"
+              onClick={() => { if (!sidebarLocked) setSidebarOpen(false); }}
+            />
+            <aside
+              className={`team-directory__sidebar${sidebarOpen ? ' is-open' : ''}${sidebarLocked ? ' is-locked' : ''}`}
             >
-              <div style={{ fontWeight: 700, fontSize: 14, letterSpacing: 0.4, marginBottom: 4 }}>Teams</div>
-              {teams.map((team) => {
-                const isActive = team.id === selectedTeamId;
-                return (
-                  <button
-                    key={team.id}
-                    type="button"
-                    onClick={() => setSelectedTeamId(team.id)}
-                    style={{
-                      padding: '8px 10px',
-                      borderRadius: 10,
-                      border: '1px solid rgba(26,122,26,0.6)',
-                      background: isActive ? 'rgba(18,94,18,0.95)' : 'transparent',
-                      color: '#f2fff2',
-                      fontWeight: 600,
-                      display: 'flex',
-                      flexDirection: 'column',
-                      alignItems: 'flex-start',
-                      gap: 2,
-                      cursor: 'pointer',
-                    }}
-                  >
-                    <span>{team.identity?.displayName || team.identity?.name || team.id}</span>
-                    <span style={{ fontSize: 11, color: isActive ? '#e4ffe4' : '#b6f0b6' }}>
-                      {formatTeamRatings(team.offenseRating, team.defenseRating)}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-            <div
-              style={{
-                flex: 1,
-                display: 'flex',
-                flexDirection: 'column',
-                gap: 16,
-                paddingRight: 8,
-              }}
-            >
+              <div className="team-directory__sidebar-header">Teams</div>
+              <div className="team-directory__team-list">
+                {teams.map((team) => {
+                  const isActive = team.id === selectedTeamId;
+                  return (
+                    <button
+                      key={team.id}
+                      type="button"
+                      className={`team-directory__team-button${isActive ? ' is-active' : ''}`}
+                      onClick={() => {
+                        setSelectedTeamId(team.id);
+                        if (!sidebarLocked) {
+                          setSidebarOpen(false);
+                        }
+                      }}
+                    >
+                      <span className="team-directory__team-name">
+                        {team.identity?.displayName || team.identity?.name || team.id}
+                      </span>
+                      <span className="team-directory__team-rating">
+                        {formatTeamRatings(team.offenseRating, team.defenseRating)}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </aside>
+            <div className="team-directory__content">
+              {!sidebarLocked ? (
+                <button
+                  type="button"
+                  className="team-directory__toggle"
+                  onClick={() => setSidebarOpen((prev) => !prev)}
+                  aria-pressed={sidebarOpen}
+                >
+                  {sidebarOpen ? 'Hide Team List' : 'Show Team List'}
+                </button>
+              ) : null}
+              <div
+                style={{
+                  flex: 1,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 16,
+                  paddingRight: 8,
+                }}
+              >
               <div>
                 <div style={{ fontSize: 20, fontWeight: 700, display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
                   <span>{selectedTeam.identity?.displayName || selectedTeam.identity?.name || selectedTeam.id}</span>
@@ -853,6 +881,7 @@ export default function TeamDirectoryModal({ open, onClose, season, league = nul
               <RosterSection title="Special Teams" players={selectedTeam.roster.special} onPlayerSelect={handlePlayerSelect} />
             </div>
           </div>
+        </div>
         ) : (
           <div style={{ color: '#cde8cd', fontSize: 14 }}>Season data is not available yet.</div>
         )}

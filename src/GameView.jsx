@@ -6,6 +6,7 @@ import { DEFAULT_OFFSEASON_DAY_DURATION_MS } from './engine/personnel';
 import { getDiagnostics } from './engine/diagnostics';
 import PlayLog from './ui/PlayLog';
 import StatsSummary from './ui/StatsSummary';
+import Modal from './ui/Modal';
 import { formatRecord } from './engine/league';
 import { resolveTeamColor } from './engine/colors';
 import { draw } from './render/draw';
@@ -33,6 +34,7 @@ const GameView = React.forwardRef(function GameView({
 }, ref) {
   const canvasRef = useRef(null);
   const [localRunning, setLocalRunning] = useState(false);
+  const [statsModalTeam, setStatsModalTeam] = useState(null);
   const [state, setState] = useState(() => createInitialGameState({
     assignmentOffset: gameIndex,
     assignmentStride: parallelSlotCount,
@@ -85,7 +87,7 @@ const GameView = React.forwardRef(function GameView({
     canvas.width = Math.round(LOGICAL_W * dpr);
     canvas.height = Math.round(LOGICAL_H * dpr);
     canvas.style.width = '100%';
-    canvas.style.maxWidth = `${LOGICAL_W}px`;
+    canvas.style.maxWidth = 'min(100%, 900px)';
     canvas.style.height = 'auto';
   }, []);
 
@@ -323,39 +325,31 @@ const GameView = React.forwardRef(function GameView({
         down={state.drive?.down ?? 1}
         toGo={state.drive?.toGo ?? 10}
         gameLabel={gameLabel}
+        onShowHomeStats={homeStatsTeam ? () => setStatsModalTeam(homeStatsTeam) : undefined}
+        onShowAwayStats={awayStatsTeam ? () => setStatsModalTeam(awayStatsTeam) : undefined}
       />
-      <div className="main-shell">
-        <div className="app-layout">
-          {awayStatsTeam ? (
-            <div className="stats-column stats-column--away">
-              <StatsSummary
-                stats={state.playerStats}
-                directory={state.playerDirectory}
-                teams={[awayStatsTeam]}
-                title={`${awayStatsTeam.displayName || awayStatsTeam.label || 'Away'} Leaders`}
-                injuredReserve={state.league?.injuredReserve || {}}
-              />
-            </div>
-          ) : null}
-          <div className="field-column">
-            <div className="field-wrapper">
-              <canvas ref={canvasRef} className="field-canvas" />
-            </div>
-            <PlayLog items={state.playLog} />
-          </div>
-          {homeStatsTeam ? (
-            <div className="stats-column stats-column--home">
-              <StatsSummary
-                stats={state.playerStats}
-                directory={state.playerDirectory}
-                teams={[homeStatsTeam]}
-                title={`${homeStatsTeam.displayName || homeStatsTeam.label || 'Home'} Leaders`}
-                injuredReserve={state.league?.injuredReserve || {}}
-              />
-            </div>
-          ) : null}
+      <div className="game-instance__body">
+        <div className="field-shell">
+          <canvas ref={canvasRef} className="field-canvas" />
         </div>
+        <PlayLog items={state.playLog} />
       </div>
+      <Modal
+        open={Boolean(statsModalTeam)}
+        onClose={() => setStatsModalTeam(null)}
+        title={statsModalTeam ? `${statsModalTeam.displayName || statsModalTeam.label || 'Team'} Game Leaders` : 'Game Leaders'}
+        width="min(94vw, 620px)"
+      >
+        {statsModalTeam ? (
+          <StatsSummary
+            stats={state.playerStats}
+            directory={state.playerDirectory}
+            teams={[statsModalTeam]}
+            title={`${statsModalTeam.displayName || statsModalTeam.label || 'Team'} Leaders`}
+            injuredReserve={state.league?.injuredReserve || {}}
+          />
+        ) : null}
+      </Modal>
     </section>
   );
 });
