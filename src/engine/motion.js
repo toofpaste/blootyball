@@ -121,15 +121,21 @@ export function resolveMaxSpeed(player, { speedMultiplier = 1 } = {}) {
     const weightAdj = clamp(1 - ((player?.phys?.weight ?? 210) - 215) / 420, 0.75, 1.12);
     const strength = clamp(player?.attrs?.strength ?? 1, 0.5, 1.5);
     const strengthDrag = clamp(1 - (Math.max(1 - strength, 0) * 0.12), 0.82, 1.05);
-    return (
+    const baseSpeed =
         mphToPixelsPerSecond(mph) *
-        speedMultiplier *
         stamina *
         weightAdj *
         strengthDrag *
         BASE_SPEED_BOOST *
-        PLAYER_SPEED_MULTIPLIER
-    );
+        PLAYER_SPEED_MULTIPLIER;
+
+    const throttle = clamp(speedMultiplier, 0, 1.35);
+    if (throttle <= 1) {
+        return baseSpeed * throttle;
+    }
+
+    const burst = 1 + (throttle - 1) * 0.12;
+    return baseSpeed * burst;
 }
 
 const ACCEL_MIN = PX_PER_YARD * 2.0;
