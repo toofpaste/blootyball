@@ -1,5 +1,6 @@
 import { clamp, dist, unitVec } from './helpers';
 import { FIELD_PIX_W, FIELD_PIX_H, PX_PER_YARD } from './constants';
+import { resolveBehaviorTuning } from './movementProfiles';
 
 // Conversion helpers -------------------------------------------------------
 const MPH_TO_YARDS_PER_SEC = 0.488889; // 1 mph ≈ 0.4889 yards/sec
@@ -99,6 +100,20 @@ function smoothstep(t) {
     return t * t * (3 - 2 * t);
 }
 
+function extractVelocity(source) {
+    if (!source) return null;
+    if (Number.isFinite(source.vx) && Number.isFinite(source.vy)) {
+        return { vx: source.vx, vy: source.vy };
+    }
+    if (source.motion && Number.isFinite(source.motion.vx) && Number.isFinite(source.motion.vy)) {
+        return { vx: source.motion.vx, vy: source.motion.vy };
+    }
+    if (source.vel && Number.isFinite(source.vel.x) && Number.isFinite(source.vel.y)) {
+        return { vx: source.vel.x, vy: source.vel.y };
+    }
+    return null;
+}
+
 function projectVelocity(vx, vy, ax, ay, maxDelta) {
     const dvx = ax - vx;
     const dvy = ay - vy;
@@ -171,36 +186,63 @@ export function steerPlayer(player, target, dt, opts = {}) {
     const motion = ensureMotion(player);
     const goal = target || player.pos;
 
+    const tuning = resolveBehaviorTuning(player, opts.behavior, opts);
+
     const maxSpeed = resolveMaxSpeed(player, opts);
     const accel = resolveAcceleration(player, opts);
 
-    const dx = goal.x - player.pos.x;
-    const dy = goal.y - player.pos.y;
+    const leadSeconds = opts.leadSeconds ?? tuning.leadSeconds ?? 0;
+    let aim = goal;
+    if (leadSeconds > 0) {
+        const targetVel = opts.targetVelocity || extractVelocity(opts.pursuitTarget);
+        if (targetVel) {
+            aim = {
+                x: goal.x + targetVel.vx * leadSeconds,
+                y: goal.y + targetVel.vy * leadSeconds,
+            };
+        }
+    }
+
+    const dx = aim.x - player.pos.x;
+    const dy = aim.y - player.pos.y;
     const distance = Math.hypot(dx, dy);
 
-    if (distance < 0.5) {
-        dampMotion(player, dt, 6.0);
+    const captureRadius = opts.captureRadius ?? tuning.captureRadius ?? 0.5;
+    if (distance < captureRadius) {
+        const settleDamping = opts.settleDamping ?? tuning.settleDamping ?? 6.0;
+        dampMotion(player, dt, settleDamping);
         limitToField(player);
         return;
     }
 
     const rawHeading = distance > 0 ? { x: dx / distance, y: dy / distance } : motion.heading;
-    const agility = clamp(player?.attrs?.agility ?? 1, 0.5, 1.4);
-    const blend = clamp(0.78 - (agility - 1) * 0.18, 0.55, 0.88);
+    const agility = clamp(player?.attrs?.agility ?? 1, 0.5, 1.5);
+    const agilityCurve = tuning.agilityCurve ?? 0.18;
+    const blendMin = tuning.blendMin ?? 0.4;
+    const blendMax = tuning.blendMax ?? 0.88;
+    const baseBlend = clamp(tuning.headingLag - (agility - 1) * agilityCurve, blendMin, blendMax);
+    const distanceBlend = clamp(distance / (PX_PER_YARD * (tuning.distanceHorizon ?? 4)), 0, 1);
+    const blendBase = tuning.distanceBlendBase ?? 0.5;
+    const blendGain = tuning.distanceBlendGain ?? 0.5;
+    const blend = clamp(baseBlend * (blendBase + distanceBlend * blendGain), blendMin, blendMax);
     const desiredHeading = (() => {
         const hx = motion.heading.x * blend + rawHeading.x * (1 - blend);
         const hy = motion.heading.y * blend + rawHeading.y * (1 - blend);
         const mag = Math.hypot(hx, hy) || 1;
         return { x: hx / mag, y: hy / mag };
     })();
-    const desiredSpeed = Math.min(
-        maxSpeed,
-        smoothstep(clamp(distance / (PX_PER_YARD * 2.2), 0, 1)) * maxSpeed + maxSpeed * 0.12
-    );
+    const ramp = smoothstep(clamp(distance / (PX_PER_YARD * (tuning.accelRamp ?? 1.6)), 0, 1));
+    const arrivalBrake = Math.max(tuning.arrivalBrake ?? 4, 0.5);
+    const arrivalSpeed = clamp(distance / Math.max(dt * arrivalBrake, 1e-3), 0, maxSpeed * (tuning.arrivalCap ?? 0.9));
+    const rampedSpeed = ramp * maxSpeed * (tuning.rampScale ?? 1);
+    const desiredSpeed = Math.min(maxSpeed * (tuning.speedCeiling ?? 1), Math.max(rampedSpeed, arrivalSpeed));
     const desiredVx = desiredHeading.x * desiredSpeed;
     const desiredVy = desiredHeading.y * desiredSpeed;
 
-    const agilityBoost = clamp(agility, 0.6, 1.35);
+    const agilityBias = tuning.agilityBias ?? 1;
+    const agilityMin = tuning.agilityMin ?? 0.6;
+    const agilityMax = tuning.agilityMax ?? 1.35;
+    const agilityBoost = clamp(agility * agilityBias, agilityMin, agilityMax);
     const maxDelta = accel * agilityBoost * dt;
     const { vx, vy } = projectVelocity(motion.vx, motion.vy, desiredVx, desiredVy, maxDelta);
 
