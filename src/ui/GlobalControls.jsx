@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 
 export default function GlobalControls({
   running,
@@ -22,6 +22,44 @@ export default function GlobalControls({
   hasUnseenPressArticles,
   offseasonInfo,
 }) {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [hoverMenu, setHoverMenu] = useState(false);
+  const menuRef = useRef(null);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return undefined;
+    const query = window.matchMedia('(hover: hover) and (pointer: fine)');
+    const handleChange = (event) => setHoverMenu(Boolean(event.matches));
+    setHoverMenu(Boolean(query.matches));
+    if (typeof query.addEventListener === 'function') {
+      query.addEventListener('change', handleChange);
+      return () => query.removeEventListener('change', handleChange);
+    }
+    query.addListener(handleChange);
+    return () => query.removeListener(handleChange);
+  }, []);
+
+  useEffect(() => {
+    if (!menuOpen) return undefined;
+    const handlePointer = (event) => {
+      if (!menuRef.current) return;
+      if (!menuRef.current.contains(event.target)) {
+        setMenuOpen(false);
+      }
+    };
+    const handleKey = (event) => {
+      if (event.key === 'Escape') {
+        setMenuOpen(false);
+      }
+    };
+    window.addEventListener('pointerdown', handlePointer);
+    window.addEventListener('keydown', handleKey);
+    return () => {
+      window.removeEventListener('pointerdown', handlePointer);
+      window.removeEventListener('keydown', handleKey);
+    };
+  }, [menuOpen]);
+
   const handleSpeedChange = (event) => {
     const value = parseFloat(event.target.value);
     if (!Number.isNaN(value)) {
@@ -40,7 +78,7 @@ export default function GlobalControls({
     return `${minutes}:${seconds}`;
   };
 
-  let offseasonContent = null;
+  let offseasonChips = [];
   if (offseasonInfo) {
     const {
       active,
@@ -73,123 +111,112 @@ export default function GlobalControls({
       chips.push(kickoffText);
     }
 
-    if (chips.length) {
-      offseasonContent = (
-        <div className="global-controls__offseason" aria-live="polite">
-          {chips.map((text, index) => (
-            <span key={index} className="global-controls__offseason-chip">
-              {text}
-            </span>
-          ))}
-        </div>
-      );
-    }
+    offseasonChips = chips;
   }
 
   const canAdvanceOffseason = Boolean(offseasonInfo?.active);
 
-  return (
-    <div className="global-controls">
-      {offseasonContent}
-      <span className="global-controls__season" aria-live="polite">{progressText}</span>
-      <button type="button" className="global-controls__button" onClick={onToggleRunning}>
-        {running ? 'Pause' : 'Start'}
-      </button>
-      <button
-        type="button"
-        className="global-controls__button global-controls__button--secondary"
-        onClick={() => onToggleSeasonLength?.()}
-        aria-pressed={!!longSeasonEnabled}
-      >
-        Long Season: {longSeasonEnabled ? 'On' : 'Off'}
-      </button>
-      {canAdvanceOffseason ? (
-        <button
-          type="button"
-          className="global-controls__button global-controls__button--secondary"
-          onClick={onAdvanceOffseasonDay}
-        >
-          Next Offseason Day
-        </button>
-      ) : null}
-      <button
-        type="button"
-        className="global-controls__button global-controls__button--secondary"
-        onClick={onShowTeamDirectory}
-      >
-        Team Pages
-      </button>
-      <button
-        type="button"
-        className="global-controls__button global-controls__button--secondary"
-        onClick={onShowLeagueWiki}
-      >
-        League Wiki
-      </button>
-      <button
-        type="button"
-        className="global-controls__button global-controls__button--secondary"
-        onClick={onShowNews}
-      >
-        League News
-        {hasUnseenNews ? <span className="global-controls__news-indicator" aria-hidden="true" /> : null}
-      </button>
-      <button
-        type="button"
-        className="global-controls__button global-controls__button--secondary"
-        onClick={onShowPressArticles}
-      >
-        Articles From The Press
-        {hasUnseenPressArticles ? <span className="global-controls__news-indicator" aria-hidden="true" /> : null}
-      </button>
-      <button
-        type="button"
-        className="global-controls__button global-controls__button--secondary"
-        onClick={onShowFreeAgents}
-      >
-        Free Agents
-      </button>
-      <button
-        type="button"
-        className="global-controls__button global-controls__button--secondary"
-        onClick={onShowSeasonStats}
-      >
-        Season Stats
-      </button>
-      <button
-        type="button"
-        className="global-controls__button global-controls__button--secondary"
-        onClick={onShowSchedule}
-      >
-        Season Schedule
-      </button>
-      <button
-        type="button"
-        className="global-controls__button global-controls__button--secondary"
-        onClick={onShowLeaderboards}
-      >
-        Leaderboards
-      </button>
-      <button
-        type="button"
-        className="global-controls__button global-controls__button--secondary"
-        onClick={onShowRecordBook}
-      >
-        League Records
-      </button>
-      <label className="global-controls__speed">
-        <span className="global-controls__speed-label">Speed</span>
-        <input
-          type="range"
-          min="0.2"
-          max="3"
-          step="0.1"
-          value={simSpeed}
-          onChange={handleSpeedChange}
-          className="global-controls__speed-slider"
-        />
-        <span className="global-controls__speed-value">{(simSpeed ?? 1).toFixed(1)}x</span>
-      </label>
+  const handleMenuAction = (callback) => () => {
+    callback?.();
+    setMenuOpen(false);
+  };
+
+  const renderMenuButton = (label, callback, { pressed = null, disabled = false, indicator = false } = {}) => (
+    <button
+      type="button"
+      className="global-header__menu-item"
+      onClick={callback ? handleMenuAction(callback) : undefined}
+      aria-pressed={pressed}
+      disabled={disabled}
+    >
+      <span>{label}</span>
+      {indicator ? <span className="global-header__menu-dot" aria-hidden="true" /> : null}
+    </button>
+  );
+
+  const menuPanel = (
+    <div
+      className="global-header__menu-panel"
+      role="menu"
+      aria-hidden={!menuOpen}
+    >
+      <div className="global-header__menu-section">
+        <h3 className="global-header__menu-heading">Season Tools</h3>
+        {renderMenuButton(`Long Season: ${longSeasonEnabled ? 'On' : 'Off'}`, onToggleSeasonLength, {
+          pressed: !!longSeasonEnabled,
+        })}
+        {canAdvanceOffseason
+          ? renderMenuButton('Advance Offseason Day', onAdvanceOffseasonDay)
+          : null}
+        {renderMenuButton('Season Overview', onShowSeasonStats)}
+        {renderMenuButton('Season Schedule', onShowSchedule)}
+        {renderMenuButton('Leaderboards', onShowLeaderboards)}
+        {renderMenuButton('League Records', onShowRecordBook)}
+      </div>
+      <div className="global-header__menu-section">
+        <h3 className="global-header__menu-heading">League Hub</h3>
+        {renderMenuButton('Team Pages', onShowTeamDirectory)}
+        {renderMenuButton('League Wiki', onShowLeagueWiki)}
+        {renderMenuButton('Free Agents', onShowFreeAgents)}
+        {renderMenuButton('League News', onShowNews, { indicator: hasUnseenNews })}
+        {renderMenuButton('Press Articles', onShowPressArticles, { indicator: hasUnseenPressArticles })}
+      </div>
     </div>
+  );
+
+  return (
+    <header className="global-header">
+      <div className="global-header__inner">
+        <div className="global-header__brand">
+          <span className="global-header__title">Blootyball</span>
+          <span className="global-header__season" aria-live="polite">{progressText}</span>
+        </div>
+        <div className="global-header__actions">
+          <button type="button" className="global-header__primary" onClick={onToggleRunning}>
+            {running ? 'Pause Sim' : 'Start Sim'}
+          </button>
+          <label className="global-header__speed">
+            <span className="global-header__speed-label">Speed</span>
+            <input
+              type="range"
+              min="0.2"
+              max="3"
+              step="0.1"
+              value={simSpeed}
+              onChange={handleSpeedChange}
+              className="global-header__speed-slider"
+            />
+            <span className="global-header__speed-value">{(simSpeed ?? 1).toFixed(1)}x</span>
+          </label>
+          <div
+            className={`global-header__menu${menuOpen ? ' is-open' : ''}`}
+            ref={menuRef}
+            onMouseEnter={hoverMenu ? () => setMenuOpen(true) : undefined}
+            onMouseLeave={hoverMenu ? () => setMenuOpen(false) : undefined}
+          >
+            <button
+              type="button"
+              className="global-header__menu-button"
+              onClick={() => setMenuOpen((prev) => !prev)}
+              aria-expanded={menuOpen}
+              aria-haspopup="menu"
+            >
+              <span className="global-header__menu-icon" aria-hidden="true" />
+              {(hasUnseenNews || hasUnseenPressArticles) ? (
+                <span className="global-header__menu-indicator" aria-hidden="true" />
+              ) : null}
+            </button>
+            {menuPanel}
+          </div>
+        </div>
+      </div>
+      {offseasonChips.length ? (
+        <div className="global-header__offseason" aria-live="polite">
+          {offseasonChips.map((text, index) => (
+            <span key={index} className="global-header__chip">{text}</span>
+          ))}
+        </div>
+      ) : null}
+    </header>
   );
 }

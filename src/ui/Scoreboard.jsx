@@ -1,79 +1,85 @@
 // src/ui/Scoreboard.jsx
 import React from 'react';
 
-function TeamPanel({ team = {}, align = 'left' }) {
-    const {
-        displayName = 'Team',
-        abbr = '',
-        recordText = '0-0-0',
-        score = 0,
-        color = '#e8ffe8',
-    } = team;
+function TeamPanel({ team = {}, align = 'left', onShowStats }) {
+  const {
+    displayName = 'Team',
+    abbr = '',
+    recordText = '0-0-0',
+    score = 0,
+    color = '#e8ffe8',
+  } = team;
 
-    const isRight = align === 'right';
-    const flexDirection = isRight ? 'row-reverse' : 'row';
+  const isRight = align === 'right';
+  const label = displayName || abbr || 'Team';
+  const statsAvailable = typeof onShowStats === 'function';
 
-    return (
-        <div style={{ display: 'flex', flexDirection, alignItems: 'center', gap: 10 }}>
-            <div style={{
-                width: 12,
-                height: 12,
-                borderRadius: 9999,
-                background: color || '#e8ffe8',
-                boxShadow: '0 0 6px rgba(0,0,0,0.35)'
-            }} />
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: isRight ? 'flex-end' : 'flex-start', gap: 2 }}>
-                <span style={{ fontWeight: 700, letterSpacing: 0.4, textTransform: 'uppercase' }}>{abbr || displayName}</span>
-                <span style={{ fontWeight: 500, fontSize: 14, opacity: 0.85 }}>{displayName}</span>
-                <span style={{ fontSize: 12, color: '#b0e8b0' }}>{recordText}</span>
-            </div>
-            <span style={{ fontSize: 28, fontWeight: 800, minWidth: 32, textAlign: 'center' }}>{score}</span>
+  return (
+    <div className={`scoreboard__team scoreboard__team--${isRight ? 'right' : 'left'}`}>
+      <div className="scoreboard__team-meta">
+        <span
+          className="scoreboard__team-color"
+          style={{ background: color || '#e8ffe8' }}
+          aria-hidden="true"
+        />
+        <div className="scoreboard__team-text">
+          <span className="scoreboard__team-abbr">{abbr || displayName}</span>
+          <span className="scoreboard__team-name">{label}</span>
+          <span className="scoreboard__team-record">{recordText}</span>
         </div>
-    );
+      </div>
+      <div className="scoreboard__score" aria-label={`${label} score`}>
+        {Number.isFinite(score) ? score : 0}
+      </div>
+      <button
+        type="button"
+        className="scoreboard__stats-button"
+        onClick={statsAvailable ? onShowStats : undefined}
+        disabled={!statsAvailable}
+      >
+        View Stats
+      </button>
+    </div>
+  );
 }
 
 export default function Scoreboard({
-    home = {},
-    away = {},
-    quarter = 1,
-    timeLeftText = '15:00',
-    down = 1,
-    toGo = 10,
-    gameLabel = '',
+  home = {},
+  away = {},
+  quarter = 1,
+  timeLeftText = '15:00',
+  down = 1,
+  toGo = 10,
+  gameLabel = '',
+  onShowHomeStats,
+  onShowAwayStats,
 }) {
-    return (
-        <div style={{
-            width: 'min(1100px, 95%)',
-            margin: '8px auto 4px',
-            background: '#0b2a0b',
-            border: '1px solid #145214',
-            borderRadius: 12,
-            color: '#e8ffe8',
-            display: 'grid',
-            gridTemplateColumns: '1fr auto 1fr',
-            alignItems: 'stretch',
-            padding: '12px 14px',
-            boxShadow: '0 6px 18px rgba(0,0,0,0.35)',
-            gap: 8,
-            position: 'relative'
-        }}>
-            <TeamPanel team={away} align="left" />
+  const safeDown = Number.isFinite(down) && down > 0 ? down : 1;
+  const safeToGo = Number.isFinite(toGo) && toGo > 0 ? Math.round(toGo) : 10;
+  const safeQuarter = Number.isFinite(quarter) && quarter > 0 ? quarter : 1;
+  const downDistanceText = `${ordinal(safeDown)} & ${Math.max(1, safeToGo)}`;
+  const quarterText = `Q${safeQuarter}`;
 
-            <div style={{ textAlign: 'center', fontWeight: 700, display: 'flex', flexDirection: 'column', gap: 6, justifyContent: 'center' }}>
-                <div style={{ fontSize: 13, opacity: 0.8 }}>{gameLabel}</div>
-                <div style={{ fontSize: 14, opacity: 0.9 }}>
-                    {ordinal(down)} & {Math.max(1, Math.round(toGo))} • Q{quarter}
-                </div>
-                <div style={{ fontSize: 18 }}>{timeLeftText}</div>
-            </div>
-
-            <TeamPanel team={home} align="right" />
+  return (
+    <div className="scoreboard">
+      <TeamPanel team={away} align="left" onShowStats={onShowAwayStats} />
+      <div className="scoreboard__info">
+        <div className="scoreboard__label" aria-live="polite">
+          {gameLabel}
         </div>
-    );
+        <div className="scoreboard__status">
+          <span>{downDistanceText}</span>
+          <span aria-label="Quarter">{quarterText}</span>
+          <span aria-label="Game clock">{timeLeftText}</span>
+        </div>
+      </div>
+      <TeamPanel team={home} align="right" onShowStats={onShowHomeStats} />
+    </div>
+  );
 }
 
 function ordinal(n) {
-    const s = ['th', 'st', 'nd', 'rd'];
-    const v = n % 100;
-    return n + (s[(v - 20) % 10] || s[v] || s[0]);
+  const s = ['th', 'st', 'nd', 'rd'];
+  const v = n % 100;
+  return n + (s[(v - 20) % 10] || s[v] || s[0]);
 }
