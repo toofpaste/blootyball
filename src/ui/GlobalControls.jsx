@@ -88,7 +88,9 @@ export default function GlobalControls({
 
   const tickerKey = useMemo(() => {
     if (!tickerItems.length) return 'empty';
-    return tickerItems.map((item) => item.id || item.text).join('|');
+    return tickerItems
+      .map((item) => item.id || `${item.timestampISO || ''}|${item.text}`)
+      .join('|');
   }, [tickerItems]);
 
   const handleSpeedChange = (event) => {
@@ -216,7 +218,12 @@ export default function GlobalControls({
                 >
                   {tickerItems.map((item) => (
                     <li key={`${loopIndex}-${item.id}`} className="global-header__ticker-item">
-                      {item.text}
+                      {item.timestampLabel ? (
+                        <span className="global-header__ticker-timestamp">
+                          <time dateTime={item.timestampISO || undefined}>{item.timestampLabel}</time>
+                        </span>
+                      ) : null}
+                      <span className="global-header__ticker-text">{item.text}</span>
                     </li>
                   ))}
                 </ul>
