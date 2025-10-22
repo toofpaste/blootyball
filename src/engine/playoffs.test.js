@@ -43,10 +43,9 @@ describe('postseason scheduling', () => {
       season = applyGameResultToSeason(season, game, scores, {}, {}, []);
     });
 
-    const scheduled = ensureChampionshipScheduled(season);
-    expect(scheduled).toHaveLength(1);
+    const championshipIndex = season.playoffBracket.championshipGame?.index;
+    expect(championshipIndex).toBeDefined();
 
-    const championshipIndex = scheduled[0];
     const championship = season.schedule[championshipIndex];
 
     expect(championship.slot).toBe(0);
@@ -54,6 +53,8 @@ describe('postseason scheduling', () => {
     expect(season.assignment.stride).toBe(2);
     expect(season.playoffBracket.stage).toBe('championship');
     expect(season.phase).toBe('championship');
+
+    expect(ensureChampionshipScheduled(season)).toHaveLength(0);
   });
 
   test('championship aligns with assignment offset for secondary slot', () => {
@@ -77,14 +78,13 @@ describe('postseason scheduling', () => {
     const lastSemifinal = semifinalGames[1];
     season.currentGameIndex = lastSemifinal.index + season.assignmentStride;
 
-    const scheduled = ensureChampionshipScheduled(season);
-
-    expect(scheduled).toHaveLength(1);
-
-    const championshipIndex = scheduled[0];
+    const championshipIndex = season.playoffBracket.championshipGame?.index;
+    expect(championshipIndex).toBeDefined();
     expect((championshipIndex - season.assignmentOffset) % season.assignmentStride).toBe(0);
     expect(season.schedule[championshipIndex]).toBeDefined();
     expect(season.schedule[championshipIndex].tag).toBe('playoff-championship');
+
+    expect(ensureChampionshipScheduled(season)).toHaveLength(0);
   });
 
   test('championship waits until assignment offset when pointer trails offset', () => {
@@ -107,14 +107,15 @@ describe('postseason scheduling', () => {
 
     season.currentGameIndex = 0;
 
-    const scheduled = ensureChampionshipScheduled(season);
+    const championshipIndex = season.playoffBracket.championshipGame?.index;
 
-    expect(scheduled).toHaveLength(1);
-    const championshipIndex = scheduled[0];
+    expect(championshipIndex).toBeDefined();
 
     expect(championshipIndex).toBeGreaterThanOrEqual(season.assignmentOffset);
     expect((championshipIndex - season.assignmentOffset) % season.assignmentStride).toBe(0);
     expect(season.schedule[championshipIndex].tag).toBe('playoff-championship');
+
+    expect(ensureChampionshipScheduled(season)).toHaveLength(0);
   });
 });
 

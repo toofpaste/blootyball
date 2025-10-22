@@ -1674,6 +1674,7 @@ export function applyGameResultToSeason(season, game, scores, directory, playerS
       semifinal.winner = result.winner;
       semifinal.score = result.score;
     }
+    ensureChampionshipScheduled(nextSeason);
   } else if (tag === 'playoff-championship' && nextSeason.playoffBracket) {
     if (!nextSeason.playoffBracket.championshipGame || nextSeason.playoffBracket.championshipGame.index === game.index) {
       nextSeason.playoffBracket.championshipGame = {
