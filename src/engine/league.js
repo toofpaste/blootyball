@@ -1279,7 +1279,26 @@ export function ensureChampionshipScheduled(season) {
   const homeTeam = winners[0].winner;
   const awayTeam = winners[1].winner;
   if (!homeTeam || !awayTeam) return [];
-  const index = season.schedule.length;
+
+  const stride = Math.max(1, season.assignmentStride || season.assignment?.stride || 1);
+  const offset = season.assignmentOffset ?? season.assignment?.offset ?? 0;
+  season.schedule ||= [];
+  const scheduleLength = season.schedule.length;
+
+  let index = Number.isFinite(season.currentGameIndex) ? season.currentGameIndex : scheduleLength;
+  if (!Number.isFinite(index) || index < 0) index = scheduleLength;
+
+  if (((index - offset) % stride + stride) % stride !== 0) {
+    index = Math.max(index, scheduleLength);
+    while (((index - offset) % stride + stride) % stride !== 0) {
+      index += 1;
+    }
+  }
+
+  while (season.schedule.length <= index) {
+    season.schedule.push(null);
+  }
+
   const entry = {
     id: `PO${String(season.seasonNumber).padStart(2, '0')}-CH`,
     homeTeam,
@@ -1291,7 +1310,7 @@ export function ensureChampionshipScheduled(season) {
     slot: 0,
     meta: { seeds: [seeds.indexOf(homeTeam) + 1, seeds.indexOf(awayTeam) + 1] },
   };
-  season.schedule.push(entry);
+  season.schedule[index] = { ...(season.schedule[index] || {}), ...entry };
   bracket.championshipGame = {
     index,
     winner: null,

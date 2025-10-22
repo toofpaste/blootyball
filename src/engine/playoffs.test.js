@@ -55,6 +55,37 @@ describe('postseason scheduling', () => {
     expect(season.playoffBracket.stage).toBe('championship');
     expect(season.phase).toBe('championship');
   });
+
+  test('championship aligns with assignment offset for secondary slot', () => {
+    let season = createSeasonState({ seasonConfig: { longSeason: false } });
+    season.assignmentStride = 2;
+    season.assignment = { stride: 2, offset: 1, totalGames: 0 };
+    season.assignmentOffset = 1;
+
+    ensurePlayoffsScheduled(season, null);
+
+    const semifinalGames = season.schedule.slice(-2);
+
+    semifinalGames.forEach((game) => {
+      const scores = {
+        [TEAM_RED]: 35,
+        [TEAM_BLK]: 21,
+      };
+      season = applyGameResultToSeason(season, game, scores, {}, {}, []);
+    });
+
+    const lastSemifinal = semifinalGames[1];
+    season.currentGameIndex = lastSemifinal.index + season.assignmentStride;
+
+    const scheduled = ensureChampionshipScheduled(season);
+
+    expect(scheduled).toHaveLength(1);
+
+    const championshipIndex = scheduled[0];
+    expect((championshipIndex - season.assignmentOffset) % season.assignmentStride).toBe(0);
+    expect(season.schedule[championshipIndex]).toBeDefined();
+    expect(season.schedule[championshipIndex].tag).toBe('playoff-championship');
+  });
 });
 
 describe('season records', () => {
