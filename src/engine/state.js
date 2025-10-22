@@ -427,10 +427,13 @@ function aggregateSeasonsData(seasons) {
                 id: teamId,
                 info,
                 record: { wins: 0, losses: 0, ties: 0 },
+                postseasonRecord: { wins: 0, losses: 0, ties: 0 },
                 pointsFor: 0,
                 pointsAgainst: 0,
                 stats: TEAM_STAT_KEYS.reduce((acc, key) => ({ ...acc, [key]: 0 }), {}),
             };
+        } else if (!teams[teamId].postseasonRecord) {
+            teams[teamId].postseasonRecord = { wins: 0, losses: 0, ties: 0 };
         }
         return teams[teamId];
     };
@@ -483,6 +486,8 @@ function aggregateSeasonsData(seasons) {
 
         const homeTeam = ensureTeam(homeId);
         const awayTeam = ensureTeam(awayId);
+        const isPostseason = (result.tag || '').startsWith('playoff-');
+        const recordKey = isPostseason ? 'postseasonRecord' : 'record';
 
         if (homeTeam) {
             homeTeam.pointsFor += homeScore;
@@ -494,14 +499,14 @@ function aggregateSeasonsData(seasons) {
         }
 
         if (homeScore > awayScore) {
-            if (homeTeam) homeTeam.record.wins += 1;
-            if (awayTeam) awayTeam.record.losses += 1;
+            if (homeTeam) homeTeam[recordKey].wins += 1;
+            if (awayTeam) awayTeam[recordKey].losses += 1;
         } else if (awayScore > homeScore) {
-            if (awayTeam) awayTeam.record.wins += 1;
-            if (homeTeam) homeTeam.record.losses += 1;
+            if (awayTeam) awayTeam[recordKey].wins += 1;
+            if (homeTeam) homeTeam[recordKey].losses += 1;
         } else {
-            if (homeTeam) homeTeam.record.ties += 1;
-            if (awayTeam) awayTeam.record.ties += 1;
+            if (homeTeam) homeTeam[recordKey].ties += 1;
+            if (awayTeam) awayTeam[recordKey].ties += 1;
         }
 
         const playerTeams = result.playerTeams || {};
@@ -521,10 +526,13 @@ function aggregateSeasonsData(seasons) {
                 id: teamId,
                 info: info || null,
                 record: { wins: 0, losses: 0, ties: 0 },
+                postseasonRecord: { wins: 0, losses: 0, ties: 0 },
                 pointsFor: 0,
                 pointsAgainst: 0,
                 stats: TEAM_STAT_KEYS.reduce((acc, key) => ({ ...acc, [key]: 0 }), {}),
             };
+        } else if (!teams[teamId].postseasonRecord) {
+            teams[teamId].postseasonRecord = { wins: 0, losses: 0, ties: 0 };
         } else if (!teams[teamId].info && info) {
             teams[teamId].info = info;
         }
@@ -544,6 +552,7 @@ function synchronizeSeasonTotals(state) {
             id: teamId,
             info: baseInfo,
             record: { ...data.record },
+            postseasonRecord: { ...(data.postseasonRecord || { wins: 0, losses: 0, ties: 0 }) },
             pointsFor: data.pointsFor || 0,
             pointsAgainst: data.pointsAgainst || 0,
             stats: { ...data.stats },
@@ -555,6 +564,7 @@ function synchronizeSeasonTotals(state) {
             id: data.id,
             info: data.info,
             record: { ...data.record },
+            postseasonRecord: { ...(data.postseasonRecord || { wins: 0, losses: 0, ties: 0 }) },
             pointsFor: data.pointsFor,
             pointsAgainst: data.pointsAgainst,
             stats: { ...data.stats },
