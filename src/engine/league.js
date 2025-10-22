@@ -490,6 +490,7 @@ function createZeroTeamSummary(teamId = null, info = null) {
     id: teamId,
     info: info || null,
     record: { wins: 0, losses: 0, ties: 0 },
+    postseasonRecord: { wins: 0, losses: 0, ties: 0 },
     pointsFor: 0,
     pointsAgainst: 0,
     stats: createBlankTeamStats(),
@@ -501,6 +502,8 @@ function ensureTeamSummary(map, teamId, infoLookup = {}) {
   if (!map[teamId]) {
     const info = infoLookup[teamId] || getTeamIdentity(teamId) || null;
     map[teamId] = createZeroTeamSummary(teamId, info);
+  } else if (!map[teamId].postseasonRecord) {
+    map[teamId].postseasonRecord = { wins: 0, losses: 0, ties: 0 };
   }
   return map[teamId];
 }
@@ -511,11 +514,23 @@ function applyScoreToSummary(summary, scored, allowed) {
   summary.pointsAgainst += allowed;
 }
 
-function registerOutcome(summary, result) {
+function getRecordBucket(summary, scope = 'regular') {
+  if (!summary) return null;
+  if (scope === 'postseason') {
+    summary.postseasonRecord ||= { wins: 0, losses: 0, ties: 0 };
+    return summary.postseasonRecord;
+  }
+  summary.record ||= { wins: 0, losses: 0, ties: 0 };
+  return summary.record;
+}
+
+function registerOutcome(summary, result, scope = 'regular') {
   if (!summary) return;
-  if (result === 'win') summary.record.wins += 1;
-  else if (result === 'loss') summary.record.losses += 1;
-  else if (result === 'tie') summary.record.ties += 1;
+  const bucket = getRecordBucket(summary, scope);
+  if (!bucket) return;
+  if (result === 'win') bucket.wins += 1;
+  else if (result === 'loss') bucket.losses += 1;
+  else if (result === 'tie') bucket.ties += 1;
 }
 
 function clonePlayerStatsSnapshot(stats = {}) {
@@ -546,6 +561,7 @@ function createEmptyTeamTotals(teamId = null, info = null) {
     id: teamId,
     info: info || null,
     record: { wins: 0, losses: 0, ties: 0 },
+    postseasonRecord: { wins: 0, losses: 0, ties: 0 },
     pointsFor: 0,
     pointsAgainst: 0,
     stats,
@@ -559,6 +575,13 @@ function cloneTeamTotals(entry = {}, fallbackInfo = null) {
       wins: entry.record.wins ?? 0,
       losses: entry.record.losses ?? 0,
       ties: entry.record.ties ?? 0,
+    };
+  }
+  if (entry.postseasonRecord) {
+    base.postseasonRecord = {
+      wins: entry.postseasonRecord.wins ?? 0,
+      losses: entry.postseasonRecord.losses ?? 0,
+      ties: entry.postseasonRecord.ties ?? 0,
     };
   }
   base.pointsFor = entry.pointsFor ?? 0;
@@ -934,6 +957,7 @@ export function createMatchupFromGame(game) {
 function cloneTeamSeasonEntry(team) {
   if (!team) return null;
   const record = team.record || {};
+  const postseasonRecord = team.postseasonRecord || {};
   const stats = team.stats || {};
   return {
     ...team,
@@ -941,6 +965,11 @@ function cloneTeamSeasonEntry(team) {
       wins: record.wins ?? 0,
       losses: record.losses ?? 0,
       ties: record.ties ?? 0,
+    },
+    postseasonRecord: {
+      wins: postseasonRecord.wins ?? 0,
+      losses: postseasonRecord.losses ?? 0,
+      ties: postseasonRecord.ties ?? 0,
     },
     stats: {
       passingYards: stats.passingYards ?? 0,
@@ -1121,7 +1150,7 @@ function buildSemifinalGame({
     round: `Semifinal ${order}`,
     index,
     week: null,
-    slot: 0,
+    slot: order - 1,
     meta: { order },
   };
 }
@@ -1137,12 +1166,6 @@ export function ensurePlayoffsScheduled(season, league) {
     buildSemifinalGame({ seasonNumber: season.seasonNumber, homeTeam: seeds[0], awayTeam: seeds[3], index: startIndex, order: 1 }),
     buildSemifinalGame({ seasonNumber: season.seasonNumber, homeTeam: seeds[1], awayTeam: seeds[2], index: startIndex + 1, order: 2 }),
   ];
-  // Playoff games should always be consumed sequentially. Reset any lingering
-  // assignment stride from the regular season so both semifinals are played.
-  season.assignmentStride = 1;
-  if (season.assignment) {
-    season.assignment.stride = 1;
-  }
   games.forEach((game, idx) => {
     const entry = { ...game, index: startIndex + idx, week: (season.regularSeasonLength || startIndex) + idx + 1 };
     season.schedule.push(entry);
@@ -1179,10 +1202,6 @@ export function ensureChampionshipScheduled(season) {
   const awayTeam = winners[1].winner;
   if (!homeTeam || !awayTeam) return [];
   const index = season.schedule.length;
-  season.assignmentStride = 1;
-  if (season.assignment) {
-    season.assignment.stride = 1;
-  }
   const entry = {
     id: `PO${String(season.seasonNumber).padStart(2, '0')}-CH`,
     homeTeam,
@@ -1191,6 +1210,7 @@ export function ensureChampionshipScheduled(season) {
     round: 'BluperBowl',
     index,
     week: (season.regularSeasonLength || index) + (bracket.semifinalGames.length) + 1,
+    slot: 0,
     meta: { seeds: [seeds.indexOf(homeTeam) + 1, seeds.indexOf(awayTeam) + 1] },
   };
   season.schedule.push(entry);
@@ -1280,6 +1300,7 @@ export function recordTeamSeasonHistory(league, season) {
     const entry = {
       seasonNumber,
       record: cloneHistoryRecord(team.record),
+      postseasonRecord: cloneHistoryRecord(team.postseasonRecord),
       pointsFor: team.pointsFor ?? 0,
       pointsAgainst: team.pointsAgainst ?? 0,
       pointDifferential: (team.pointsFor ?? 0) - (team.pointsAgainst ?? 0),
@@ -1626,6 +1647,8 @@ function recalculateSeasonAggregates(season) {
     const score = result.score || {};
     const gamePlayerStats = result.playerStats || {};
     const gamePlayerTeams = result.playerTeams || {};
+    const isPostseason = (result.tag || '').startsWith('playoff-');
+    const scope = isPostseason ? 'postseason' : 'regular';
 
     const homeScore = score[homeId] ?? 0;
     const awayScore = score[awayId] ?? 0;
@@ -1641,20 +1664,20 @@ function recalculateSeasonAggregates(season) {
     applyScoreToSummary(awayTotals, awayScore, homeScore);
 
     if (homeScore > awayScore) {
-      registerOutcome(homeTeam, 'win');
-      registerOutcome(awayTeam, 'loss');
-      registerOutcome(homeTotals, 'win');
-      registerOutcome(awayTotals, 'loss');
+      registerOutcome(homeTeam, 'win', scope);
+      registerOutcome(awayTeam, 'loss', scope);
+      registerOutcome(homeTotals, 'win', scope);
+      registerOutcome(awayTotals, 'loss', scope);
     } else if (awayScore > homeScore) {
-      registerOutcome(awayTeam, 'win');
-      registerOutcome(homeTeam, 'loss');
-      registerOutcome(awayTotals, 'win');
-      registerOutcome(homeTotals, 'loss');
+      registerOutcome(awayTeam, 'win', scope);
+      registerOutcome(homeTeam, 'loss', scope);
+      registerOutcome(awayTotals, 'win', scope);
+      registerOutcome(homeTotals, 'loss', scope);
     } else {
-      registerOutcome(homeTeam, 'tie');
-      registerOutcome(awayTeam, 'tie');
-      registerOutcome(homeTotals, 'tie');
-      registerOutcome(awayTotals, 'tie');
+      registerOutcome(homeTeam, 'tie', scope);
+      registerOutcome(awayTeam, 'tie', scope);
+      registerOutcome(homeTotals, 'tie', scope);
+      registerOutcome(awayTotals, 'tie', scope);
     }
 
     const directory = {};
