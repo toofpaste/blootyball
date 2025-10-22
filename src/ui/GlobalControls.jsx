@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 
 export default function GlobalControls({
   running,
@@ -12,6 +12,7 @@ export default function GlobalControls({
   onShowSchedule,
   onShowLeaderboards,
   onShowNews,
+  newsTickerItems,
   onShowPressArticles,
   onShowFreeAgents,
   onShowRecordBook,
@@ -79,6 +80,16 @@ export default function GlobalControls({
   }, [menuOpen]);
 
   useEffect(() => () => clearCloseTimeout(), []);
+
+  const tickerItems = useMemo(() => {
+    if (!Array.isArray(newsTickerItems)) return [];
+    return newsTickerItems.filter((item) => item && item.text);
+  }, [newsTickerItems]);
+
+  const tickerKey = useMemo(() => {
+    if (!tickerItems.length) return 'empty';
+    return tickerItems.map((item) => item.id || item.text).join('|');
+  }, [tickerItems]);
 
   const handleSpeedChange = (event) => {
     const value = parseFloat(event.target.value);
@@ -187,6 +198,33 @@ export default function GlobalControls({
 
   return (
     <header className="global-header">
+      {tickerItems.length ? (
+        <button
+          type="button"
+          className="global-header__ticker"
+          onClick={onShowNews}
+          aria-label="Show latest league news"
+        >
+          <span className="global-header__ticker-label" aria-hidden="true">Latest News</span>
+          <div className="global-header__ticker-marquee" key={tickerKey}>
+            <div className="global-header__ticker-track">
+              {[0, 1].map((loopIndex) => (
+                <ul
+                  key={`ticker-loop-${loopIndex}`}
+                  className="global-header__ticker-segment"
+                  aria-hidden={loopIndex > 0}
+                >
+                  {tickerItems.map((item) => (
+                    <li key={`${loopIndex}-${item.id}`} className="global-header__ticker-item">
+                      {item.text}
+                    </li>
+                  ))}
+                </ul>
+              ))}
+            </div>
+          </div>
+        </button>
+      ) : null}
       <div className="global-header__inner">
         <div className="global-header__brand">
           <span className="global-header__title">Blootyball</span>
