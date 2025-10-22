@@ -2207,15 +2207,22 @@ function _coverageRolePenalty(defKey, targetRole) {
     const isTE = targetRole === 'TE';
     const isRB = targetRole === 'RB';
     const isDB = _isDefensiveBack(defKey);
+    const isLB = defKey?.startsWith('LB');
 
     if (isWR) {
-        return isDB ? 0 : PX_PER_YARD * 24;
+        if (isDB) return 0;
+        if (isLB) return PX_PER_YARD * 32;
+        return PX_PER_YARD * 24;
     }
     if (isTE) {
-        return isDB ? PX_PER_YARD * 6 : 0;
+        if (isLB) return 0;
+        if (isDB) return PX_PER_YARD * 18;
+        return PX_PER_YARD * 8;
     }
     if (isRB) {
-        return isDB ? PX_PER_YARD * 8 : 0;
+        if (isLB) return PX_PER_YARD * 4;
+        if (isDB) return PX_PER_YARD * 16;
+        return PX_PER_YARD * 10;
     }
     return 0;
 }
@@ -2284,15 +2291,43 @@ function _acquireNearestThreat(ctx, key) {
     const already = new Set(Object.values(cover.assigned || {}));
     let best = null;
     const roles = ['WR1', 'WR2', 'WR3', 'TE', 'RB'];
-    const weight = (role) => (role.startsWith('WR') ? 0 : role === 'TE' ? 10 : 18);
+    const isLB = key?.startsWith('LB');
+    const isDB = _isDefensiveBack(key);
+
+    const preferencePenalty = (role) => {
+        if (!role) return PX_PER_YARD * 12;
+        if (isLB) {
+            if (role === 'TE') return 0;
+            if (role === 'RB') return PX_PER_YARD * 4;
+            if (role.startsWith('WR')) {
+                const idxMatch = role.match(/^WR(\d)$/);
+                const slotBias = idxMatch ? parseInt(idxMatch[1], 10) : 3;
+                return PX_PER_YARD * (24 + slotBias * 2);
+            }
+        } else if (isDB) {
+            if (role.startsWith('WR')) {
+                const idxMatch = role.match(/^WR(\d)$/);
+                const order = idxMatch ? parseInt(idxMatch[1], 10) - 1 : 2;
+                return PX_PER_YARD * (order * 4);
+            }
+            if (role === 'TE') return PX_PER_YARD * 18;
+            if (role === 'RB') return PX_PER_YARD * 20;
+        } else {
+            if (role === 'TE') return PX_PER_YARD * 8;
+            if (role === 'RB') return PX_PER_YARD * 12;
+            if (role.startsWith('WR')) return PX_PER_YARD * 18;
+        }
+        return PX_PER_YARD * 12;
+    };
 
     for (const role of roles) {
         const t = off[role];
         if (!t?.pos || !t.alive) continue;
         if (already.has(role)) continue;
-        const dd = dist(defender.pos, t.pos);
+        const distance = dist(defender.pos, t.pos);
         const depthBias = Math.max(0, t.pos.y - cover.losY) * 0.12;
-        const score = dd - depthBias + weight(role);
+        const lateral = Math.abs(defender.pos.x - t.pos.x) * 0.3;
+        const score = distance + lateral - depthBias + preferencePenalty(role);
         if (!best || score < best.score) best = { role, score };
     }
 
@@ -2903,37 +2938,89 @@ function _computeCoverageAssignments(s) {
 
     const assigned = {};
     const claimed = new Set();
-    const claim = (defKey, roles) => {
-        if (!def[defKey]?.pos) return null;
-        for (const role of roles) {
-            if (!role) continue;
-            const player = off[role];
-            if (!player?.pos) continue;
-            if (claimed.has(role)) continue;
-            assigned[defKey] = role;
-            claimed.add(role);
-            return role;
+
+    const playerFor = (role) => {
+        const pl = off[role];
+        return pl?.pos ? pl : null;
+    };
+
+    const assignKey = (defKey, buildCandidates) => {
+        const defender = def[defKey];
+        if (!defender?.pos) return null;
+
+        const candidates = (typeof buildCandidates === 'function' ? buildCandidates(defender) : buildCandidates)
+            .flatMap((entry) => {
+                if (!entry?.role) return [];
+                if (claimed.has(entry.role)) return [];
+                const target = playerFor(entry.role);
+                if (!target) return [];
+                const dx = Math.abs((target.pos?.x ?? defender.pos.x) - defender.pos.x);
+                const dy = Math.abs((target.pos?.y ?? defender.pos.y) - defender.pos.y);
+                const depthBonus = Math.max(0, target.pos.y - losY) * 0.1;
+                const score = dx * 1.1 + dy * 0.25 - depthBonus + (entry.penalty ?? 0);
+                return [{ role: entry.role, score }];
+            })
+            .sort((a, b) => a.score - b.score);
+
+        for (const option of candidates) {
+            if (claimed.has(option.role)) continue;
+            assigned[defKey] = option.role;
+            claimed.add(option.role);
+            return option.role;
         }
         return null;
     };
 
-    const wrRoles = ['WR1', 'WR2', 'WR3'].filter((role) => off[role]?.pos);
-    claim('CB1', [wrRoles[0], wrRoles[1], wrRoles[2], 'TE']);
-    claim('CB2', [wrRoles[1], wrRoles[0], wrRoles[2], 'TE']);
-    claim('NB', [wrRoles[2], wrRoles[1], wrRoles[0]]);
+    const wrRoles = ['WR1', 'WR2', 'WR3'].filter((role) => playerFor(role));
+    const wrBySide = wrRoles
+        .map((role) => ({ role, player: playerFor(role) }))
+        .sort((a, b) => (a.player.pos.x - b.player.pos.x));
+    const wrBySlot = wrRoles
+        .map((role) => ({ role, player: playerFor(role) }))
+        .sort((a, b) => (Math.abs(a.player.pos.x - FIELD_PIX_W / 2) - Math.abs(b.player.pos.x - FIELD_PIX_W / 2)));
 
-    const lbTargets = [];
-    if (off.TE?.pos) lbTargets.push('TE');
-    if (off.RB?.pos) lbTargets.push('RB');
+    assignKey('CB1', (defender) => {
+        const ordered = wrBySide.slice().sort((a, b) => Math.abs(a.player.pos.x - defender.pos.x) - Math.abs(b.player.pos.x - defender.pos.x));
+        const entries = ordered.map((entry, idx) => ({ role: entry.role, penalty: idx * PX_PER_YARD * 4 }));
+        entries.push({ role: 'TE', penalty: PX_PER_YARD * 20 });
+        entries.push({ role: 'RB', penalty: PX_PER_YARD * 24 });
+        return entries;
+    });
 
-    // Ensure linebackers prioritise TE then RB.
-    claim('LB1', lbTargets);
-    claim('LB2', lbTargets.filter((role) => !claimed.has(role)));
+    assignKey('CB2', (defender) => {
+        const ordered = wrBySide.slice().sort((a, b) => Math.abs(a.player.pos.x - defender.pos.x) - Math.abs(b.player.pos.x - defender.pos.x));
+        const entries = ordered.map((entry, idx) => ({ role: entry.role, penalty: idx * PX_PER_YARD * 4 }));
+        entries.push({ role: 'TE', penalty: PX_PER_YARD * 20 });
+        entries.push({ role: 'RB', penalty: PX_PER_YARD * 24 });
+        return entries;
+    });
+
+    assignKey('NB', (defender) => {
+        const ordered = wrBySlot.slice().sort((a, b) => Math.abs(a.player.pos.x - defender.pos.x) - Math.abs(b.player.pos.x - defender.pos.x));
+        const entries = ordered.map((entry, idx) => ({ role: entry.role, penalty: idx * PX_PER_YARD * 3 }));
+        entries.push({ role: 'TE', penalty: PX_PER_YARD * 16 });
+        entries.push({ role: 'RB', penalty: PX_PER_YARD * 20 });
+        return entries;
+    });
+
+    const lbCandidates = () => {
+        const entries = [];
+        if (playerFor('TE')) entries.push({ role: 'TE', penalty: 0 });
+        if (playerFor('RB')) entries.push({ role: 'RB', penalty: PX_PER_YARD * 4 });
+        wrBySlot.forEach((entry, idx) => {
+            entries.push({ role: entry.role, penalty: PX_PER_YARD * (26 + idx * 2) });
+        });
+        return entries;
+    };
+
+    assignKey('LB1', lbCandidates);
+    assignKey('LB2', lbCandidates);
 
     const blitzPlan = {};
     ['LB1', 'LB2'].forEach((key) => {
         const hasTarget = !!assigned[key];
-        blitzPlan[key] = !hasTarget;
+        if (hasTarget) blitzPlan[key] = false;
+        else blitzPlan[key] = Math.random() < 0.3;
     });
 
     const safetyShade = {
@@ -2944,9 +3031,19 @@ function _computeCoverageAssignments(s) {
     s.play.coverage = {
         assigned,
         blitzPlan,
+        isCover2: false,
+        isTwoMan: false,
+        isCover3: false,
+        isCover4: false,
+        deepLandmarks: null,
         losY,
-        safetyShade,
         shell: 'man-simple',
+        zoneDrops: {},
+        safetyDrops: {},
+        releaseBoost: { db: 0, lb: 0 },
+        cushionBoost: 1,
+        zoneAssignments: {},
+        safetyShade,
     };
 }
 
@@ -3006,9 +3103,8 @@ function _playManAssignment(defKey, options, ctx) {
     const defender = ctx.def[defKey];
     if (!defender?.pos) return;
 
-    const assignments = ctx.cover.assigned || {};
     const blitzPlan = ctx.cover.blitzPlan || {};
-    const targetRole = assignments[defKey] || null;
+    const targetRole = _resolveManAssignment(ctx, defKey);
     const target = targetRole ? ctx.off[targetRole] : null;
 
     if (blitzPlan[defKey]) {
@@ -3086,15 +3182,16 @@ function _controlSafety(defKey, sideIdx, ctx) {
     const baseDepth = ctx.cover.safetyShade?.baseDepth ?? (ctx.cover.losY + PX_PER_YARD * 12);
     const deepThreat = _deepThreatForSafety(ctx, sideIdx);
     const deepestY = deepThreat?.pos?.y ?? baseDepth;
-    let aimY = Math.min(deepestY - PX_PER_YARD * 1.6, baseDepth);
-    aimY = Math.max(ctx.cover.losY + PX_PER_YARD * 8.0, aimY);
+    const endzoneFloor = FIELD_PIX_H - PX_PER_YARD * 2.5;
+    let aimY = Math.max(baseDepth, deepestY + PX_PER_YARD * 1.4);
+    aimY = Math.max(ctx.cover.losY + PX_PER_YARD * 8.0, Math.min(aimY, endzoneFloor));
 
     const baseHash = ctx.cover.safetyShade?.hash ?? (FIELD_PIX_W / 2);
     const defaultX = baseHash + (sideIdx === 0 ? -PX_PER_YARD * 6 : PX_PER_YARD * 6);
     let aimX = clamp(defaultX, 18, FIELD_PIX_W - 18);
     if (deepThreat?.pos) {
         const offset = sideIdx === 0 ? -PX_PER_YARD * 2.5 : PX_PER_YARD * 2.5;
-        aimX = clamp(_lerp(defaultX, deepThreat.pos.x + offset, 0.6), 18, FIELD_PIX_W - 18);
+        aimX = clamp(_lerp(defaultX, deepThreat.pos.x + offset, 0.7), 18, FIELD_PIX_W - 18);
     }
 
     moveToward(defender, { x: aimX, y: aimY }, ctx.dt, _speedFromAttrs(defender, 0.98), { behavior: 'ZONE' });
