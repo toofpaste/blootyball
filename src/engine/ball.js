@@ -469,7 +469,7 @@ export function moveBall(s, dt) {
                 if (s.debug?.forceNextOutcome === 'INT' && !s.play.__forcedIntDone) {
                     picked = true;
                     s.play.__forcedIntDone = true;
-                } else if (nearestDef.t && nearestDef.d < 18) {
+                } else if (nearestDef.t && nearestDef.d < 22) {
                     const defenderIQ = clamp(nearestDef.t.attrs?.awareness ?? 0.9, 0.4, 1.5);
                     const defenderHands = clamp(nearestDef.t.attrs?.catch ?? nearestDef.t.attrs?.tackle ?? 0.85, 0.4, 1.45);
                     const defenderAgility = clamp(nearestDef.t.attrs?.agility ?? 1, 0.5, 1.5);
@@ -479,7 +479,11 @@ export function moveBall(s, dt) {
                     const wrAwareness = clamp(r.attrs.awareness ?? 0.9, 0.4, 1.4);
                     const hawkTrait = clamp((nearestDef.t.modifiers?.ballHawk ?? 0.5) - 0.5, -0.3, 0.3);
                     const wrHandsTrait = clamp((r.modifiers?.hands ?? 0.5) - 0.5, -0.3, 0.3);
-                    let pickProb = 0.03;
+                    const targetRole = Object.entries(off || {}).find(([, player]) => player?.id === r.id)?.[0] || null;
+                    const coverageAssigned = targetRole
+                        ? Object.entries(s.play?.coverage?.assigned || {}).some(([, role]) => role === targetRole)
+                        : false;
+                    let pickProb = 0.08;
                     pickProb += (defenderIQ - qbIQ) * 0.28;
                     pickProb += (defenderHands - 1) * 0.26;
                     pickProb += (defenderAgility - 1) * 0.18;
@@ -491,10 +495,11 @@ export function moveBall(s, dt) {
                     const ballAccFactor = clamp(1 - (ball.flight?.accuracy ?? 1), -0.6, 0.8);
                     pickProb += ballAccFactor * 0.48;
                     const tightness = clamp((16 - (nearestDef.d ?? 16)) / 16, 0, 1);
-                    pickProb += tightness * 0.32;
+                    pickProb += tightness * 0.42;
+                    if (coverageAssigned) pickProb += 0.08;
                     if (s.play.passRisky) pickProb += 0.12;
-                    pickProb = clamp(pickProb, 0.015, 0.65);
-                    if (nearestDef.d > 16) pickProb *= 0.55;
+                    pickProb = clamp(pickProb, 0.04, 0.75);
+                    if (nearestDef.d > 18) pickProb *= 0.65;
                     picked = Math.random() < pickProb;
                 }
 

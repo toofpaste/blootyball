@@ -190,17 +190,17 @@ const CFG = {
     OL_SEPARATION_PUSH: 0.5,
     OL_ENGAGE_R: 16,
     OL_STICK_TIME: 0.30,
-    OL_BLOCK_PUSHBACK: 34,      // was 34 — OL push is weaker
-    OL_BLOCK_MIRROR: 0.92,
-    OL_REACH_SPEED: 0.95,
-    DL_ENGAGED_SLOW: 0.85,      // was 0.45/0.70 — DL keeps moving even if engaged
+    OL_BLOCK_PUSHBACK: 28,      // lighten OL drive so DL can compress pocket quicker
+    OL_BLOCK_MIRROR: 0.9,
+    OL_REACH_SPEED: 0.93,
+    DL_ENGAGED_SLOW: 0.96,      // DL keep their feet driving through blocks
     DL_SEPARATION_R: 12,
-    DL_SEPARATION_PUSH: 0.35,
+    DL_SEPARATION_PUSH: 0.42,
 
     // ---- Shedding (new) ----
-    SHED_INTERVAL: 0.25,        // try to shed this often while engaged
-    SHED_BASE: 0.22,            // base chance, modified by attrs and angles
-    SHED_SIDE_STEP: 12,         // lateral offset applied on successful shed
+    SHED_INTERVAL: 0.22,        // attempt sheds more frequently
+    SHED_BASE: 0.32,            // baseline win rate for DL hand fighting
+    SHED_SIDE_STEP: 16,         // more decisive lateral wins
 
     // ---- wrap / forward progress (tackles succeed more often) ----
     FP_CONTACT_R: 3,
@@ -212,7 +212,7 @@ const CFG = {
     // threshold, defenders were never considered "in contact", so wraps and
     // tackles could not start. Bump the radius above the physical separation
     // limit so legitimate collisions trigger tackles again.
-    CONTACT_R: 18,
+    CONTACT_R: 19,
     TACKLER_COOLDOWN: 0.9,
     GLOBAL_IMMUNITY: 0.45,
     MIN_DIST_AFTER_BREAK: 8,
@@ -245,10 +245,10 @@ const CFG = {
     // ---- Coverage & pursuit (new) ----
     COVER_CUSHION_YDS: 2.8,     // desired vertical cushion in man
     COVER_SWITCH_DIST: 26,      // when crossers get closer to another DB, switch
-    PURSUIT_LEAD_T: 0.28,       // seconds to lead the carrier
-    PURSUIT_SPEED: 1.12,        // defenders run a bit hotter in pursuit
-    PURSUIT_TRIGGER_R: 180,     // defenders rally when carrier within this radius
-    PURSUIT_RECENT_TIME: 1.0,   // after a catch/possession change, rally quickly
+    PURSUIT_LEAD_T: 0.32,       // defenders anticipate carrier angles more aggressively
+    PURSUIT_SPEED: 1.2,         // rally speed greatly increased
+    PURSUIT_TRIGGER_R: 220,     // defenders rally from further away
+    PURSUIT_RECENT_TIME: 1.4,   // extend rally window after possession changes
 };
 
 const SHOTGUN_HINTS = ['gun', 'shotgun', 'empty'];
@@ -2089,6 +2089,112 @@ function _leadPoint(p, dtLead, dtSample = 0.016) {
     return { x: p.pos.x + v.x * dtLead, y: p.pos.y + v.y * dtLead };
 }
 
+function _predictCatchPoint(ball) {
+    if (!ball?.inAir) return null;
+    const dest = ball.to || ball.renderPos || ball.shadowPos;
+    if (!dest) return null;
+    const speed = ball.flight?.speed || 0;
+    const total = ball.flight?.totalDist || 0;
+    const travelled = ball.flight?.travelled || 0;
+    const remaining = Math.max(0, total - travelled);
+    const eta = speed > 0 ? remaining / speed : 0.35;
+    return {
+        pos: { x: clamp(dest.x, 16, FIELD_PIX_W - 16), y: clamp(dest.y, 0, FIELD_PIX_H) },
+        eta,
+    };
+}
+
+function _handleRushEngagement(ctx, defender, laneBias) {
+    if (!defender.engagedId) {
+        defender._shedT = 0;
+        return false;
+    }
+
+    const { off, dt, s } = ctx;
+    defender._shedT = (defender._shedT || 0) + dt;
+    const blocker = Object.values(off || {}).find((o) => o && o.id === defender.engagedId) || null;
+
+    const blockStrength = clamp(blocker?.attrs?.strength ?? 1, 0.5, 1.6);
+    const defenderPower = clamp(defender?.attrs?.tackle ?? defender?.attrs?.strength ?? 1, 0.5, 1.7);
+    const engageScale = clamp(1 - (blockStrength - defenderPower) * 0.35, 0.5, 1.35);
+
+    const blockerX = blocker?.pos?.x ?? defender.pos.x;
+    const around = {
+        x: clamp(blockerX + laneBias * 1.2, 18, FIELD_PIX_W - 18),
+        y: defender.pos.y + PX_PER_YARD * 0.7,
+    };
+    moveToward(defender, around, dt, CFG.DL_ENGAGED_SLOW * engageScale, {
+        behavior: 'BLOCK',
+        pursuitTarget: blocker,
+    });
+
+    if (defender._shedT < CFG.SHED_INTERVAL) return true;
+    defender._shedT = 0;
+
+    const blockerAgility = clamp(blocker?.attrs?.agility ?? 1, 0.5, 1.5);
+    const defenderAgility = clamp(defender?.attrs?.agility ?? 1, 0.5, 1.6);
+    const leverage = Math.sign(defender.pos.x - blockerX) || (laneBias >= 0 ? 1 : -1);
+    const angleHelp = clamp(Math.abs(defender.pos.x - blockerX) / Math.max(8, Math.abs(defender.pos.y - (blocker?.pos?.y ?? defender.pos.y))), 0, 1.5);
+    const shedChance = clamp(
+        CFG.SHED_BASE
+            + (defenderPower - blockStrength) * 0.34
+            + (defenderAgility - blockerAgility) * 0.2
+            + angleHelp * 0.12,
+        0.08,
+        0.8,
+    );
+
+    if (Math.random() < shedChance) {
+        const burstDir = leverage || (Math.random() < 0.5 ? -1 : 1);
+        defender.pos.x = clamp(defender.pos.x + burstDir * CFG.SHED_SIDE_STEP, 18, FIELD_PIX_W - 18);
+        defender.engagedId = null;
+        defender._burstUntil = (s.play?.elapsed ?? 0) + 0.55;
+        return false;
+    }
+
+    return true;
+}
+
+function _computeRushAim(ctx, defender, laneBias, takenLanes = []) {
+    const { ball, carrier, qb, qbPos, dt, cover } = ctx;
+    const targetPlayer = (!ball.inAir && carrier?.pos) ? carrier : qb;
+    const lead = targetPlayer?.pos ? _leadPoint(targetPlayer, ball.inAir ? 0.18 : 0.26, dt) : qbPos;
+
+    let trackX = lead.x + laneBias;
+    takenLanes.forEach((x) => {
+        if (Math.abs(trackX - x) < 14) {
+            trackX += laneBias >= 0 ? 12 : -12;
+        }
+    });
+    trackX = clamp(trackX, 18, FIELD_PIX_W - 18);
+
+    let trackY = lead.y;
+    if (!ball.inAir && carrier?.pos) {
+        trackY = Math.min(carrier.pos.y - PX_PER_YARD * 0.2, lead.y);
+    } else {
+        trackY = Math.min(lead.y, qbPos.y - PX_PER_YARD * 0.4);
+    }
+    const aim = {
+        x: trackX,
+        y: clamp(trackY, 0, FIELD_PIX_H),
+    };
+
+    const openLane = takenLanes.every((x) => Math.abs(x - trackX) > 24);
+    let speed = openLane ? 1.16 : 1.06;
+    if (!ball.inAir && carrier?.pos && carrier !== qb) {
+        const depth = Math.max(0, carrier.pos.y - (cover?.losY ?? carrier.pos.y));
+        speed += depth > PX_PER_YARD * 3 ? 0.12 : 0.06;
+    }
+    if (defender._burstUntil && ctx.s.play?.elapsed < defender._burstUntil) speed += 0.22;
+
+    return {
+        point: aim,
+        speed,
+        trackX,
+        target: targetPlayer,
+    };
+}
+
 const MAN_KEYS = ['CB1', 'CB2', 'NB', 'LB1', 'LB2'];
 
 function _isDefensiveBack(key) {
@@ -2441,16 +2547,16 @@ function _handleZoneCoverage(ctx, key, defender) {
 
     let targetedIntercept = false;
 
-    if (ctx.ball.inAir && ctx.passTarget?.pos) {
-        const dest = targetPos || ctx.passTarget.pos;
+    if (ctx.ball.inAir && (ctx.passTarget?.pos || ctx.catchPrediction?.pos)) {
+        const dest = ctx.catchPrediction?.pos || targetPos || ctx.passTarget.pos;
         const dx = dest.x - anchorPoint.x;
         const dy = dest.y - anchorPoint.y;
         const distScore = Math.hypot(dx, dy);
         const targeted = assignedRole && ctx.passTargetRole && assignedRole === ctx.passTargetRole;
-        const reachFactor = targeted ? 2.6 : 1.9;
+        const reachFactor = targeted ? 3.0 : 2.2;
         if (distScore <= radius * reachFactor || targeted) {
             targetedIntercept = targeted;
-            chase = { player: ctx.passTarget, intercept: true, dest };
+            chase = { player: targeted ? ctx.passTarget : null, intercept: true, dest };
         }
     }
 
@@ -2490,7 +2596,7 @@ function _handleZoneCoverage(ctx, key, defender) {
                 x: clamp(chase.dest.x, 16, FIELD_PIX_W - 16),
                 y: Math.max(chase.dest.y - PX_PER_YARD * 0.8, ctx.cover.losY + PX_PER_YARD * 1.5),
             };
-            const burst = targetedIntercept ? 1.12 : attackSpeed;
+            const burst = targetedIntercept ? 1.18 : attackSpeed + 0.06;
             moveToward(defender, aim, ctx.dt, burst, {
                 behavior: 'PURSUIT',
                 pursuitTarget: chase.player || ctx.passTarget?.player || null,
@@ -2532,21 +2638,29 @@ function _pursueCarrierIfNeeded(ctx, key, defender, assignedTarget) {
     const recentPossession = (ctx.s.play.elapsed - (lastCarrierChange ?? 0)) <= CFG.PURSUIT_RECENT_TIME;
     const closeEnough = distToCarrier <= CFG.PURSUIT_TRIGGER_R;
     const sameSide = Math.abs(defender.pos.x - carrierPos.x) <= 120;
+    const downhill = carrierPos.y > defender.pos.y + PX_PER_YARD * 0.2;
 
     if (!assigned) {
         const rally = recentPossession && (closeEnough || sameSide);
         const qbBeyondRelease = carrierRole === 'QB' && carrierPos.y >= release.qb - PX_PER_YARD * 0.5;
-        if (!clearedRelease && !closeEnough && !rally && !qbBeyondRelease) return false;
-        if (distToCarrier > CFG.PURSUIT_TRIGGER_R * 1.4) return false;
+        const force = clearedRelease || qbBeyondRelease || downhill;
+        if (!force && !closeEnough && !rally) return false;
+        if (distToCarrier > CFG.PURSUIT_TRIGGER_R * 1.6) return false;
     }
 
-    const leadT = assigned ? CFG.PURSUIT_LEAD_T * 1.2 : CFG.PURSUIT_LEAD_T * 0.9;
+    const leadT = assigned ? CFG.PURSUIT_LEAD_T * 1.35 : CFG.PURSUIT_LEAD_T;
     const lead = _leadPoint(carrier, leadT, ctx.dt);
     const aim = {
         x: lead.x,
         y: Math.min(lead.y, carrierPos.y + PX_PER_YARD * 0.2),
     };
-    const speedMul = CFG.PURSUIT_SPEED * (assigned ? 1.18 : recentPossession ? 1.08 : 1.0);
+    const burst = assigned || beyondLos || recentPossession;
+    if (burst) {
+        defender._burstUntil = Math.max(defender._burstUntil || 0, (ctx.s.play?.elapsed ?? 0) + 0.45);
+    }
+    const burstActive = defender._burstUntil && ctx.s.play?.elapsed < defender._burstUntil;
+    const closing = distToCarrier < 80 ? 1.28 : distToCarrier < 140 ? 1.14 : 1.0;
+    const speedMul = CFG.PURSUIT_SPEED * (assigned ? 1.2 : recentPossession ? 1.08 : 1.0) * closing * (burstActive ? 1.08 : 1.0);
     moveToward(defender, aim, ctx.dt, speedMul, {
         behavior: 'PURSUIT',
         pursuitTarget: carrier,
@@ -2570,6 +2684,24 @@ function _updateManCoverageForKey(ctx, key) {
     }
 
     if (target?.pos) {
+        if (ctx.ball.inAir && ctx.catchPrediction?.pos) {
+            const interceptPos = ctx.catchPrediction.pos;
+            const targeted = ctx.passTargetRole && targetRole === ctx.passTargetRole;
+            const interceptDist = dist(defender.pos, interceptPos);
+            if (targeted || interceptDist <= PX_PER_YARD * 9.5) {
+                const aim = {
+                    x: interceptPos.x,
+                    y: Math.max(interceptPos.y - PX_PER_YARD * 0.8, ctx.cover.losY + PX_PER_YARD * 0.8),
+                };
+                const burst = _isDefensiveBack(key) ? 1.26 : 1.12;
+                moveToward(defender, aim, ctx.dt, burst, {
+                    behavior: 'PURSUIT',
+                    pursuitTarget: ctx.passTarget || target,
+                });
+                return;
+            }
+        }
+
         const aim = _computeManAim(ctx, defender, target, {
             isDB: _isDefensiveBack(key),
             cushion: ctx.cushion,
@@ -2592,8 +2724,16 @@ function _updateSafetyCoverage(ctx, key, idx, coverables) {
     if (!defender?.pos) return;
 
     if (ctx.ball.inAir) {
-        const tgt = ctx.ball.to || ctx.qbPos;
-        moveToward(defender, tgt, ctx.dt, 1.04, { behavior: 'PURSUIT' });
+        const intercept = ctx.catchPrediction?.pos || ctx.ball.to || ctx.qbPos;
+        const aim = {
+            x: clamp(intercept.x, 18, FIELD_PIX_W - 18),
+            y: Math.max(intercept.y - PX_PER_YARD * 1.0, ctx.cover.losY + PX_PER_YARD * 1.4),
+        };
+        const burst = 1.16;
+        moveToward(defender, aim, ctx.dt, burst, {
+            behavior: 'PURSUIT',
+            pursuitTarget: ctx.passTarget || null,
+        });
         return;
     }
 
@@ -3020,57 +3160,40 @@ export function defenseLogic(s, dt) {
         }
     }
     const lastCarrierChange = s.play.__lastCarrierChange ?? 0;
-    // 1) DL rush with shedding and lane offsets to avoid piling behind a teammate
+    // 1) DL rush with smarter lane decisions and aggressive shedding
     const rushKeys = ['LE', 'DT', 'RTk', 'RE'];
     const qbPos = _ensureVec(off.QB);
+    const laneClaims = [];
+    const rushCtx = {
+        s,
+        dt,
+        off,
+        def,
+        ball,
+        qb: off.QB,
+        qbPos,
+        carrier,
+        carrierRole,
+        cover,
+    };
 
-    rushKeys.forEach((k, i) => {
-        const d = def[k]; if (!d || !d.pos) return;
+    rushKeys.forEach((k) => {
+        const defender = def[k];
+        if (!defender?.pos) return;
 
-        // Assign a slight lane offset so two rushers don’t stack
-        const laneBias = (k === 'LE' ? -10 : k === 'RE' ? 10 : (k === 'DT' ? -4 : 4));
+        const laneBias = k === 'LE' ? -12 : k === 'RE' ? 12 : k === 'DT' ? -6 : 6;
 
-        // Default aim: QB (or carrier if ball not with QB)
-        const { player: carrier } = normalizeCarrier(off, ball);
-        let aim = ball.inAir ? qbPos : carrier?.pos || qbPos;
-        aim = { x: clamp(aim.x + laneBias, 20, FIELD_PIX_W - 20), y: aim.y };
-
-        // If engaged → try to shed periodically
-        if (d.engagedId) {
-            d._shedT = (d._shedT || 0) + dt;
-            if (d._shedT >= CFG.SHED_INTERVAL) {
-                d._shedT = 0;
-                const blocker = Object.values(off).find(o => o && o.id === d.engagedId);
-                const dStr = clamp(d.attrs?.tackle ?? d.attrs?.strength ?? 0.9, 0.5, 1.6);
-                const bStr = clamp(blocker?.attrs?.strength ?? 1.0, 0.5, 1.6);
-                const dQuick = clamp(d.attrs?.agility ?? 1, 0.5, 1.5);
-                const bQuick = clamp(blocker?.attrs?.agility ?? 1, 0.5, 1.5);
-                const angleHelp = Math.abs((d.pos.x - (blocker?.pos?.x ?? d.pos.x)) / Math.max(1, d.pos.y - (blocker?.pos?.y ?? d.pos.y)));
-                const shedP = clamp(
-                    CFG.SHED_BASE + (dStr - bStr) * 0.32 + (dQuick - bQuick) * 0.18 + angleHelp * 0.08,
-                    0.05,
-                    0.72,
-                );
-                if (Math.random() < shedP) {
-                    // sidestep shed
-                    const side = Math.sign(d.pos.x - (blocker?.pos?.x ?? d.pos.x)) || (Math.random() < 0.5 ? -1 : 1);
-                    d.pos.x = clamp(d.pos.x + side * CFG.SHED_SIDE_STEP, 20, FIELD_PIX_W - 20);
-                    d.engagedId = null;
-                }
-            }
-            // still move (reduced), trying to get around blocker
-            const sideWish = Math.sign((qbPos.x + laneBias) - d.pos.x) || (Math.random() < 0.5 ? -1 : 1);
-            const around = { x: clamp(d.pos.x + sideWish * 20, 20, FIELD_PIX_W - 20), y: d.pos.y + PX_PER_YARD * 0.8 };
-            const engagedBlocker = Object.values(off).find(o => o && o.id === d.engagedId);
-            const blockStrength = clamp(engagedBlocker?.attrs?.strength ?? 1, 0.5, 1.6);
-            const engagedScale = clamp(1 - (blockStrength - (d.attrs?.tackle ?? d.attrs?.strength ?? 1)) * 0.4, 0.45, 1.3);
-            moveToward(d, around, dt, CFG.DL_ENGAGED_SLOW * engagedScale, { behavior: 'BLOCK' });
-        } else {
-            moveToward(d, aim, dt, 0.98, {
-                behavior: 'PURSUIT',
-                pursuitTarget: ball.inAir ? off.QB : carrier,
-            });
+        if (_handleRushEngagement(rushCtx, defender, laneBias)) {
+            laneClaims.push(defender.pos.x);
+            return;
         }
+
+        const aim = _computeRushAim(rushCtx, defender, laneBias, laneClaims);
+        laneClaims.push(aim.trackX);
+        moveToward(defender, aim.point, dt, aim.speed, {
+            behavior: 'PURSUIT',
+            pursuitTarget: aim.target,
+        });
     });
 
     // 2) Coverage / pursuit for back seven
@@ -3099,6 +3222,7 @@ export function defenseLogic(s, dt) {
         lastCarrierChange,
         passTarget,
         passTargetRole,
+        catchPrediction: _predictCatchPoint(ball),
     };
 
     MAN_KEYS.forEach(key => _updateManCoverageForKey(coverageCtx, key));
