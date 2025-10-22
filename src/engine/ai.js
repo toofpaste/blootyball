@@ -3378,7 +3378,9 @@ export function defenseLogic(s, dt) {
             if (rbRun) {
                 const visionTrait = clamp((ballCarrier?.modifiers?.vision ?? 0.5) - 0.5, -0.25, 0.25);
                 const powerEdge = clamp((ballCarrier.attrs?.strength ?? 0.9) - 0.95, -0.4, 0.6);
-                const runResist = clamp(0.16 + breakTrait * 0.36 + visionTrait * 0.18 + powerEdge * 0.38, -0.05, 0.55);
+                // Running backs were shrugging off too many tackles. Reduce the amount of
+                // "run resistance" they generate so defenders convert more wraps into stops.
+                const runResist = clamp(0.1 + breakTrait * 0.28 + visionTrait * 0.14 + powerEdge * 0.3, -0.05, 0.4);
                 tackleChance -= runResist;
                 if (isSecondary) {
                     const pursuit = clamp((tackler?.attrs?.speed ?? 0.9) - 0.85, -0.2, 0.35);
