@@ -1155,19 +1155,97 @@ function buildSemifinalGame({
   };
 }
 
+function inferRegularSeasonLength(season) {
+  if (!season) return 0;
+  if (Number.isFinite(season.regularSeasonLength) && season.regularSeasonLength > 0) {
+    return season.regularSeasonLength;
+  }
+  const schedule = Array.isArray(season.schedule) ? season.schedule : [];
+  return schedule.filter((game) => game && !String(game.tag || '').startsWith('playoff')).length;
+}
+
+function alignSemifinalScheduleWithBracket(season) {
+  const bracket = season?.playoffBracket;
+  if (!season || !bracket || bracket.stage !== 'semifinals') return [];
+  const games = Array.isArray(bracket.semifinalGames) ? bracket.semifinalGames : [];
+  if (!games.length) return [];
+
+  const added = [];
+  season.schedule ||= [];
+  const regularLength = inferRegularSeasonLength(season);
+  const baseWeek = Math.max(1, regularLength || season.schedule.length || 0) + 1;
+
+  games.forEach((entry, idx) => {
+    if (!entry) return;
+    let targetIndex = Number.isFinite(entry.index) ? entry.index : season.schedule.length;
+    if (targetIndex < 0) targetIndex = season.schedule.length;
+    while (season.schedule.length <= targetIndex) {
+      season.schedule.push(null);
+    }
+
+    const existing = season.schedule[targetIndex];
+    const needsCreate = !existing || existing.tag !== 'playoff-semifinal';
+
+    const order = idx + 1;
+    const game = buildSemifinalGame({
+      seasonNumber: season.seasonNumber,
+      homeTeam: entry.homeTeam,
+      awayTeam: entry.awayTeam,
+      index: targetIndex,
+      order,
+    });
+
+    const scheduled = {
+      ...(existing || {}),
+      ...game,
+      id: existing?.id || game.id,
+      index: targetIndex,
+      round: entry.label || existing?.round || game.round,
+      week: baseWeek,
+      slot: idx,
+      meta: { ...(existing?.meta || {}), ...(entry?.meta || {}), order },
+    };
+
+    season.schedule[targetIndex] = scheduled;
+
+    bracket.semifinalGames[idx] = {
+      ...entry,
+      index: targetIndex,
+      homeTeam: scheduled.homeTeam,
+      awayTeam: scheduled.awayTeam,
+      label: scheduled.round,
+    };
+
+    if (needsCreate) {
+      added.push(targetIndex);
+    }
+  });
+
+  season.phase = 'playoffs';
+  return added;
+}
+
 export function ensurePlayoffsScheduled(season, league) {
   if (!season) return [];
-  if (season.playoffBracket && season.playoffBracket.stage !== 'regular') return [];
+  if (season.playoffBracket && season.playoffBracket.stage !== 'regular') {
+    const aligned = alignSemifinalScheduleWithBracket(season);
+    if (aligned.length) {
+      recomputeAssignmentTotals(season);
+      computeSeasonAwards(season, league);
+    }
+    return aligned;
+  }
   const seeds = buildStandings(season).slice(0, 4).map((entry) => entry.id).filter(Boolean);
   if (seeds.length < 4) return [];
   season.regularSeasonStandings = buildStandings(season);
   const startIndex = season.schedule.length;
+  const baseWeek = Math.max(1, inferRegularSeasonLength(season) || startIndex) + 1;
   const games = [
     buildSemifinalGame({ seasonNumber: season.seasonNumber, homeTeam: seeds[0], awayTeam: seeds[3], index: startIndex, order: 1 }),
     buildSemifinalGame({ seasonNumber: season.seasonNumber, homeTeam: seeds[1], awayTeam: seeds[2], index: startIndex + 1, order: 2 }),
   ];
   games.forEach((game, idx) => {
-    const entry = { ...game, index: startIndex + idx, week: (season.regularSeasonLength || startIndex) + idx + 1 };
+    const entry = { ...game, index: startIndex + idx, week: baseWeek, slot: idx };
     season.schedule.push(entry);
   });
   season.playoffBracket = {
