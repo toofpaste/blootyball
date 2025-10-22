@@ -2889,240 +2889,222 @@ function _updateSafetyCoverage(ctx, key, idx, coverables) {
     }
 }
 
-// Greedy nearest assignment with role weighting (CBs prefer WRs > TE > RB)
+// Simplified deterministic coverage plan that mirrors base alignments.
 function _computeCoverageAssignments(s) {
     const off = s.play?.formation?.off || {};
     const def = s.play?.formation?.def || {};
     const losY = off.__losPixY ?? (off.QB?.pos?.y ?? 0);
 
-    Object.values(def).forEach(p => {
+    Object.values(def).forEach((p) => {
         if (!p) return;
         p._manMirror = null;
+        p._burstUntil = null;
     });
 
-    const defenders = ['CB1', 'CB2', 'NB', 'S1', 'S2', 'LB1', 'LB2'].map(k => ({ k, p: def[k] })).filter(x => x.p && x.p.pos);
-    const targets = ['WR1', 'WR2', 'WR3', 'TE', 'RB'].map(k => ({ k, p: off[k] })).filter(x => x.p && x.p.pos);
-
-    const weight = (role) => role.startsWith('WR') ? 0 : role === 'TE' ? 15 : 30; // WR easiest
     const assigned = {};
-    const used = new Set();
-
-    const defFormationName = (s.play.defFormation || '').toLowerCase();
-    const shell = defFormationName.includes('cover-4') || defFormationName.includes('quarters')
-        ? 'cover4'
-        : defFormationName.includes('cover-3')
-            ? 'cover3'
-            : defFormationName.includes('cover-2')
-                ? 'cover2'
-                : defFormationName.includes('2-man')
-                    ? 'twoMan'
-                    : defFormationName.includes('zero')
-                        ? 'zero'
-                        : 'default';
-
-    const isCover2 = shell === 'cover2';
-    const isTwoMan = shell === 'twoMan';
-    const isCover3 = shell === 'cover3';
-    const isCover4 = shell === 'cover4';
-
-    const list = defenders.slice().sort((a, b) => a.p.pos.y - b.p.pos.y); // shallow first
-
-    for (const d of list) {
-        let best = null;
-        for (const t of targets) {
-            if (used.has(t.k)) continue;
-            const cost = dist(d.p.pos, t.p.pos) + weight(t.k);
-            if (!best || cost < best.cost) best = { cost, t };
+    const claimed = new Set();
+    const claim = (defKey, roles) => {
+        if (!def[defKey]?.pos) return null;
+        for (const role of roles) {
+            if (!role) continue;
+            const player = off[role];
+            if (!player?.pos) continue;
+            if (claimed.has(role)) continue;
+            assigned[defKey] = role;
+            claimed.add(role);
+            return role;
         }
-        if (best) {
-            assigned[d.k] = best.t.k;
-            used.add(best.t.k);
-        }
-    }
+        return null;
+    };
 
-    if (isCover2 || isTwoMan || isCover3 || isCover4) {
-        if (assigned.S1) used.delete(assigned.S1);
-        if (assigned.S2) used.delete(assigned.S2);
-        delete assigned.S1;
-        delete assigned.S2;
-    }
+    const wrRoles = ['WR1', 'WR2', 'WR3'].filter((role) => off[role]?.pos);
+    claim('CB1', [wrRoles[0], wrRoles[1], wrRoles[2], 'TE']);
+    claim('CB2', [wrRoles[1], wrRoles[0], wrRoles[2], 'TE']);
+    claim('NB', [wrRoles[2], wrRoles[1], wrRoles[0]]);
 
-    const roleOwners = {};
-    Object.entries(assigned).forEach(([defKey, role]) => {
-        if (role) roleOwners[role] = defKey;
+    const lbTargets = [];
+    if (off.TE?.pos) lbTargets.push('TE');
+    if (off.RB?.pos) lbTargets.push('RB');
+
+    // Ensure linebackers prioritise TE then RB.
+    claim('LB1', lbTargets);
+    claim('LB2', lbTargets.filter((role) => !claimed.has(role)));
+
+    const blitzPlan = {};
+    ['LB1', 'LB2'].forEach((key) => {
+        const hasTarget = !!assigned[key];
+        blitzPlan[key] = !hasTarget;
     });
-    const ensure = (defKey, role) => {
-        if (!role || !off[role]?.pos) return;
-        if (!def[defKey]?.pos) return;
 
-        const current = assigned[defKey];
-        if (current === role) return;
-
-        if (current && roleOwners[current] === defKey) {
-            delete roleOwners[current];
-        }
-
-        const prevOwner = roleOwners[role];
-        if (prevOwner && prevOwner !== defKey) {
-            delete assigned[prevOwner];
-        }
-
-        assigned[defKey] = role;
-        roleOwners[role] = defKey;
+    const safetyShade = {
+        baseDepth: losY + PX_PER_YARD * 12,
+        hash: FIELD_PIX_W / 2,
     };
-
-    if (isTwoMan) {
-        ensure('CB1', 'WR1');
-        ensure('CB2', 'WR2');
-        ensure('NB', 'WR3');
-        ensure('LB1', off.TE ? 'TE' : null);
-        ensure('LB2', off.RB ? 'RB' : null);
-    } else if (isCover3 || isCover4) {
-        ensure('CB1', 'WR1');
-        ensure('CB2', 'WR2');
-        ensure('NB', 'WR3');
-        ensure('LB1', off.TE ? 'TE' : null);
-        ensure('LB2', off.RB ? 'RB' : null);
-    } else if (isCover2) {
-        ensure('CB1', 'WR1');
-        ensure('CB2', 'WR2');
-        ensure('NB', 'WR3');
-    }
-
-    const midX = off.QB?.pos?.x ?? (FIELD_PIX_W / 2);
-    const wr1X = off.WR1?.pos?.x ?? (midX - 80);
-    const wr2X = off.WR2?.pos?.x ?? (midX + 80);
-    const wr3X = off.WR3?.pos?.x ?? midX;
-    const clampX = (x) => clamp(x, 18, FIELD_PIX_W - 18);
-    const slotDir = wr3X >= midX ? 1 : -1;
-
-    const zoneDrops = {};
-    const safetyDrops = {};
-    const releaseBoost = { db: 0, lb: 0 };
-    let cushionBoost = 1;
-    let deepLandmarks = null;
-    const zoneAssignments = {};
-
-    switch (shell) {
-        case 'cover2': {
-            const cushion = CFG.COVER_CUSHION_YDS * PX_PER_YARD;
-            deepLandmarks = {
-                left: { x: clampX(midX - 55), y: losY + PX_PER_YARD * 12 + cushion },
-                right: { x: clampX(midX + 55), y: losY + PX_PER_YARD * 12 + cushion },
-            };
-            safetyDrops.S1 = deepLandmarks.left;
-            safetyDrops.S2 = deepLandmarks.right;
-            zoneDrops.CB1 = { x: clampX((wr1X ?? (midX - 72)) + 4), y: losY + PX_PER_YARD * 5.6, speed: 0.95 };
-            zoneDrops.CB2 = { x: clampX((wr2X ?? (midX + 72)) - 4), y: losY + PX_PER_YARD * 5.6, speed: 0.95 };
-            zoneDrops.NB = { x: clampX(wr3X), y: losY + PX_PER_YARD * 7.0, speed: 0.92 };
-            zoneDrops.LB1 = { x: clampX(midX - 20), y: losY + PX_PER_YARD * 6.2, speed: 0.9 };
-            zoneDrops.LB2 = { x: clampX(midX + 20), y: losY + PX_PER_YARD * 6.2, speed: 0.9 };
-            cushionBoost = 1.1;
-            releaseBoost.db = 0.8;
-            releaseBoost.lb = 0.2;
-            break;
-        }
-        case 'twoMan': {
-            deepLandmarks = {
-                left: { x: clampX(midX - 68), y: losY + PX_PER_YARD * 13.2 },
-                right: { x: clampX(midX + 68), y: losY + PX_PER_YARD * 13.2 },
-            };
-            safetyDrops.S1 = deepLandmarks.left;
-            safetyDrops.S2 = deepLandmarks.right;
-            cushionBoost = 1.25;
-            releaseBoost.db = 1.1;
-            releaseBoost.lb = 0.35;
-            break;
-        }
-        case 'cover3': {
-            deepLandmarks = {
-                left: { x: clampX(midX - 78), y: losY + PX_PER_YARD * 12.8 },
-                middle: { x: clampX(midX), y: losY + PX_PER_YARD * 13.6 },
-                right: { x: clampX(midX + 78), y: losY + PX_PER_YARD * 12.8 },
-            };
-            zoneDrops.CB1 = { x: deepLandmarks.left.x, y: deepLandmarks.left.y, speed: 0.96 };
-            zoneDrops.CB2 = { x: deepLandmarks.right.x, y: deepLandmarks.right.y, speed: 0.96 };
-            zoneDrops.NB = { x: clampX(wr3X - slotDir * 6), y: losY + PX_PER_YARD * 7.4, speed: 0.92 };
-            zoneDrops.LB1 = { x: clampX(midX - 30), y: losY + PX_PER_YARD * 6.4, speed: 0.9 };
-            zoneDrops.LB2 = { x: clampX(midX + 30), y: losY + PX_PER_YARD * 6.4, speed: 0.9 };
-            safetyDrops.S1 = deepLandmarks.middle;
-            const curlX = wr3X;
-            const curlOffset = curlX >= midX ? 24 : -24;
-            safetyDrops.S2 = { x: clampX(curlX + curlOffset), y: losY + PX_PER_YARD * 7.2 };
-            cushionBoost = 1.35;
-            releaseBoost.db = 1.4;
-            releaseBoost.lb = 0.5;
-            break;
-        }
-        case 'cover4': {
-            deepLandmarks = {
-                left: { x: clampX((wr1X ?? (midX - 80)) - 6), y: losY + PX_PER_YARD * 13.8 },
-                right: { x: clampX((wr2X ?? (midX + 80)) + 6), y: losY + PX_PER_YARD * 13.8 },
-                middle: { x: clampX(midX), y: losY + PX_PER_YARD * 13.6 },
-            };
-            zoneDrops.CB1 = { x: deepLandmarks.left.x, y: deepLandmarks.left.y, speed: 0.95 };
-            zoneDrops.CB2 = { x: deepLandmarks.right.x, y: deepLandmarks.right.y, speed: 0.95 };
-            zoneDrops.NB = { x: clampX(wr3X + slotDir * 6), y: losY + PX_PER_YARD * 8.2, speed: 0.92 };
-            zoneDrops.LB1 = { x: clampX(midX - 26), y: losY + PX_PER_YARD * 6.2, speed: 0.9 };
-            zoneDrops.LB2 = { x: clampX(midX + 26), y: losY + PX_PER_YARD * 6.2, speed: 0.9 };
-            safetyDrops.S1 = { x: clampX(midX - 50), y: losY + PX_PER_YARD * 13.8 };
-            safetyDrops.S2 = { x: clampX(midX + 50), y: losY + PX_PER_YARD * 13.8 };
-            cushionBoost = 1.55;
-            releaseBoost.db = 1.8;
-            releaseBoost.lb = 0.6;
-            break;
-        }
-        case 'default': {
-            if (defFormationName.includes('nickel 3-3-5')) {
-                cushionBoost = 1.18;
-                releaseBoost.db = 0.9;
-                releaseBoost.lb = 0.4;
-                zoneDrops.LB1 = { x: clampX(midX - 24), y: losY + PX_PER_YARD * 6.0, speed: 0.9 };
-                zoneDrops.LB2 = { x: clampX(midX + 24), y: losY + PX_PER_YARD * 6.0, speed: 0.9 };
-                zoneDrops.NB = { x: clampX(wr3X), y: losY + PX_PER_YARD * 6.6, speed: 0.92 };
-            }
-            releaseBoost.db = Math.max(releaseBoost.db, 0.25);
-            releaseBoost.lb = Math.max(releaseBoost.lb, 0.12);
-            break;
-        }
-        default:
-            break;
-    }
-
-    const registerZone = (key, drop) => {
-        if (!drop) return;
-        const isDB = _isDefensiveBack(key);
-        zoneAssignments[key] = {
-            anchor: { x: drop.x, y: drop.y },
-            radius: PX_PER_YARD * (isDB ? 8.5 : 6.6),
-            chaseSpeed: isDB ? 1.0 : 0.94,
-            attackSpeed: isDB ? 1.08 : 1.0,
-            dropSpeed: drop.speed ?? (isDB ? 0.95 : 0.9),
-        };
-    };
-    Object.entries(zoneDrops).forEach(([key, drop]) => registerZone(key, drop));
 
     s.play.coverage = {
         assigned,
-        isCover2,
-        isTwoMan,
-        isCover3,
-        isCover4,
-        deepLandmarks,
+        blitzPlan,
         losY,
-        shell,
-        zoneDrops,
-        safetyDrops,
-        releaseBoost,
-        cushionBoost,
-        zoneAssignments,
+        safetyShade,
+        shell: 'man-simple',
     };
+}
+
+function _speedFromAttrs(player, base = 1) {
+    const speed = clamp(player?.attrs?.speed ?? 0.9, 0.5, 1.6);
+    return base + (speed - 1) * 0.25;
+}
+
+function _rushBallHandler(ctx, defender) {
+    const { ball, carrier, qb, qbPos, dt, s, laneBias = 0 } = ctx;
+    const targetPlayer = (!ball.inAir && carrier?.pos) ? carrier : qb;
+    const lead = targetPlayer?.pos ? _leadPoint(targetPlayer, ball.inAir ? 0.16 : 0.24, dt) : qbPos;
+    const aim = {
+        x: clamp((lead?.x ?? qbPos.x) + laneBias * 0.4, 18, FIELD_PIX_W - 18),
+        y: clamp(lead?.y ?? qbPos.y, 0, FIELD_PIX_H),
+    };
+    const burstActive = defender._burstUntil && s.play?.elapsed < defender._burstUntil;
+    const speed = _speedFromAttrs(defender, burstActive ? 1.25 : 1.14);
+    moveToward(defender, aim, dt, speed, {
+        behavior: 'PURSUIT',
+        pursuitTarget: targetPlayer || qb || null,
+    });
+}
+
+function _pursueTarget(defender, target, ctx, baseSpeed, behavior = 'PURSUIT') {
+    if (!defender?.pos || !target?.pos) return false;
+    const lead = _leadPoint(target, 0.22, ctx.dt);
+    const aim = {
+        x: clamp(lead.x, 18, FIELD_PIX_W - 18),
+        y: clamp(lead.y, 0, FIELD_PIX_H),
+    };
+    moveToward(defender, aim, ctx.dt, _speedFromAttrs(defender, baseSpeed), {
+        behavior,
+        pursuitTarget: target,
+    });
+    return true;
+}
+
+function _manAim(defender, target, losY, dt, { cushionY = PX_PER_YARD * 2.4, leverage = 0 } = {}) {
+    const lead = _leadPoint(target, 0.2, dt);
+    const cushion = Math.max(PX_PER_YARD * 1.4, cushionY);
+    let aimY = Math.min(target.pos.y - cushion, lead.y - PX_PER_YARD * 0.4);
+    const trailing = defender.pos.y > target.pos.y - PX_PER_YARD * 0.4;
+    if (trailing) aimY = lead.y - PX_PER_YARD * 0.2;
+    const minDepth = losY + PX_PER_YARD * 1.2;
+    aimY = clamp(Math.max(minDepth, aimY), 0, FIELD_PIX_H - PX_PER_YARD * 0.5);
+
+    let shade = leverage;
+    if (shade === 0) {
+        shade = target.pos.x >= FIELD_PIX_W / 2 ? -0.8 : 0.8;
+    }
+    const aimX = clamp(_lerp(target.pos.x, lead.x, 0.55) + shade * PX_PER_YARD, 18, FIELD_PIX_W - 18);
+    return { x: aimX, y: aimY };
+}
+
+function _playManAssignment(defKey, options, ctx) {
+    const defender = ctx.def[defKey];
+    if (!defender?.pos) return;
+
+    const assignments = ctx.cover.assigned || {};
+    const blitzPlan = ctx.cover.blitzPlan || {};
+    const targetRole = assignments[defKey] || null;
+    const target = targetRole ? ctx.off[targetRole] : null;
+
+    if (blitzPlan[defKey]) {
+        _rushBallHandler({ ...ctx, qb: ctx.off.QB }, defender);
+        return;
+    }
+
+    if (target && target.pos) {
+        if (ctx.carrier && target.id === ctx.carrier.id && ctx.carrierPos) {
+            _pursueTarget(defender, ctx.carrier, ctx, options.blitzSpeed ? options.blitzSpeed : 1.12);
+            return;
+        }
+
+        if (ctx.ball.inAir && ctx.passTargetRole === targetRole && ctx.catchPrediction?.pos) {
+            const intercept = ctx.catchPrediction.pos;
+            const aim = {
+                x: clamp(intercept.x, 18, FIELD_PIX_W - 18),
+                y: Math.max(intercept.y - PX_PER_YARD * 0.8, ctx.cover.losY + PX_PER_YARD * 0.8),
+            };
+            moveToward(defender, aim, ctx.dt, _speedFromAttrs(defender, 1.1), {
+                behavior: 'PURSUIT',
+                pursuitTarget: ctx.passTarget || target,
+            });
+            return;
+        }
+
+        const aim = _manAim(defender, target, ctx.cover.losY, ctx.dt, options || {});
+        moveToward(defender, aim, ctx.dt, _speedFromAttrs(defender, options.baseSpeed ?? 1.02), {
+            behavior: 'MAN',
+            pursuitTarget: target,
+        });
+        return;
+    }
+
+    const fallbackY = ctx.cover.losY + PX_PER_YARD * 6.2;
+    const fallbackX = defender.pos.x >= FIELD_PIX_W / 2 ? FIELD_PIX_W - PX_PER_YARD * 6 : PX_PER_YARD * 6;
+    moveToward(defender, { x: fallbackX, y: fallbackY }, ctx.dt, _speedFromAttrs(defender, 0.94), { behavior: 'ZONE' });
+}
+
+function _deepThreatForSafety(ctx, sideIdx) {
+    const half = FIELD_PIX_W / 2;
+    const roles = ['WR1', 'WR2', 'WR3', 'TE', 'RB'];
+    return roles.reduce((best, role) => {
+        const player = ctx.off[role];
+        if (!player?.pos || player.alive === false) return best;
+        const onSide = sideIdx === 0 ? player.pos.x <= half + 8 : player.pos.x >= half - 8;
+        if (!onSide) return best;
+        if (!best || player.pos.y > best.pos.y) return player;
+        return best;
+    }, null);
+}
+
+function _controlSafety(defKey, sideIdx, ctx) {
+    const defender = ctx.def[defKey];
+    if (!defender?.pos) return;
+
+    if (ctx.carrierPos && ctx.carrierPos.y >= ctx.cover.losY) {
+        _pursueTarget(defender, ctx.carrier, ctx, 1.18);
+        return;
+    }
+
+    if (ctx.ball.inAir && ctx.catchPrediction?.pos) {
+        const intercept = ctx.catchPrediction.pos;
+        const aim = {
+            x: clamp(intercept.x, 18, FIELD_PIX_W - 18),
+            y: Math.max(intercept.y - PX_PER_YARD * 0.6, ctx.cover.losY + PX_PER_YARD * 1.6),
+        };
+        moveToward(defender, aim, ctx.dt, _speedFromAttrs(defender, 1.06), {
+            behavior: 'PURSUIT',
+            pursuitTarget: ctx.passTarget || null,
+        });
+        return;
+    }
+
+    const baseDepth = ctx.cover.safetyShade?.baseDepth ?? (ctx.cover.losY + PX_PER_YARD * 12);
+    const deepThreat = _deepThreatForSafety(ctx, sideIdx);
+    const deepestY = deepThreat?.pos?.y ?? baseDepth;
+    let aimY = Math.min(deepestY - PX_PER_YARD * 1.6, baseDepth);
+    aimY = Math.max(ctx.cover.losY + PX_PER_YARD * 8.0, aimY);
+
+    const baseHash = ctx.cover.safetyShade?.hash ?? (FIELD_PIX_W / 2);
+    const defaultX = baseHash + (sideIdx === 0 ? -PX_PER_YARD * 6 : PX_PER_YARD * 6);
+    let aimX = clamp(defaultX, 18, FIELD_PIX_W - 18);
+    if (deepThreat?.pos) {
+        const offset = sideIdx === 0 ? -PX_PER_YARD * 2.5 : PX_PER_YARD * 2.5;
+        aimX = clamp(_lerp(defaultX, deepThreat.pos.x + offset, 0.6), 18, FIELD_PIX_W - 18);
+    }
+
+    moveToward(defender, { x: aimX, y: aimY }, ctx.dt, _speedFromAttrs(defender, 0.98), { behavior: 'ZONE' });
 }
 
 export function defenseLogic(s, dt) {
     const off = s.play.formation.off, def = s.play.formation.def, ball = s.play.ball;
     const cover = s.play.coverage || {
         assigned: {},
+        blitzPlan: {},
         isCover2: false,
         isTwoMan: false,
         isCover3: false,
@@ -3135,6 +3117,7 @@ export function defenseLogic(s, dt) {
         releaseBoost: { db: 0, lb: 0 },
         cushionBoost: 1,
         zoneAssignments: {},
+        safetyShade: { baseDepth: (off.__losPixY ?? 0) + PX_PER_YARD * 12, hash: FIELD_PIX_W / 2 },
     };
     const carrierInfo = normalizeCarrier(off, ball);
     const carrier = carrierInfo.player;
@@ -3160,10 +3143,9 @@ export function defenseLogic(s, dt) {
         }
     }
     const lastCarrierChange = s.play.__lastCarrierChange ?? 0;
-    // 1) DL rush with smarter lane decisions and aggressive shedding
+    // 1) Defensive line: pursue the ball handler aggressively every snap
     const rushKeys = ['LE', 'DT', 'RTk', 'RE'];
     const qbPos = _ensureVec(off.QB);
-    const laneClaims = [];
     const rushCtx = {
         s,
         dt,
@@ -3174,40 +3156,23 @@ export function defenseLogic(s, dt) {
         qbPos,
         carrier,
         carrierRole,
-        cover,
     };
 
     rushKeys.forEach((k) => {
         const defender = def[k];
         if (!defender?.pos) return;
-
         const laneBias = k === 'LE' ? -12 : k === 'RE' ? 12 : k === 'DT' ? -6 : 6;
-
-        if (_handleRushEngagement(rushCtx, defender, laneBias)) {
-            laneClaims.push(defender.pos.x);
-            return;
-        }
-
-        const aim = _computeRushAim(rushCtx, defender, laneBias, laneClaims);
-        laneClaims.push(aim.trackX);
-        moveToward(defender, aim.point, dt, aim.speed, {
-            behavior: 'PURSUIT',
-            pursuitTarget: aim.target,
-        });
+        const engagedCtx = { ...rushCtx, cover, laneBias };
+        if (_handleRushEngagement(engagedCtx, defender, laneBias)) return;
+        _rushBallHandler({ ...rushCtx, laneBias }, defender);
     });
 
     // 2) Coverage / pursuit for back seven
-    const baseCushion = CFG.COVER_CUSHION_YDS * PX_PER_YARD;
-    const cushion = baseCushion * (cover.cushionBoost ?? 1);
-    const coverables = ['WR1', 'WR2', 'WR3', 'TE', 'RB']
-        .map(role => off[role])
-        .filter(player => player?.pos && player.alive !== false);
-    if (carrier?.pos && !coverables.includes(carrier)) {
-        coverables.push(carrier);
-    }
     const passTargetRole = ball.inAir && ball.targetId ? findOffRoleById(off, ball.targetId) : null;
     const passTarget = passTargetRole ? off[passTargetRole] : null;
-    const coverageCtx = {
+    const catchPrediction = _predictCatchPoint(ball);
+
+    const coveragePlan = {
         s,
         dt,
         off,
@@ -3215,18 +3180,22 @@ export function defenseLogic(s, dt) {
         cover,
         ball,
         qbPos,
-        cushion,
         carrier,
         carrierRole,
         carrierPos,
         lastCarrierChange,
         passTarget,
         passTargetRole,
-        catchPrediction: _predictCatchPoint(ball),
+        catchPrediction,
     };
 
-    MAN_KEYS.forEach(key => _updateManCoverageForKey(coverageCtx, key));
-    ['S1', 'S2'].forEach((key, idx) => _updateSafetyCoverage(coverageCtx, key, idx, coverables));
+    _playManAssignment('CB1', { cushionY: PX_PER_YARD * 2.8, leverage: -1 }, coveragePlan);
+    _playManAssignment('CB2', { cushionY: PX_PER_YARD * 2.8, leverage: 1 }, coveragePlan);
+    _playManAssignment('NB', { cushionY: PX_PER_YARD * 2.4, leverage: 0 }, coveragePlan);
+    _playManAssignment('LB1', { cushionY: PX_PER_YARD * 1.8, leverage: -0.6, blitzSpeed: 1.08 }, coveragePlan);
+    _playManAssignment('LB2', { cushionY: PX_PER_YARD * 1.8, leverage: 0.6, blitzSpeed: 1.08 }, coveragePlan);
+    _controlSafety('S1', 0, coveragePlan);
+    _controlSafety('S2', 1, coveragePlan);
 
     // 3) Contact & tackle logic (slightly tougher)
     if (ball.inAir) return;
