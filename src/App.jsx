@@ -1457,8 +1457,10 @@ export default function App() {
     pressCoverageWeek,
   ]);
 
+  const leagueNewsFeed = aggregatedSeasonStats?.league?.newsFeed;
+
   const leagueNewsMeta = useMemo(() => {
-    const feed = aggregatedSeasonStats?.league?.newsFeed;
+    const feed = leagueNewsFeed;
     if (!Array.isArray(feed) || feed.length === 0) return { latest: 0, count: 0 };
     let latest = 0;
     feed.forEach((entry) => {
@@ -1468,7 +1470,18 @@ export default function App() {
       }
     });
     return { latest, count: feed.length };
-  }, [aggregatedSeasonStats?.league?.newsFeed]);
+  }, [leagueNewsFeed]);
+
+  const newsTickerItems = useMemo(() => {
+    if (!Array.isArray(leagueNewsFeed) || leagueNewsFeed.length === 0) return [];
+    return leagueNewsFeed
+      .filter((entry) => entry && entry.text && entry.type !== 'press')
+      .slice(0, 5)
+      .map((entry, index) => ({
+        id: entry.id || `ticker-${index}`,
+        text: entry.text,
+      }));
+  }, [leagueNewsFeed]);
 
   useEffect(() => {
     if (!leagueNewsMeta.count) {
@@ -1530,6 +1543,7 @@ export default function App() {
           onShowSchedule={handleOpenSchedule}
           onShowLeaderboards={handleOpenLeaderboards}
           onShowNews={handleOpenNews}
+          newsTickerItems={newsTickerItems}
           onShowPressArticles={handleOpenPress}
           onShowFreeAgents={handleOpenFreeAgents}
           onShowRecordBook={handleOpenRecordBook}
