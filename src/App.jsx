@@ -27,6 +27,27 @@ function stageRank(stage) {
   return PLAYOFF_STAGE_ORDER[stage] ?? -1;
 }
 
+function formatTickerTimestamp(value) {
+  if (!value) return { label: null, iso: null };
+  try {
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) {
+      return { label: null, iso: null };
+    }
+    return {
+      label: date.toLocaleString(undefined, {
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+      }),
+      iso: date.toISOString(),
+    };
+  } catch (err) {
+    return { label: null, iso: null };
+  }
+}
+
 function cloneAwardsEntry(entry) {
   if (!entry) return null;
   return {
@@ -1477,10 +1498,16 @@ export default function App() {
     return leagueNewsFeed
       .filter((entry) => entry && entry.text && entry.type !== 'press')
       .slice(0, 5)
-      .map((entry, index) => ({
-        id: entry.id || `ticker-${index}`,
-        text: entry.text,
-      }));
+      .map((entry, index) => {
+        const timestampSource = entry.createdAt || entry.generatedAt || entry.timestamp || null;
+        const { label: timestampLabel, iso: timestampISO } = formatTickerTimestamp(timestampSource);
+        return {
+          id: entry.id || `ticker-${index}`,
+          text: entry.text,
+          timestampLabel,
+          timestampISO,
+        };
+      });
   }, [leagueNewsFeed]);
 
   useEffect(() => {

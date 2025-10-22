@@ -93,6 +93,23 @@
   font-weight: 600;
   white-space: nowrap;
   color: #f6fff6;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.global-header__ticker-timestamp {
+  color: rgba(207, 255, 207, 0.9);
+  font-weight: 700;
+  letter-spacing: 0.3px;
+}
+
+.global-header__ticker-timestamp time {
+  font: inherit;
+}
+
+.global-header__ticker-text {
+  display: inline-block;
 }
 
 @keyframes global-header-ticker-scroll {
