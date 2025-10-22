@@ -1281,18 +1281,19 @@ export function ensureChampionshipScheduled(season) {
   if (!homeTeam || !awayTeam) return [];
 
   const stride = Math.max(1, season.assignmentStride || season.assignment?.stride || 1);
-  const offset = season.assignmentOffset ?? season.assignment?.offset ?? 0;
+  const rawOffset = season.assignmentOffset ?? season.assignment?.offset ?? 0;
+  const offset = Number.isFinite(rawOffset) ? rawOffset : 0;
   season.schedule ||= [];
   const scheduleLength = season.schedule.length;
 
   let index = Number.isFinite(season.currentGameIndex) ? season.currentGameIndex : scheduleLength;
   if (!Number.isFinite(index) || index < 0) index = scheduleLength;
 
-  if (((index - offset) % stride + stride) % stride !== 0) {
-    index = Math.max(index, scheduleLength);
-    while (((index - offset) % stride + stride) % stride !== 0) {
-      index += 1;
-    }
+  index = Math.max(index, scheduleLength, offset);
+
+  const remainder = ((index - offset) % stride + stride) % stride;
+  if (remainder !== 0) {
+    index += stride - remainder;
   }
 
   while (season.schedule.length <= index) {
