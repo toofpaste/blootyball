@@ -1809,14 +1809,25 @@ export function prepareSeasonMatchup(season) {
 export function advanceSeasonPointer(season) {
   if (!season) return null;
   const stride = Math.max(1, season.assignmentStride || season.assignment?.stride || 1);
-  const nextIndex = season.currentGameIndex + stride;
   const scheduleLength = season.schedule?.length ?? 0;
-  if (nextIndex >= scheduleLength) {
+  const currentIndex = Number.isFinite(season.currentGameIndex) ? season.currentGameIndex : 0;
+
+  let nextIndex = currentIndex + stride;
+  if (nextIndex < scheduleLength) {
     season.currentGameIndex = nextIndex;
-    return null;
+    return prepareSeasonMatchup(season);
   }
+
+  for (let idx = currentIndex + 1; idx < scheduleLength; idx += 1) {
+    const entry = season.schedule[idx];
+    if (!entry) continue;
+    if (entry.played) continue;
+    season.currentGameIndex = idx;
+    return prepareSeasonMatchup(season);
+  }
+
   season.currentGameIndex = nextIndex;
-  return prepareSeasonMatchup(season);
+  return null;
 }
 
 export function seasonCompleted(season) {

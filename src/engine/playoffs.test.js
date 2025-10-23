@@ -1,6 +1,7 @@
 import { TEAM_RED, TEAM_BLK } from './constants';
 import { TEAM_IDS } from './data/teamLibrary';
 import {
+  advanceSeasonPointer,
   applyGameResultToSeason,
   createSeasonState,
   ensureChampionshipScheduled,
@@ -55,6 +56,38 @@ describe('postseason scheduling', () => {
     expect(season.phase).toBe('championship');
 
     expect(ensureChampionshipScheduled(season)).toHaveLength(0);
+  });
+
+  test('season pointer advances to remaining semifinal before ending postseason', () => {
+    let season = createSeasonState({ seasonConfig: { longSeason: false } });
+    season.assignmentStride = 2;
+    season.assignment = { stride: 2, offset: 0, totalGames: 0 };
+    season.assignmentOffset = 0;
+
+    ensurePlayoffsScheduled(season, null);
+
+    const semifinalGames = season.schedule.slice(-2);
+    const firstSemifinal = semifinalGames[0];
+    const secondSemifinal = semifinalGames[1];
+
+    season.currentGameIndex = firstSemifinal.index;
+
+    season = applyGameResultToSeason(
+      season,
+      firstSemifinal,
+      { [TEAM_RED]: 31, [TEAM_BLK]: 14 },
+      {},
+      {},
+      [],
+    );
+
+    const nextMatchup = advanceSeasonPointer(season);
+
+    expect(season.playoffBracket.stage).toBe('semifinals');
+    expect(season.currentGameIndex).toBe(secondSemifinal.index);
+    expect(nextMatchup).not.toBeNull();
+    expect(nextMatchup.tag).toBe('playoff-semifinal');
+    expect(season.schedule[secondSemifinal.index].played).not.toBe(true);
   });
 
   test('championship aligns with assignment offset for secondary slot', () => {
