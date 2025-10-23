@@ -1316,18 +1316,9 @@ function alignSemifinalScheduleWithBracket(season) {
     .map((entry) => (Number.isFinite(entry?.index) ? entry.index : null))
     .filter((index) => index != null);
 
-  const canonicalSeason =
-    season.assignmentOffset || season.assignment?.offset
-      ? {
-          ...season,
-          assignmentOffset: 0,
-          assignment: season.assignment ? { ...season.assignment, offset: 0 } : season.assignment,
-        }
-      : season;
-
   const desiredStart = existingIndices.length ? Math.min(...existingIndices) : season.schedule.length;
   const alignedStart = alignIndexToAssignmentStride(
-    canonicalSeason,
+    season,
     Math.max(desiredStart, regularGames, season.schedule.length),
   );
   const validExisting = existingIndices.filter((index) => Number.isFinite(index) && index >= regularGames);

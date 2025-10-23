@@ -980,7 +980,13 @@ function finalizeCurrentGame(state) {
                 state.season.currentGameIndex = assigned;
                 nextMatchup = prepareSeasonMatchup(state.season);
             } else if (added.length) {
-                state.season.currentGameIndex = state.season.schedule.length;
+                const fallbackIndex = added
+                    .filter((index) => Number.isFinite(index) && index >= 0)
+                    .reduce((min, index) => (min == null || index < min ? index : min), null);
+                if (fallbackIndex != null) {
+                    state.season.currentGameIndex = fallbackIndex;
+                    nextMatchup = prepareSeasonMatchup(state.season);
+                }
             }
         }
 
