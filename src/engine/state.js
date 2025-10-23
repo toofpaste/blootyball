@@ -696,6 +696,7 @@ function prepareGameForMatchup(state, matchup) {
         state.pendingMatchup = null;
         state.awaitingNextMatchup = false;
         state.gameComplete = true;
+        state.overtime = null;
         return state;
     }
 
@@ -703,6 +704,7 @@ function prepareGameForMatchup(state, matchup) {
 
     state.matchup = matchup;
     state.possession = TEAM_RED;
+    state.overtime = null;
     if (state.league && state.season) {
         state.league.seasonSnapshot = state.season;
         ensureSeasonPersonnel(state.league, state.season.seasonNumber || state.league.seasonNumber || 1);
@@ -794,8 +796,137 @@ function prepareGameForMatchup(state, matchup) {
 function isGameClockExpired(state) {
     if (!state?.clock) return false;
     if (state.pendingExtraPoint) return false;
+    if (state.overtime?.active) return false;
     if (state.clock.quarter < 4) return false;
     return state.clock.time <= 0;
+}
+
+function cloneScoreMap(scores = {}) {
+    return {
+        [TEAM_RED]: scores?.[TEAM_RED] ?? 0,
+        [TEAM_BLK]: scores?.[TEAM_BLK] ?? 0,
+    };
+}
+
+function concludeOvertime(state, winnerSlot = null) {
+    if (!state) return;
+    state.overtime ||= {};
+    state.overtime.winnerSlot = winnerSlot || state.overtime.winnerSlot || null;
+    state.overtime.concluded = true;
+    if (state.clock) {
+        state.clock.running = false;
+        state.clock.time = 0;
+        state.clock.awaitSnap = true;
+        state.clock.stopReason = 'Overtime decided';
+    }
+    state.pendingExtraPoint = null;
+}
+
+function beginOvertime(state) {
+    if (!state) return state;
+    if (state.overtime?.active) return state;
+    if (!state.scores) state.scores = defaultScores();
+    state.teams = state.teams || createTeams(state.matchup, state.league);
+    const first = Math.random() < 0.5 ? TEAM_RED : TEAM_BLK;
+    const second = otherTeam(first);
+    const baseScores = cloneScoreMap(state.scores);
+    state.overtime = {
+        active: true,
+        order: [first, second],
+        round: 1,
+        awaitingResponse: false,
+        roundStartScores: baseScores,
+        afterStarterScores: baseScores,
+        starterPoints: 0,
+        concluded: false,
+        finalized: false,
+        winnerSlot: null,
+        lastDrive: null,
+    };
+    state.clock ||= createClock(state.coaches);
+    state.clock.quarter = Math.max(5, (state.clock.quarter || 5));
+    state.clock.time = QUARTER_SECONDS;
+    state.clock.running = false;
+    state.clock.awaitSnap = true;
+    state.clock.stopReason = 'Overtime';
+    state.clock.timeouts = { [TEAM_RED]: 2, [TEAM_BLK]: 2 };
+
+    state.pendingExtraPoint = null;
+    state.possession = first;
+    state.drive = { losYards: 25, down: 1, toGo: 10 };
+    state.roster = rosterForPossession(state.teams, state.possession);
+    state.roster.__ownerState = state;
+    state.play = createPlayState(state.roster, state.drive);
+    const receiveLabel = resolveTeamLabel(state, first);
+    state.play.resultText = `Overtime – ${receiveLabel} receive`; 
+    beginPlayDiagnostics(state);
+
+    pushPlayLog(state, {
+        name: 'Overtime',
+        startDown: 1,
+        startToGo: 10,
+        startLos: 25,
+        endLos: 25,
+        gained: 0,
+        why: `${receiveLabel} receive to start OT`,
+        offense: first,
+    });
+
+    return state;
+}
+
+function handleOvertimeDriveEnd(state, { driveTeam = null, pendingExtraPoint = false } = {}) {
+    const ot = state?.overtime;
+    if (!ot?.active || ot.concluded) return false;
+    if (pendingExtraPoint) return false;
+
+    const starter = ot.order?.[0];
+    const responder = ot.order?.[1];
+    if (!starter || !responder) return false;
+
+    const currentScores = cloneScoreMap(state.scores || {});
+    if (!ot.roundStartScores) ot.roundStartScores = cloneScoreMap(currentScores);
+    if (!ot.afterStarterScores) ot.afterStarterScores = cloneScoreMap(ot.roundStartScores);
+
+    const starterTotal = (currentScores[starter] ?? 0) - (ot.roundStartScores?.[starter] ?? 0);
+    const responderTotal = (currentScores[responder] ?? 0) - (ot.roundStartScores?.[responder] ?? 0);
+
+    if (!ot.awaitingResponse) {
+        ot.starterPoints = starterTotal;
+        ot.afterStarterScores = cloneScoreMap(currentScores);
+        ot.awaitingResponse = true;
+        ot.lastDrive = { team: driveTeam || starter, role: 'starter', points: starterTotal };
+        if (responderTotal > starterTotal) {
+            concludeOvertime(state, responder);
+            return true;
+        }
+        return false;
+    }
+
+    const starterGainDuringResponse = (currentScores[starter] ?? 0) - (ot.afterStarterScores?.[starter] ?? 0);
+    ot.lastDrive = { team: driveTeam || responder, role: 'responder', points: responderTotal };
+
+    if (starterGainDuringResponse > 0) {
+        concludeOvertime(state, starter);
+        return true;
+    }
+
+    if (responderTotal > ot.starterPoints) {
+        concludeOvertime(state, responder);
+        return true;
+    }
+
+    if (responderTotal < ot.starterPoints) {
+        concludeOvertime(state, starter);
+        return true;
+    }
+
+    ot.round += 1;
+    ot.roundStartScores = cloneScoreMap(currentScores);
+    ot.afterStarterScores = cloneScoreMap(currentScores);
+    ot.starterPoints = 0;
+    ot.awaitingResponse = false;
+    return false;
 }
 
 function finalizeCurrentGame(state) {
@@ -1150,7 +1281,7 @@ function applyFieldGoalOutcome(state, ctx, outcome, { logAttempt = true } = {}) 
 }
 
 function advanceFieldGoalState(state, ctx, outcome) {
-    if (!outcome || !ctx) return;
+    if (!outcome || !ctx) return state;
     const { team, success, summary, isPat } = outcome;
     stopClock(state, summary);
     const defense = otherTeam(team);
@@ -1173,10 +1304,19 @@ function advanceFieldGoalState(state, ctx, outcome) {
         turnover: !success,
     });
 
+    if (state.overtime?.active) {
+        const concluded = handleOvertimeDriveEnd(state, { driveTeam: team });
+        if (concluded) {
+            state.play = { phase: 'COMPLETE', resultText: summary };
+            return state;
+        }
+    }
+
     state.roster.__ownerState = state;
     state.play = createPlayState(state.roster, state.drive);
     state.play.resultText = summary;
     beginPlayDiagnostics(state);
+    return state;
 }
 
 function computeFieldGoalTarget(visual, outcome) {
@@ -2200,6 +2340,7 @@ export function createInitialGameState(options = {}) {
         pendingMatchup: null,
         awaitingNextMatchup: false,
         seasonConfig: { ...resolvedSeasonConfig },
+        overtime: null,
     };
     if (matchup) {
         prepareGameForMatchup(state, matchup);
@@ -2480,6 +2621,12 @@ export function stepGame(state, dt) {
     const updated = progressOffseason(state);
     if (updated !== state) {
         state = updated;
+    }
+    if (state?.overtime?.concluded && !state.overtime.finalized) {
+        const overtimeInfo = { ...state.overtime, active: false, finalized: true };
+        const finalized = finalizeCurrentGame(state);
+        finalized.overtime = overtimeInfo;
+        return finalized;
     }
     if (state?.gameComplete) {
         return state;
@@ -2879,12 +3026,39 @@ export function betweenPlays(prevState) {
         pushPlayLog(s, injuryReport.logEntry);
     }
 
-    // Ensure the active roster knows which state owns it for debug hooks
-    if (s.roster) s.roster.__ownerState = s;
+    const pendingPat = queuedExtraPoint || !!s.pendingExtraPoint;
+    const offenseChanged = s.possession !== offenseAtSnap;
 
-    if (isGameClockExpired(s)) {
+    if (s.overtime?.active && offenseChanged && !pendingPat) {
+        const concluded = handleOvertimeDriveEnd(s, { driveTeam: offenseAtSnap });
+        if (concluded) {
+            if (!s.play || s.play.phase !== 'COMPLETE') {
+                s.play = { phase: 'COMPLETE', resultText: summaryText };
+            }
+            return s;
+        }
+    }
+
+    const regulationExpired = !s.overtime?.active && isGameClockExpired(s);
+    if (regulationExpired) {
+        const redScore = s.scores?.[TEAM_RED] ?? 0;
+        const blkScore = s.scores?.[TEAM_BLK] ?? 0;
+        if (redScore === blkScore) {
+            beginOvertime(s);
+            return s;
+        }
         return finalizeCurrentGame(s);
     }
+
+    if (s.overtime?.concluded) {
+        if (!s.play || s.play.phase !== 'COMPLETE') {
+            s.play = { phase: 'COMPLETE', resultText: summaryText };
+        }
+        return s;
+    }
+
+    // Ensure the active roster knows which state owns it for debug hooks
+    if (s.roster) s.roster.__ownerState = s;
 
     // Start next play for whoever now has the ball
     s.play = createPlayState(s.roster, s.drive);
