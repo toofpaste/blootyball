@@ -8,12 +8,22 @@ import {
   ensurePlayoffsScheduled,
 } from './league';
 
+const markRegularSeasonComplete = (season) => {
+  season.schedule = season.schedule.map((game, idx) => ({
+    ...game,
+    index: idx,
+    played: true,
+  }));
+};
+
 describe('postseason scheduling', () => {
   test('semifinal games keep assignment stride and occupy separate slots', () => {
     const season = createSeasonState({ seasonConfig: { longSeason: false } });
     season.assignmentStride = 2;
     season.assignment = { stride: 2, offset: 0, totalGames: 0 };
     season.assignmentOffset = 0;
+
+    markRegularSeasonComplete(season);
 
     ensurePlayoffsScheduled(season, null);
 
@@ -32,6 +42,8 @@ describe('postseason scheduling', () => {
     season.assignment = { stride: 4, offset: 0, totalGames: 0 };
     season.assignmentOffset = 0;
 
+    markRegularSeasonComplete(season);
+
     ensurePlayoffsScheduled(season, null);
 
     const semifinalGames = season.schedule.filter((game) => game?.tag === 'playoff-semifinal');
@@ -48,6 +60,8 @@ describe('postseason scheduling', () => {
     season.assignmentStride = 4;
     season.assignment = { stride: 4, offset: 0, totalGames: 0 };
     season.assignmentOffset = 0;
+
+    markRegularSeasonComplete(season);
 
     ensurePlayoffsScheduled(season, null);
 
@@ -81,11 +95,44 @@ describe('postseason scheduling', () => {
     expect(aligned).toEqual(realignedSemis.map((game) => game.index));
   });
 
+  test('semifinals wait until regular season games finish before scheduling', () => {
+    const season = createSeasonState({ seasonConfig: { longSeason: false } });
+    season.assignmentStride = 2;
+    season.assignment = { stride: 2, offset: 0, totalGames: 0 };
+    season.assignmentOffset = 0;
+
+    season.schedule = season.schedule.map((game, idx) => ({
+      ...game,
+      index: idx,
+      played: idx < season.schedule.length - 1,
+    }));
+
+    const firstAttempt = ensurePlayoffsScheduled(season, null);
+
+    expect(firstAttempt).toHaveLength(0);
+    expect(season.playoffBracket).toBeNull();
+    expect(season.phase).toBe('regular');
+
+    const lastIndex = season.schedule.length - 1;
+    season.schedule[lastIndex] = { ...season.schedule[lastIndex], played: true };
+
+    const scheduled = ensurePlayoffsScheduled(season, null);
+
+    expect(scheduled).toHaveLength(2);
+    expect(season.playoffBracket).not.toBeNull();
+    expect(season.playoffBracket.stage).toBe('semifinals');
+
+    const semifinalGames = season.schedule.filter((game) => game?.tag === 'playoff-semifinal');
+    expect(semifinalGames).toHaveLength(2);
+  });
+
   test('championship schedules after both semifinals complete without changing stride', () => {
     let season = createSeasonState({ seasonConfig: { longSeason: false } });
     season.assignmentStride = 2;
     season.assignment = { stride: 2, offset: 0, totalGames: 0 };
     season.assignmentOffset = 0;
+
+    markRegularSeasonComplete(season);
 
     ensurePlayoffsScheduled(season, null);
 
@@ -119,6 +166,8 @@ describe('postseason scheduling', () => {
     season.assignment = { stride: 2, offset: 0, totalGames: 0 };
     season.assignmentOffset = 0;
 
+    markRegularSeasonComplete(season);
+
     ensurePlayoffsScheduled(season, null);
 
     const semifinalGames = season.schedule.slice(-2);
@@ -151,6 +200,8 @@ describe('postseason scheduling', () => {
     season.assignment = { stride: 2, offset: 1, totalGames: 0 };
     season.assignmentOffset = 1;
 
+    markRegularSeasonComplete(season);
+
     ensurePlayoffsScheduled(season, null);
 
     const semifinalGames = season.schedule.slice(-2);
@@ -180,6 +231,8 @@ describe('postseason scheduling', () => {
     season.assignmentStride = 2;
     season.assignment = { stride: 2, offset: 6, totalGames: 0 };
     season.assignmentOffset = 6;
+
+    markRegularSeasonComplete(season);
 
     ensurePlayoffsScheduled(season, null);
 
@@ -211,6 +264,8 @@ describe('postseason scheduling', () => {
     season.assignmentStride = 2;
     season.assignment = { stride: 2, offset: 6, totalGames: 0 };
     season.assignmentOffset = 6;
+
+    markRegularSeasonComplete(season);
 
     ensurePlayoffsScheduled(season, null);
 
