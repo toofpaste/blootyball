@@ -26,6 +26,61 @@ describe('postseason scheduling', () => {
     expect(new Set(lastTwo.map((game) => game.slot))).toEqual(new Set([0, 1]));
   });
 
+  test('semifinals align to assignment stride even when stride exceeds semifinal slots', () => {
+    const season = createSeasonState({ seasonConfig: { longSeason: false } });
+    season.assignmentStride = 4;
+    season.assignment = { stride: 4, offset: 0, totalGames: 0 };
+    season.assignmentOffset = 0;
+
+    ensurePlayoffsScheduled(season, null);
+
+    const semifinalGames = season.schedule.filter((game) => game?.tag === 'playoff-semifinal');
+    expect(semifinalGames).toHaveLength(2);
+    const [firstSemifinal, secondSemifinal] = semifinalGames.sort((a, b) => a.index - b.index);
+
+    expect((firstSemifinal.index - season.assignmentOffset) % season.assignmentStride).toBe(0);
+    expect(secondSemifinal.index).toBe(firstSemifinal.index + 1);
+    expect(firstSemifinal.index).toBeGreaterThanOrEqual(season.regularSeasonLength);
+  });
+
+  test('existing semifinal bracket entries realign to assignment stride slots', () => {
+    const season = createSeasonState({ seasonConfig: { longSeason: false } });
+    season.assignmentStride = 4;
+    season.assignment = { stride: 4, offset: 0, totalGames: 0 };
+    season.assignmentOffset = 0;
+
+    ensurePlayoffsScheduled(season, null);
+
+    const scheduledSemis = season.schedule
+      .filter((game) => game?.tag === 'playoff-semifinal')
+      .sort((a, b) => a.index - b.index);
+
+    const originalFirstIndex = scheduledSemis[0].index;
+    const originalSecondIndex = scheduledSemis[1].index;
+
+    const misalignedFirstIndex = originalFirstIndex - 2;
+    const misalignedSecondIndex = originalSecondIndex - 2;
+
+    season.schedule[misalignedFirstIndex] = { ...scheduledSemis[0], index: misalignedFirstIndex };
+    season.schedule[misalignedSecondIndex] = { ...scheduledSemis[1], index: misalignedSecondIndex };
+    season.schedule[originalFirstIndex] = null;
+    season.schedule[originalSecondIndex] = null;
+    season.playoffBracket.semifinalGames[0].index = misalignedFirstIndex;
+    season.playoffBracket.semifinalGames[1].index = misalignedSecondIndex;
+
+    const aligned = ensurePlayoffsScheduled(season, null);
+
+    const realignedSemis = season.schedule
+      .filter((game) => game?.tag === 'playoff-semifinal')
+      .sort((a, b) => a.index - b.index);
+
+    expect(realignedSemis).toHaveLength(2);
+    expect((realignedSemis[0].index - season.assignmentOffset) % season.assignmentStride).toBe(0);
+    expect(realignedSemis[1].index).toBe(realignedSemis[0].index + 1);
+    expect(realignedSemis[0].index).toBeGreaterThan(misalignedFirstIndex);
+    expect(aligned).toEqual(realignedSemis.map((game) => game.index));
+  });
+
   test('championship schedules after both semifinals complete without changing stride', () => {
     let season = createSeasonState({ seasonConfig: { longSeason: false } });
     season.assignmentStride = 2;
