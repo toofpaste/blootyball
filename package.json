@@ -19,7 +19,8 @@
     "start": "react-scripts start",
     "build": "react-scripts build",
     "test": "react-scripts test",
-    "eject": "react-scripts eject"
+    "eject": "react-scripts eject",
+    "diag:playoffs": "node --experimental-loader ./scripts/js-ext-loader.mjs scripts/playoff_diagnostics.mjs"
   },
   "eslintConfig": {
     "extends": [
