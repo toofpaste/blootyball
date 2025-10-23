@@ -69,6 +69,27 @@ describe('postseason scheduling', () => {
     expect(firstSemifinal.index).toBeGreaterThanOrEqual(season.regularSeasonLength);
   });
 
+  test('semifinals respect assignment offset when scheduling new games', () => {
+    const season = createSeasonState({ seasonConfig: { longSeason: false } });
+    season.assignmentStride = 2;
+    season.assignmentOffset = 1;
+    season.assignment = { stride: 2, offset: 1, totalGames: 0 };
+
+    markRegularSeasonComplete(season);
+
+    const scheduled = ensurePlayoffsScheduled(season, null);
+
+    expect(scheduled).toHaveLength(2);
+    const semifinalGames = season.schedule
+      .filter((game) => game?.tag === 'playoff-semifinal')
+      .sort((a, b) => a.index - b.index);
+
+    expect(semifinalGames).toHaveLength(2);
+    const [first, second] = semifinalGames;
+    expect((first.index - season.assignmentOffset) % season.assignmentStride).toBe(0);
+    expect(second.index).toBe(first.index + 1);
+  });
+
   test('existing semifinal bracket entries realign to assignment stride slots', () => {
     const season = createSeasonState({ seasonConfig: { longSeason: false } });
     season.assignmentStride = 4;

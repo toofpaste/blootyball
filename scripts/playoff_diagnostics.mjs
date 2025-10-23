@@ -1,6 +1,14 @@
 // Usage: node --experimental-loader ./scripts/js-ext-loader.mjs scripts/playoff_diagnostics.mjs [--long] [--favor-seeds]
 
-import { TEAM_RED, TEAM_BLK } from '../src/engine/constants.js';
+const constantsModule = await import('../src/engine/constants.js');
+const { TEAM_RED, TEAM_BLK } =
+  constantsModule?.TEAM_RED && constantsModule?.TEAM_BLK
+    ? constantsModule
+    : constantsModule?.default || {};
+
+if (!TEAM_RED || !TEAM_BLK) {
+  throw new Error('Failed to load team constants for playoff diagnostics');
+}
 import {
   applyGameResultToSeason,
   createSeasonState,
