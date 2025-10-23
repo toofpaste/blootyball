@@ -414,6 +414,38 @@
   gap: 20px;
 }
 
+.game-instance__actions {
+  display: flex;
+  justify-content: center;
+  gap: 12px;
+}
+
+.game-instance__jump-button {
+  padding: 8px 16px;
+  border-radius: 999px;
+  border: 1px solid rgba(72, 180, 72, 0.55);
+  background: rgba(10, 52, 10, 0.85);
+  color: #f0fff0;
+  font-size: 0.95rem;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: transform 0.18s ease, box-shadow 0.18s ease, background 0.18s ease;
+}
+
+.game-instance__jump-button:hover,
+.game-instance__jump-button:focus {
+  transform: translateY(-1px);
+  background: rgba(18, 82, 18, 0.95);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.35);
+  outline: none;
+}
+
+.game-instance__jump-button:active {
+  transform: translateY(0);
+  background: rgba(8, 48, 8, 0.92);
+}
+
 .field-shell {
   width: 100%;
   display: flex;
