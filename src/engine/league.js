@@ -1164,6 +1164,19 @@ function inferRegularSeasonLength(season) {
   return schedule.filter((game) => game && !String(game.tag || '').startsWith('playoff')).length;
 }
 
+function alignIndexToAssignmentStride(season, desiredIndex = 0) {
+  if (!season) return Math.max(0, desiredIndex || 0);
+  const stride = Math.max(1, season.assignmentStride || season.assignment?.stride || 1);
+  const rawOffset = season.assignmentOffset ?? season.assignment?.offset ?? 0;
+  const offset = Number.isFinite(rawOffset) ? rawOffset : 0;
+  let target = Number.isFinite(desiredIndex) ? Math.max(desiredIndex, 0) : 0;
+  target = Math.max(target, offset);
+  if (stride <= 1) return target;
+  const remainder = ((target - offset) % stride + stride) % stride;
+  if (remainder === 0) return target;
+  return target + (stride - remainder);
+}
+
 function alignSemifinalScheduleWithBracket(season) {
   const bracket = season?.playoffBracket;
   if (!season || !bracket || bracket.stage !== 'semifinals') return [];
@@ -1173,12 +1186,27 @@ function alignSemifinalScheduleWithBracket(season) {
   const added = [];
   season.schedule ||= [];
   const regularLength = inferRegularSeasonLength(season);
-  const baseWeek = Math.max(1, regularLength || season.schedule.length || 0) + 1;
+  const existingIndices = games
+    .map((entry) => (Number.isFinite(entry?.index) ? entry.index : null))
+    .filter((index) => index != null);
+  const desiredStart = existingIndices.length ? Math.min(...existingIndices) : season.schedule.length;
+  const alignedStart = alignIndexToAssignmentStride(season, Math.max(desiredStart, regularLength));
+  const baseWeek = Math.max(1, regularLength || alignedStart || 0) + 1;
+
+  while (season.schedule.length < alignedStart) {
+    season.schedule.push(null);
+  }
 
   games.forEach((entry, idx) => {
     if (!entry) return;
-    let targetIndex = Number.isFinite(entry.index) ? entry.index : season.schedule.length;
-    if (targetIndex < 0) targetIndex = season.schedule.length;
+    const targetIndex = alignedStart + idx;
+    if (Number.isFinite(entry.index) && entry.index !== targetIndex) {
+      const previous = season.schedule[entry.index];
+      if (previous?.tag === 'playoff-semifinal' && !previous?.played) {
+        season.schedule[entry.index] = null;
+      }
+    }
+
     while (season.schedule.length <= targetIndex) {
       season.schedule.push(null);
     }
@@ -1216,7 +1244,7 @@ function alignSemifinalScheduleWithBracket(season) {
       label: scheduled.round,
     };
 
-    if (needsCreate) {
+    if (needsCreate || targetIndex !== entry.index) {
       added.push(targetIndex);
     }
   });
@@ -1238,21 +1266,27 @@ export function ensurePlayoffsScheduled(season, league) {
   const seeds = buildStandings(season).slice(0, 4).map((entry) => entry.id).filter(Boolean);
   if (seeds.length < 4) return [];
   season.regularSeasonStandings = buildStandings(season);
-  const startIndex = season.schedule.length;
+  season.schedule ||= [];
+  const startIndex = alignIndexToAssignmentStride(season, season.schedule.length);
+  while (season.schedule.length < startIndex) {
+    season.schedule.push(null);
+  }
   const baseWeek = Math.max(1, inferRegularSeasonLength(season) || startIndex) + 1;
   const games = [
     buildSemifinalGame({ seasonNumber: season.seasonNumber, homeTeam: seeds[0], awayTeam: seeds[3], index: startIndex, order: 1 }),
     buildSemifinalGame({ seasonNumber: season.seasonNumber, homeTeam: seeds[1], awayTeam: seeds[2], index: startIndex + 1, order: 2 }),
   ];
-  games.forEach((game, idx) => {
-    const entry = { ...game, index: startIndex + idx, week: baseWeek, slot: idx };
-    season.schedule.push(entry);
+  const scheduledGames = games.map((game, idx) => {
+    const targetIndex = startIndex + idx;
+    const entry = { ...game, index: targetIndex, week: baseWeek, slot: idx };
+    season.schedule[targetIndex] = entry;
+    return entry;
   });
   season.playoffBracket = {
     stage: 'semifinals',
     seeds: [...seeds],
-    semifinalGames: games.map((game, idx) => ({
-      index: startIndex + idx,
+    semifinalGames: scheduledGames.map((game) => ({
+      index: game.index,
       winner: null,
       homeTeam: game.homeTeam,
       awayTeam: game.awayTeam,
@@ -1264,7 +1298,7 @@ export function ensurePlayoffsScheduled(season, league) {
   season.phase = 'playoffs';
   recomputeAssignmentTotals(season);
   computeSeasonAwards(season, league);
-  return games.map((_, idx) => startIndex + idx);
+  return scheduledGames.map((game) => game.index);
 }
 
 export function ensureChampionshipScheduled(season) {
