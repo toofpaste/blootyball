@@ -1257,8 +1257,23 @@ function alignSemifinalScheduleWithBracket(season) {
   return added;
 }
 
+function hasOutstandingRegularSeasonGames(season) {
+  if (!season) return false;
+  const schedule = Array.isArray(season.schedule) ? season.schedule : [];
+  return schedule.some((game) => {
+    if (!game) return false;
+    if (game.played) return false;
+    const tag = String(game.tag || '');
+    return !tag.startsWith('playoff');
+  });
+}
+
 export function ensurePlayoffsScheduled(season, league) {
   if (!season) return [];
+  const bracketStage = season.playoffBracket?.stage || 'regular';
+  if ((bracketStage === 'regular' || !season.playoffBracket) && hasOutstandingRegularSeasonGames(season)) {
+    return [];
+  }
   if (season.playoffBracket && season.playoffBracket.stage !== 'regular') {
     const aligned = alignSemifinalScheduleWithBracket(season);
     if (aligned.length) {
