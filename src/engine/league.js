@@ -1813,16 +1813,22 @@ export function advanceSeasonPointer(season) {
   const currentIndex = Number.isFinite(season.currentGameIndex) ? season.currentGameIndex : 0;
 
   let nextIndex = currentIndex + stride;
+  const indicesToCheck = [];
   if (nextIndex < scheduleLength) {
-    season.currentGameIndex = nextIndex;
-    return prepareSeasonMatchup(season);
+    indicesToCheck.push(nextIndex);
   }
 
   for (let idx = currentIndex + 1; idx < scheduleLength; idx += 1) {
-    const entry = season.schedule[idx];
+    if (idx === nextIndex) continue;
+    indicesToCheck.push(idx);
+  }
+
+  for (let idx = 0; idx < indicesToCheck.length; idx += 1) {
+    const targetIndex = indicesToCheck[idx];
+    const entry = season.schedule[targetIndex];
     if (!entry) continue;
     if (entry.played) continue;
-    season.currentGameIndex = idx;
+    season.currentGameIndex = targetIndex;
     return prepareSeasonMatchup(season);
   }
 

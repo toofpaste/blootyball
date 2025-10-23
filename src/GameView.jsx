@@ -323,6 +323,22 @@ const GameView = React.forwardRef(function GameView({
   const statsTeams = [awayStatsTeam, homeStatsTeam].filter(Boolean);
   const hasStatsTeams = statsTeams.length > 0;
 
+  const handleJumpToFinalSeconds = () => {
+    setState((prev) => {
+      if (!prev) return prev;
+      const currentClock = prev.clock || {};
+      const nextClock = {
+        ...currentClock,
+        quarter: 4,
+        time: 5,
+        running: false,
+        awaitSnap: true,
+        stopReason: 'Manual jump to final seconds',
+      };
+      return { ...prev, clock: nextClock };
+    });
+  };
+
   return (
     <section className="game-instance">
       <h2 className="game-instance__title">{label}</h2>
@@ -336,6 +352,15 @@ const GameView = React.forwardRef(function GameView({
         gameLabel={gameLabel}
         onShowStats={hasStatsTeams ? () => setStatsModalOpen(true) : undefined}
       />
+      <div className="game-instance__actions">
+        <button
+          type="button"
+          className="game-instance__jump-button"
+          onClick={handleJumpToFinalSeconds}
+        >
+          Jump to Final 5 Seconds
+        </button>
+      </div>
       <div className="game-instance__body">
         <div className="field-shell">
           <canvas ref={canvasRef} className="field-canvas" />

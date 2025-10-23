@@ -150,6 +150,48 @@ describe('postseason scheduling', () => {
 
     expect(ensureChampionshipScheduled(season)).toHaveLength(0);
   });
+
+  test('advanceSeasonPointer skips placeholder slots to reach championship', () => {
+    let season = createSeasonState({ seasonConfig: { longSeason: false } });
+    season.assignmentStride = 2;
+    season.assignment = { stride: 2, offset: 6, totalGames: 0 };
+    season.assignmentOffset = 6;
+
+    ensurePlayoffsScheduled(season, null);
+
+    const semifinalGames = season.schedule.slice(-2);
+    const [firstSemifinal, secondSemifinal] = semifinalGames;
+
+    season.currentGameIndex = firstSemifinal.index;
+    season = applyGameResultToSeason(
+      season,
+      firstSemifinal,
+      { [TEAM_RED]: 31, [TEAM_BLK]: 17 },
+      {},
+      {},
+      [],
+    );
+
+    season.currentGameIndex = secondSemifinal.index;
+    season = applyGameResultToSeason(
+      season,
+      secondSemifinal,
+      { [TEAM_RED]: 24, [TEAM_BLK]: 21 },
+      {},
+      {},
+      [],
+    );
+
+    const championshipIndex = season.playoffBracket.championshipGame?.index;
+    expect(championshipIndex).toBeGreaterThanOrEqual(season.assignmentOffset);
+
+    season.currentGameIndex = secondSemifinal.index;
+    const nextMatchup = advanceSeasonPointer(season);
+
+    expect(nextMatchup).not.toBeNull();
+    expect(nextMatchup.tag).toBe('playoff-championship');
+    expect(season.currentGameIndex).toBe(championshipIndex);
+  });
 });
 
 describe('season records', () => {
