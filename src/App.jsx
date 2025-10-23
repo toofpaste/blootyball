@@ -107,6 +107,18 @@ function cloneScheduleGame(game) {
   };
 }
 
+function scheduleEntryPriority(entry) {
+  if (!entry) return -Infinity;
+  const tag = String(entry.tag || '');
+  let stage = 0;
+  if (tag === 'playoff-championship') stage = 3;
+  else if (tag === 'playoff-semifinal') stage = 2;
+  else if (tag.startsWith('playoff')) stage = 1;
+  const playedScore = entry.played ? 2 : 0;
+  const resultScore = entry.result ? 1 : 0;
+  return stage * 10 + playedScore * 2 + resultScore;
+}
+
 function clonePlayerStatEntry(entry = {}) {
   const passing = entry.passing || {};
   const rushing = entry.rushing || {};
@@ -1047,6 +1059,77 @@ export function combineSeasonSnapshots(rawSnapshots) {
     mergeSeasonData(combinedSeason, season);
   });
 
+  const baseSchedule = Array.isArray(combinedSeason.schedule)
+    ? combinedSeason.schedule.map((game) => cloneScheduleGame(game))
+    : [];
+
+  const scheduleMap = new Map();
+  baseSchedule.forEach((game, idx) => {
+    if (!game) return;
+    scheduleMap.set(idx, game);
+  });
+
+  snapshots.forEach(({ season }) => {
+    const schedule = Array.isArray(season.schedule) ? season.schedule : [];
+    schedule.forEach((game, idx) => {
+      if (!game) return;
+      const candidate = cloneScheduleGame(game);
+      const existing = scheduleMap.get(idx);
+      if (!existing) {
+        scheduleMap.set(idx, candidate);
+        return;
+      }
+
+      const existingScore = scheduleEntryPriority(existing);
+      const candidateScore = scheduleEntryPriority(candidate);
+      if (candidateScore > existingScore) {
+        scheduleMap.set(idx, candidate);
+        return;
+      }
+
+      if (candidateScore === existingScore) {
+        const merged = { ...existing };
+        if (existing.meta) merged.meta = { ...existing.meta };
+        if (existing.result) merged.result = cloneResult(existing.result);
+        if (!merged.round && candidate.round) merged.round = candidate.round;
+        if (candidate.week != null && (merged.week == null || !Number.isFinite(merged.week))) {
+          merged.week = candidate.week;
+        }
+        if (!merged.tag && candidate.tag) merged.tag = candidate.tag;
+        if (!merged.label && candidate.label) merged.label = candidate.label;
+        if (candidate.meta) {
+          merged.meta = { ...(merged.meta || {}), ...candidate.meta };
+        }
+        if (candidate.played) {
+          merged.played = merged.played || candidate.played;
+        }
+        if (candidate.result) {
+          merged.result = cloneResult(candidate.result);
+        }
+        scheduleMap.set(idx, merged);
+      }
+    });
+  });
+
+  const scheduleLengths = snapshots
+    .map(({ season }) => season?.schedule?.length)
+    .filter((value) => Number.isFinite(value) && value >= 0);
+  const highestIndex = scheduleMap.size ? Math.max(...scheduleMap.keys()) : -1;
+  const targetLengthCandidates = [
+    baseSchedule.length,
+    highestIndex + 1,
+    ...(scheduleLengths.length ? [Math.max(...scheduleLengths)] : []),
+  ].filter((value) => Number.isFinite(value) && value >= 0);
+  const targetLength = targetLengthCandidates.length
+    ? Math.max(...targetLengthCandidates)
+    : baseSchedule.length;
+
+  const mergedSchedule = Array.from({ length: targetLength }).map((_, idx) => {
+    const entry = scheduleMap.get(idx);
+    return entry ? cloneScheduleGame(entry) : null;
+  });
+  combinedSeason.schedule = mergedSchedule;
+
   combinedSeason.results = (combinedSeason.results || []).slice().sort((a, b) => {
     const aIdx = a?.index ?? 0;
     const bIdx = b?.index ?? 0;
@@ -1054,18 +1137,21 @@ export function combineSeasonSnapshots(rawSnapshots) {
   });
   combinedSeason.completedGames = combinedSeason.results.length;
 
-  const seasonLengths = snapshots
-    .map(({ season }) => season?.schedule?.length)
-    .filter((value) => Number.isFinite(value));
-  if (seasonLengths.length) {
-    const maxLength = Math.max(...seasonLengths);
-    combinedSeason.schedule = Array.from({ length: maxLength }).map((_, idx) => {
-      return cloneScheduleGame(combinedSeason.schedule[idx]) || null;
-    });
-    combinedSeason.regularSeasonLength = Math.max(
-      combinedSeason.regularSeasonLength || 0,
-      maxLength,
-    );
+  const regularLengthCandidates = snapshots
+    .map(({ season }) => (Number.isFinite(season?.regularSeasonLength) ? season.regularSeasonLength : null))
+    .filter((value) => Number.isFinite(value) && value > 0);
+  const observedRegularGames = mergedSchedule.filter((game) => game && !String(game.tag || '').startsWith('playoff')).length;
+  let regularLength = Number.isFinite(combinedSeason.regularSeasonLength)
+    ? combinedSeason.regularSeasonLength
+    : 0;
+  regularLengthCandidates.forEach((value) => {
+    if (value > regularLength) regularLength = value;
+  });
+  if (observedRegularGames > regularLength) {
+    regularLength = observedRegularGames;
+  }
+  if (regularLength > 0) {
+    combinedSeason.regularSeasonLength = regularLength;
   }
 
   const regularWeekCandidates = snapshots
