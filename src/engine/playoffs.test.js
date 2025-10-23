@@ -6,6 +6,7 @@ import {
   createSeasonState,
   ensureChampionshipScheduled,
   ensurePlayoffsScheduled,
+  seasonCompleted,
 } from './league';
 
 const markRegularSeasonComplete = (season) => {
@@ -385,6 +386,51 @@ describe('postseason scheduling', () => {
     expect(nextMatchup).not.toBeNull();
     expect(nextMatchup.tag).toBe('playoff-championship');
     expect(season.currentGameIndex).toBe(championshipIndex);
+  });
+
+  test('season does not complete until playoffs finish', () => {
+    let season = createSeasonState({ seasonConfig: { longSeason: false } });
+
+    markRegularSeasonComplete(season);
+    season.completedGames = season.schedule.length;
+    season.currentGameIndex = season.schedule.length;
+
+    expect(seasonCompleted(season)).toBe(false);
+
+    ensurePlayoffsScheduled(season, null);
+    season.currentGameIndex = season.schedule.length;
+
+    expect(seasonCompleted(season)).toBe(false);
+
+    const semifinalGames = season.schedule.filter((game) => game?.tag === 'playoff-semifinal');
+    semifinalGames.forEach((game) => {
+      season = applyGameResultToSeason(
+        season,
+        game,
+        { [TEAM_RED]: 30, [TEAM_BLK]: 20 },
+        {},
+        {},
+        [],
+      );
+    });
+
+    season.currentGameIndex = season.schedule.length;
+    expect(season.playoffBracket?.stage).toBe('championship');
+    expect(seasonCompleted(season)).toBe(false);
+
+    const championshipGame = season.schedule.find((game) => game?.tag === 'playoff-championship');
+    season = applyGameResultToSeason(
+      season,
+      championshipGame,
+      { [TEAM_RED]: 27, [TEAM_BLK]: 21 },
+      {},
+      {},
+      [],
+    );
+
+    season.currentGameIndex = season.schedule.length;
+    expect(season.playoffBracket?.stage).toBe('championship');
+    expect(seasonCompleted(season)).toBe(true);
   });
 });
 

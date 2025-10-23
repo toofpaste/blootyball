@@ -2025,7 +2025,51 @@ export function advanceSeasonPointer(season) {
 
 export function seasonCompleted(season) {
   if (!season) return true;
-  return season.currentGameIndex >= season.schedule.length;
+
+  const schedule = Array.isArray(season.schedule) ? season.schedule : [];
+  const pointerBeyondSchedule = season.currentGameIndex >= schedule.length;
+  if (!pointerBeyondSchedule) {
+    return false;
+  }
+
+  if (!regularSeasonComplete(season)) {
+    return false;
+  }
+
+  const playoffGames = schedule.filter((game) => {
+    if (!game) return false;
+    const tag = String(game.tag || '');
+    return tag.startsWith('playoff');
+  });
+
+  if (!playoffGames.length) {
+    return false;
+  }
+
+  const pendingPlayoffGames = playoffGames.some((game) => !game.played);
+  if (pendingPlayoffGames) {
+    return false;
+  }
+
+  const bracketStage = season.playoffBracket?.stage || season.phase || 'regular';
+  const bracketRank = stageRank(bracketStage);
+
+  if (bracketRank < stageRank('complete')) {
+    if (bracketRank <= stageRank('regular')) {
+      return false;
+    }
+    if (bracketRank === stageRank('semifinals')) {
+      return false;
+    }
+    if (bracketRank === stageRank('championship')) {
+      const championship = season.playoffBracket?.championshipGame || null;
+      if (championship && !championship.winner) {
+        return false;
+      }
+    }
+  }
+
+  return true;
 }
 
 export function getTeamRecord(season, teamId) {
