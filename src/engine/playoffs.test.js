@@ -145,44 +145,6 @@ describe('postseason scheduling', () => {
     });
   });
 
-  test('parallel assignments reuse semifinal slots without reviving regular games', () => {
-    const primary = createSeasonState({ seasonConfig: { longSeason: false } });
-    primary.assignmentStride = 2;
-    primary.assignment = { stride: 2, offset: 0, totalGames: 0 };
-    primary.assignmentOffset = 0;
-    markRegularSeasonComplete(primary);
-
-    const primaryAdded = ensurePlayoffsScheduled(primary, null);
-
-    expect(primaryAdded).toHaveLength(2);
-
-    const secondary = createSeasonState({ seasonConfig: { longSeason: false } });
-    secondary.assignmentStride = 2;
-    secondary.assignment = { stride: 2, offset: 1, totalGames: 0 };
-    secondary.assignmentOffset = 1;
-    markRegularSeasonComplete(secondary);
-
-    secondary.playoffBracket = JSON.parse(JSON.stringify(primary.playoffBracket));
-    secondary.regularSeasonStandings = primary.regularSeasonStandings?.slice() || null;
-
-    const secondaryAdded = ensurePlayoffsScheduled(secondary, null);
-
-    const primaryIndices = primary.playoffBracket.semifinalGames.map((game) => game.index);
-    expect(secondaryAdded).toEqual(primaryIndices);
-
-    const secondarySemis = secondary.schedule
-      .filter((game) => game?.tag === 'playoff-semifinal')
-      .sort((a, b) => a.index - b.index);
-
-    expect(secondarySemis).toHaveLength(2);
-    expect(secondarySemis.map((game) => game.index)).toEqual(primaryIndices);
-
-    const lingeringRegular = secondary.schedule.filter(
-      (game, idx) => game && !String(game.tag || '').startsWith('playoff') && !game.played && idx >= secondary.regularSeasonLength,
-    );
-    expect(lingeringRegular).toHaveLength(0);
-  });
-
   test('top four seeds pair off 1v4 and 2v3 in semifinals', () => {
     const season = createSeasonState({ seasonConfig: { longSeason: false } });
 

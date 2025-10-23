@@ -1384,6 +1384,10 @@ function alignSemifinalScheduleWithBracket(season) {
     const existing = season.schedule[targetIndex];
     const needsCreate = !existing || existing.tag !== 'playoff-semifinal';
 
+    const order = idx + 1;
+    const seedsPair = Array.isArray(entry?.meta?.seeds)
+      ? entry.meta.seeds.slice(0, 2)
+      : [];
     const game = buildSemifinalGame({
       seasonNumber: season.seasonNumber,
       homeTeam: entry.homeTeam,
