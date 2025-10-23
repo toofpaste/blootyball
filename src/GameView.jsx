@@ -21,6 +21,24 @@ function fmtClock(seconds) {
 const LOGICAL_W = FIELD_PIX_H;
 const LOGICAL_H = FIELD_PIX_W;
 
+function enforceFinalSeconds(state, reason = 'Final seconds mode enabled') {
+  if (!state) return state;
+  const currentQuarter = state.clock?.quarter ?? 1;
+  const currentTime = state.clock?.time ?? 900;
+  if (currentQuarter === 4 && currentTime <= 5) {
+    return state;
+  }
+  const nextClock = {
+    ...(state.clock || {}),
+    quarter: 4,
+    time: 5,
+    running: false,
+    awaitSnap: true,
+    stopReason: reason,
+  };
+  return { ...state, clock: nextClock };
+}
+
 const GameView = React.forwardRef(function GameView({
   gameIndex,
   label,
@@ -31,16 +49,22 @@ const GameView = React.forwardRef(function GameView({
   simSpeed = 1,
   parallelSlotCount = 1,
   seasonConfig = null,
+  startAtFinalSeconds = false,
 }, ref) {
   const canvasRef = useRef(null);
   const [localRunning, setLocalRunning] = useState(false);
   const [statsModalOpen, setStatsModalOpen] = useState(false);
-  const [state, setState] = useState(() => createInitialGameState({
-    assignmentOffset: gameIndex,
-    assignmentStride: parallelSlotCount,
-    lockstepAssignments: true,
-    seasonConfig,
-  }));
+  const [state, setState] = useState(() => {
+    const baseState = createInitialGameState({
+      assignmentOffset: gameIndex,
+      assignmentStride: parallelSlotCount,
+      lockstepAssignments: true,
+      seasonConfig,
+    });
+    return startAtFinalSeconds
+      ? enforceFinalSeconds(baseState, 'Final seconds mode enabled')
+      : baseState;
+  });
   const stateRef = useRef(state);
   stateRef.current = state;
   const lastResetTokenRef = useRef(resetSignal?.token ?? 0);
@@ -213,21 +237,40 @@ const GameView = React.forwardRef(function GameView({
     setState((prev) => {
       if (prev && !configChanged) {
         const resumed = resumeAssignedMatchup(prev);
-        if (resumed !== prev) {
-          return resumed;
+        const adjusted = startAtFinalSeconds
+          ? enforceFinalSeconds(resumed, 'Final seconds mode enabled')
+          : resumed;
+        if (adjusted !== prev) {
+          stateRef.current = adjusted;
+          return adjusted;
         }
       }
-      return createInitialGameState({
+      const nextState = createInitialGameState({
         assignmentOffset: gameIndex,
         assignmentStride: parallelSlotCount,
         league: configChanged ? null : (prev?.league || null),
         lockstepAssignments: true,
         seasonConfig,
       });
+      const adjusted = startAtFinalSeconds
+        ? enforceFinalSeconds(nextState, 'Final seconds mode enabled')
+        : nextState;
+      stateRef.current = adjusted;
+      return adjusted;
     });
     setLocalRunning(shouldResume);
     onManualReset?.(gameIndex);
-  }, [resetSignal, gameIndex, onManualReset, parallelSlotCount, seasonConfig]);
+  }, [resetSignal, gameIndex, onManualReset, parallelSlotCount, seasonConfig, startAtFinalSeconds]);
+
+  useEffect(() => {
+    if (!startAtFinalSeconds) return;
+    setState((prev) => {
+      const adjusted = enforceFinalSeconds(prev, 'Final seconds mode enabled');
+      if (adjusted === prev) return prev;
+      stateRef.current = adjusted;
+      return adjusted;
+    });
+  }, [startAtFinalSeconds]);
 
   const offseasonBlockingGames = Boolean(
     state?.league?.offseason?.active && !state?.league?.offseason?.nextSeasonStarted,
@@ -323,22 +366,6 @@ const GameView = React.forwardRef(function GameView({
   const statsTeams = [awayStatsTeam, homeStatsTeam].filter(Boolean);
   const hasStatsTeams = statsTeams.length > 0;
 
-  const handleJumpToFinalSeconds = () => {
-    setState((prev) => {
-      if (!prev) return prev;
-      const currentClock = prev.clock || {};
-      const nextClock = {
-        ...currentClock,
-        quarter: 4,
-        time: 5,
-        running: false,
-        awaitSnap: true,
-        stopReason: 'Manual jump to final seconds',
-      };
-      return { ...prev, clock: nextClock };
-    });
-  };
-
   return (
     <section className="game-instance">
       <h2 className="game-instance__title">{label}</h2>
@@ -352,15 +379,6 @@ const GameView = React.forwardRef(function GameView({
         gameLabel={gameLabel}
         onShowStats={hasStatsTeams ? () => setStatsModalOpen(true) : undefined}
       />
-      <div className="game-instance__actions">
-        <button
-          type="button"
-          className="game-instance__jump-button"
-          onClick={handleJumpToFinalSeconds}
-        >
-          Jump to Final 5 Seconds
-        </button>
-      </div>
       <div className="game-instance__body">
         <div className="field-shell">
           <canvas ref={canvasRef} className="field-canvas" />

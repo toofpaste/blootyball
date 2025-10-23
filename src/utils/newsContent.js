@@ -176,7 +176,11 @@ async function generatePlayerNewsContent({ league, season, entry, allowAi = true
 }
 
 function computeGamesPerWeek(season, seasonProgress) {
-  const totalWeeks = seasonProgress?.totalWeeks || season?.regularSeasonLength || 16;
+  const totalWeeks = seasonProgress?.totalWeeks
+    || season?.regularSeasonWeeks
+    || (season?.regularSeasonLength
+      ? Math.max(1, Math.round((season.regularSeasonLength || 0) / 4))
+      : 16);
   const scheduleLength = Array.isArray(season?.schedule) ? season.schedule.length : (season?.results?.length || totalWeeks);
   if (!totalWeeks) return 1;
   return Math.max(1, Math.round(scheduleLength / totalWeeks));

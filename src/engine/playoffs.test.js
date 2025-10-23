@@ -16,6 +16,19 @@ const markRegularSeasonComplete = (season) => {
   }));
 };
 
+const regularSeasonWeekCount = (season) => {
+  if (!season) return 0;
+  if (Number.isFinite(season.regularSeasonWeeks) && season.regularSeasonWeeks > 0) {
+    return season.regularSeasonWeeks;
+  }
+  const schedule = Array.isArray(season.schedule) ? season.schedule : [];
+  const weeks = schedule
+    .filter((game) => game && !String(game.tag || '').startsWith('playoff'))
+    .map((game) => (Number.isFinite(game.week) ? game.week : null))
+    .filter((week) => week != null);
+  return weeks.length ? Math.max(...weeks) : 0;
+};
+
 describe('postseason scheduling', () => {
   test('semifinal games keep assignment stride and occupy separate slots', () => {
     const season = createSeasonState({ seasonConfig: { longSeason: false } });
@@ -29,6 +42,7 @@ describe('postseason scheduling', () => {
 
     expect(season.assignmentStride).toBe(2);
     expect(season.assignment.stride).toBe(2);
+    expect(season.phase).toBe('semifinals');
 
     const lastTwo = season.schedule.slice(-2);
     expect(lastTwo).toHaveLength(2);
@@ -121,9 +135,14 @@ describe('postseason scheduling', () => {
     expect(scheduled).toHaveLength(2);
     expect(season.playoffBracket).not.toBeNull();
     expect(season.playoffBracket.stage).toBe('semifinals');
+    expect(season.phase).toBe('semifinals');
 
     const semifinalGames = season.schedule.filter((game) => game?.tag === 'playoff-semifinal');
     expect(semifinalGames).toHaveLength(2);
+    const expectedWeek = regularSeasonWeekCount(season);
+    semifinalGames.forEach((game) => {
+      expect(game.week).toBe(expectedWeek + 1);
+    });
   });
 
   test('championship schedules after both semifinals complete without changing stride', () => {
@@ -156,6 +175,7 @@ describe('postseason scheduling', () => {
     expect(season.assignment.stride).toBe(2);
     expect(season.playoffBracket.stage).toBe('championship');
     expect(season.phase).toBe('championship');
+    expect(championship.week).toBe(regularSeasonWeekCount(season) + 2);
 
     expect(ensureChampionshipScheduled(season)).toHaveLength(0);
   });

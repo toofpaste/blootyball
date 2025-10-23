@@ -22,6 +22,8 @@ export default function GlobalControls({
   hasUnseenNews,
   hasUnseenPressArticles,
   offseasonInfo,
+  startAtFinalSeconds,
+  onToggleFinalSecondsMode,
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [hoverMenu, setHoverMenu] = useState(false);
@@ -254,6 +256,18 @@ export default function GlobalControls({
             />
             <span className="global-header__speed-value">{(simSpeed ?? 1).toFixed(1)}x</span>
           </label>
+          <button
+            type="button"
+            className={`global-header__toggle${startAtFinalSeconds ? ' is-on' : ''}`}
+            onClick={onToggleFinalSecondsMode ? () => onToggleFinalSecondsMode() : undefined}
+            role="switch"
+            aria-checked={!!startAtFinalSeconds}
+          >
+            <span className="global-header__toggle-track" aria-hidden="true">
+              <span className="global-header__toggle-thumb" />
+            </span>
+            <span className="global-header__toggle-text">Start in Final 5s</span>
+          </button>
           <div
             className={`global-header__menu${menuOpen ? ' is-open' : ''}`}
             ref={menuRef}
