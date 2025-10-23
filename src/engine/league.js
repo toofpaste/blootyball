@@ -1315,11 +1315,26 @@ function alignSemifinalScheduleWithBracket(season) {
   const existingIndices = games
     .map((entry) => (Number.isFinite(entry?.index) ? entry.index : null))
     .filter((index) => index != null);
+
+  const canonicalSeason =
+    season.assignmentOffset || season.assignment?.offset
+      ? {
+          ...season,
+          assignmentOffset: 0,
+          assignment: season.assignment ? { ...season.assignment, offset: 0 } : season.assignment,
+        }
+      : season;
+
   const desiredStart = existingIndices.length ? Math.min(...existingIndices) : season.schedule.length;
   const alignedStart = alignIndexToAssignmentStride(
-    season,
+    canonicalSeason,
     Math.max(desiredStart, regularGames, season.schedule.length),
   );
+  const validExisting = existingIndices.filter((index) => Number.isFinite(index) && index >= regularGames);
+  let allocationCursor = validExisting.length
+    ? Math.max(alignedStart, Math.max(...validExisting) + 1)
+    : alignedStart;
+  const usedIndices = new Set();
   const baseWeek = Math.max(1, regularWeeks || 0) + 1;
 
   while (season.schedule.length < alignedStart) {
@@ -1328,7 +1343,33 @@ function alignSemifinalScheduleWithBracket(season) {
 
   games.forEach((entry, idx) => {
     if (!entry) return;
-    const targetIndex = alignedStart + idx;
+    const order = Number.isFinite(entry.order) ? entry.order : idx + 1;
+    const seedsPair = Array.isArray(entry?.meta?.seeds)
+      ? entry.meta.seeds.slice(0, 2)
+      : [];
+
+    let targetIndex = Number.isFinite(entry.index) ? entry.index : null;
+    const hasValidExistingIndex =
+      targetIndex != null && targetIndex >= regularGames && !usedIndices.has(targetIndex);
+
+    if (!hasValidExistingIndex) {
+      if (Number.isFinite(targetIndex) && targetIndex < regularGames) {
+        const previous = season.schedule[targetIndex];
+        if (previous?.tag === 'playoff-semifinal' && !previous?.played) {
+          season.schedule[targetIndex] = null;
+        }
+      }
+
+      let candidate = Math.max(allocationCursor, regularGames);
+      while (usedIndices.has(candidate)) {
+        candidate += 1;
+      }
+      targetIndex = candidate;
+      allocationCursor = candidate + 1;
+    } else {
+      allocationCursor = Math.max(allocationCursor, targetIndex + 1);
+    }
+
     if (Number.isFinite(entry.index) && entry.index !== targetIndex) {
       const previous = season.schedule[entry.index];
       if (previous?.tag === 'playoff-semifinal' && !previous?.played) {
@@ -1382,8 +1423,12 @@ function alignSemifinalScheduleWithBracket(season) {
     };
 
     if (needsCreate || targetIndex !== entry.index) {
-      added.push(targetIndex);
+      if (!added.includes(targetIndex)) {
+        added.push(targetIndex);
+      }
     }
+
+    usedIndices.add(targetIndex);
   });
 
   season.phase = 'semifinals';
