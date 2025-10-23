@@ -27,6 +27,14 @@ export async function resolve(specifier, context, defaultResolve) {
   }
 }
 
+const shouldTreatAsModule = (url) => {
+  if (!url.startsWith('file://')) return false;
+  if (!url.endsWith('.js')) return false;
+
+  const filename = fileURLToPath(url);
+  return !filename.includes(`${resolvePath('node_modules')}`);
+};
+
 export async function load(url, context, defaultLoad) {
   if (url.endsWith('.json')) {
     const source = await readFile(fileURLToPath(url), 'utf8');
@@ -34,6 +42,15 @@ export async function load(url, context, defaultLoad) {
       format: 'module',
       shortCircuit: true,
       source: `export default ${source};`,
+    };
+  }
+
+  if (shouldTreatAsModule(url)) {
+    const source = await readFile(fileURLToPath(url), 'utf8');
+    return {
+      format: 'module',
+      shortCircuit: true,
+      source,
     };
   }
 
