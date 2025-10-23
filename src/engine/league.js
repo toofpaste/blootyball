@@ -991,6 +991,8 @@ function compareStandings(a, b) {
   if (b.record.ties !== a.record.ties) return b.record.ties - a.record.ties;
   if (b.diff !== a.diff) return b.diff - a.diff;
   if (b.pointsFor !== a.pointsFor) return b.pointsFor - a.pointsFor;
+  if (a.pointsAgainst !== b.pointsAgainst) return a.pointsAgainst - b.pointsAgainst;
+  if ((b.passingYards ?? 0) !== (a.passingYards ?? 0)) return (b.passingYards ?? 0) - (a.passingYards ?? 0);
   return (a.name || '').localeCompare(b.name || '');
 }
 
@@ -999,6 +1001,7 @@ function buildStandings(season) {
     const record = normalizeRecord(team.record);
     const pointsFor = team.pointsFor || 0;
     const pointsAgainst = team.pointsAgainst || 0;
+    const passingYards = team.stats?.passingYards ?? 0;
     return {
       id: team.id,
       name: team.info?.displayName || team.id,
@@ -1006,6 +1009,7 @@ function buildStandings(season) {
       diff: pointsFor - pointsAgainst,
       pointsFor,
       pointsAgainst,
+      passingYards,
     };
   });
   return entries.sort(compareStandings);
