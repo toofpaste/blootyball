@@ -9,13 +9,21 @@ const { TEAM_RED, TEAM_BLK } =
 if (!TEAM_RED || !TEAM_BLK) {
   throw new Error('Failed to load team constants for playoff diagnostics');
 }
-import {
+const leagueModule = await import('../src/engine/league.js');
+const {
   applyGameResultToSeason,
   createSeasonState,
   ensureChampionshipScheduled,
   ensurePlayoffsScheduled,
   registerChampion,
-} from '../src/engine/league.js';
+} =
+  leagueModule?.applyGameResultToSeason && leagueModule?.createSeasonState
+    ? leagueModule
+    : leagueModule?.default || {};
+
+if (!applyGameResultToSeason || !createSeasonState) {
+  throw new Error('Failed to load league engine helpers for playoff diagnostics');
+}
 
 const argv = process.argv.slice(2);
 const longSeason = argv.includes('--long') || argv.includes('--long-season');

@@ -973,16 +973,33 @@ function finalizeCurrentGame(state) {
     if (!nextMatchup) {
         synchronizeSeasonTotals(state);
 
-        if (state.season.phase === 'regular') {
+        const bracketStage = state.season.playoffBracket?.stage || state.season.phase || 'regular';
+        if (stageRank(bracketStage) <= stageRank('semifinals')) {
             const added = ensurePlayoffsScheduled(state.season, state.league);
-            const assigned = pickAssignedIndex(state.season, added);
+            const semifinalTargetsSet = new Set();
+            added
+                .filter((index) => Number.isFinite(index) && index >= 0)
+                .forEach((index) => semifinalTargetsSet.add(index));
+
+            const semifinalGames = state.season.playoffBracket?.semifinalGames || [];
+            semifinalGames.forEach((game) => {
+                const idx = Number.isFinite(game?.index) ? game.index : null;
+                if (idx == null || idx < 0) return;
+                const entry = state.season.schedule?.[idx] || null;
+                if (entry?.played) return;
+                semifinalTargetsSet.add(idx);
+            });
+
+            const semifinalTargets = Array.from(semifinalTargetsSet).sort((a, b) => a - b);
+            const assigned = pickAssignedIndex(state.season, semifinalTargets);
             if (assigned != null) {
                 state.season.currentGameIndex = assigned;
                 nextMatchup = prepareSeasonMatchup(state.season);
-            } else if (added.length) {
-                const fallbackIndex = added
-                    .filter((index) => Number.isFinite(index) && index >= 0)
-                    .reduce((min, index) => (min == null || index < min ? index : min), null);
+            } else if (semifinalTargets.length) {
+                const fallbackIndex = semifinalTargets.reduce(
+                    (min, index) => (min == null || index < min ? index : min),
+                    null,
+                );
                 if (fallbackIndex != null) {
                     state.season.currentGameIndex = fallbackIndex;
                     nextMatchup = prepareSeasonMatchup(state.season);
