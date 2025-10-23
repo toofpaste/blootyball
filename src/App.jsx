@@ -1062,6 +1062,26 @@ export function combineSeasonSnapshots(rawSnapshots) {
     combinedSeason.schedule = Array.from({ length: maxLength }).map((_, idx) => {
       return cloneScheduleGame(combinedSeason.schedule[idx]) || null;
     });
+    combinedSeason.regularSeasonLength = Math.max(
+      combinedSeason.regularSeasonLength || 0,
+      maxLength,
+    );
+  }
+
+  const regularWeekCandidates = snapshots
+    .map(({ season }) => season?.regularSeasonWeeks)
+    .filter((value) => Number.isFinite(value) && value > 0);
+  const observedRegularWeeks = combinedSeason.schedule
+    .filter((game) => game && !String(game.tag || '').startsWith('playoff'))
+    .map((game) => (Number.isFinite(game.week) ? game.week : null))
+    .filter((week) => week != null);
+  const observedWeekMax = observedRegularWeeks.length
+    ? Math.max(...observedRegularWeeks)
+    : 0;
+  if (regularWeekCandidates.length) {
+    combinedSeason.regularSeasonWeeks = Math.max(observedWeekMax, ...regularWeekCandidates);
+  } else if (observedWeekMax > 0) {
+    combinedSeason.regularSeasonWeeks = observedWeekMax;
   }
 
   const current = pickCurrentMatchup(snapshots.map(({ snapshot }) => snapshot));
@@ -1127,9 +1147,11 @@ function computeSeasonProgress(season) {
   });
 
   const inferredWeeks = weekSet.size;
-  const defaultWeeks = season.regularSeasonLength
-    ? Math.max(1, Math.round((season.regularSeasonLength || 0) / Math.max(1, gamesInWeekOne || 4)))
-    : 16;
+  const defaultWeeks = season.regularSeasonWeeks
+    ? season.regularSeasonWeeks
+    : season.regularSeasonLength
+      ? Math.max(1, Math.round((season.regularSeasonLength || 0) / Math.max(1, gamesInWeekOne || 4)))
+      : 16;
   const totalWeeks = inferredWeeks || defaultWeeks || 16;
   const gamesPerWeek = Math.max(
     1,
@@ -1164,7 +1186,7 @@ function computeSeasonProgress(season) {
       completedWeeks: totalWeeks,
     };
   }
-  if (phase === 'playoffs' || bracketStage === 'semifinals') {
+  if (phase === 'playoffs' || phase === 'semifinals' || bracketStage === 'semifinals') {
     return {
       label: 'Playoffs • Semifinals',
       currentWeek: totalWeeks,
@@ -1214,6 +1236,7 @@ export default function App() {
   const [resetSignal, setResetSignal] = useState({ token: 0, autoResume: Array(GAME_COUNT).fill(false) });
   const [globalRunning, setGlobalRunning] = useState(false);
   const [simSpeed, setSimSpeed] = useState(1);
+  const [finalSecondsMode, setFinalSecondsMode] = useState(false);
   const [seasonStatsOpen, setSeasonStatsOpen] = useState(false);
   const [teamDirectoryOpen, setTeamDirectoryOpen] = useState(false);
   const [leaderboardsOpen, setLeaderboardsOpen] = useState(false);
@@ -1277,6 +1300,10 @@ export default function App() {
 
   const handleSimSpeedChange = useCallback((value) => {
     setSimSpeed(value);
+  }, []);
+
+  const handleToggleFinalSecondsMode = useCallback(() => {
+    setFinalSecondsMode((prev) => !prev);
   }, []);
 
   const handleToggleSeasonLength = useCallback(() => {
@@ -1580,6 +1607,8 @@ export default function App() {
           hasUnseenNews={hasUnseenNews}
           hasUnseenPressArticles={hasUnseenPressArticles}
           offseasonInfo={offseasonInfo}
+          startAtFinalSeconds={finalSecondsMode}
+          onToggleFinalSecondsMode={handleToggleFinalSecondsMode}
         />
       <div className="games-stack">
         {Array.from({ length: GAME_COUNT }).map((_, index) => (
@@ -1595,6 +1624,7 @@ export default function App() {
             simSpeed={simSpeed}
             parallelSlotCount={GAME_COUNT}
             seasonConfig={seasonConfig}
+            startAtFinalSeconds={finalSecondsMode}
           />
         ))}
       </div>
