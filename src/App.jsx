@@ -1578,6 +1578,10 @@ export default function App() {
     return completedWeeks;
   }, [seasonProgress]);
 
+  const postseasonSingleField = Boolean(
+    seasonProgress?.phase && seasonProgress.phase !== 'regular',
+  );
+
   const pressWeekKey = useMemo(() => {
     const seasonNumber = aggregatedSeasonStats?.season?.seasonNumber
       || aggregatedSeasonStats?.league?.seasonNumber
@@ -1696,7 +1700,7 @@ export default function App() {
           startAtFinalSeconds={finalSecondsMode}
           onToggleFinalSecondsMode={handleToggleFinalSecondsMode}
         />
-      <div className="games-stack">
+      <div className={`games-stack${postseasonSingleField ? ' games-stack--single' : ''}`}>
         {Array.from({ length: GAME_COUNT }).map((_, index) => (
           <GameView
             key={index}
@@ -1711,6 +1715,7 @@ export default function App() {
             parallelSlotCount={GAME_COUNT}
             seasonConfig={seasonConfig}
             startAtFinalSeconds={finalSecondsMode}
+            hidden={postseasonSingleField && index > 0}
           />
         ))}
       </div>
