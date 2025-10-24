@@ -1,8 +1,69 @@
 import { createInitialGameState, progressOffseason, resumeAssignedMatchup, stepGame } from './state';
-import { applyGameResultToSeason } from './league';
+import { applyGameResultToSeason, createSeasonState } from './league';
 import { TEAM_IDS } from './data/teamLibrary';
 
 describe('progressOffseason', () => {
+  test('createInitialGameState ignores stray playoff results from global state', () => {
+    window.__blootyball = { games: [] };
+
+    const straySeason = createSeasonState({ seasonConfig: { longSeason: false } });
+    const targetIndex = 1;
+    const baseGame = straySeason.schedule[targetIndex];
+    const playoffResult = {
+      gameId: 'PO01-SF2',
+      index: targetIndex,
+      homeTeamId: baseGame.homeTeam,
+      awayTeamId: baseGame.awayTeam,
+      score: {
+        [baseGame.homeTeam]: 35,
+        [baseGame.awayTeam]: 14,
+      },
+      winner: baseGame.homeTeam,
+      tag: 'playoff-semifinal',
+      playerStats: {},
+      playerTeams: {},
+      playLog: [],
+    };
+    straySeason.results = [playoffResult];
+    straySeason.completedGames = straySeason.results.length;
+    straySeason.schedule[targetIndex] = {
+      ...baseGame,
+      tag: 'playoff-semifinal',
+      played: true,
+      result: playoffResult,
+    };
+    straySeason.playoffBracket = {
+      stage: 'semifinals',
+      semifinalGames: [
+        {
+          index: targetIndex,
+          homeTeam: baseGame.homeTeam,
+          awayTeam: baseGame.awayTeam,
+        },
+      ],
+    };
+    straySeason.phase = 'semifinals';
+
+    window.__blootyball.games.push({ state: { season: straySeason } });
+
+    const state = createInitialGameState({
+      assignmentOffset: 1,
+      assignmentStride: 2,
+      lockstepAssignments: true,
+      seasonConfig: { longSeason: false },
+    });
+
+    const assignedIndex = state.season.assignmentOffset;
+    const scheduledGame = state.season.schedule[assignedIndex];
+
+    expect(state.season.results).toHaveLength(0);
+    expect(scheduledGame.tag).toBe('regular-season');
+    expect(scheduledGame.played).not.toBe(true);
+    expect(state.season.playoffBracket).toBeNull();
+
+    delete window.__blootyball;
+  });
+
   test('restarts season when league has already advanced', () => {
     const primary = createInitialGameState({
       assignmentOffset: 0,
@@ -126,6 +187,45 @@ describe('progressOffseason', () => {
     expect(resumed.matchup).not.toBeNull();
     expect(resumed.matchup.tag).not.toBe('playoff-semifinal');
     expect(firstGame.tag).not.toBe('playoff-semifinal');
+
+    delete window.__blootyball;
+  });
+
+  test('clears stray playoff bracket when regular season games remain', () => {
+    window.__blootyball = { games: [] };
+
+    const state = createInitialGameState({
+      assignmentOffset: 1,
+      assignmentStride: 2,
+      lockstepAssignments: true,
+    });
+
+    const strayChampion = state.season.schedule[0].homeTeam;
+    state.season.playoffBracket = {
+      stage: 'semifinals',
+      semifinalGames: [
+        {
+          index: state.season.assignmentOffset,
+          homeTeam: state.season.schedule[state.season.assignmentOffset].homeTeam,
+          awayTeam: state.season.schedule[state.season.assignmentOffset].awayTeam,
+        },
+      ],
+      seeds: [],
+    };
+    state.season.phase = 'semifinals';
+    state.season.championTeamId = strayChampion;
+    state.season.championResult = { winner: strayChampion, tag: 'playoff-semifinal' };
+
+    window.__blootyball.games.push({ state });
+
+    const resumed = resumeAssignedMatchup(state);
+
+    expect(resumed.season.playoffBracket).toBeNull();
+    expect(resumed.season.phase).toBe('regular');
+    expect(resumed.season.championTeamId).toBeNull();
+    expect(resumed.season.championResult).toBeNull();
+    expect(resumed.matchup).not.toBeNull();
+    expect(resumed.matchup.tag).toBe('regular-season');
 
     delete window.__blootyball;
   });
