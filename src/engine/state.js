@@ -2628,6 +2628,10 @@ export function resumeAssignedMatchup(state) {
         && (!Number.isFinite(seasonNumber) || leagueSeasonNumber > seasonNumber);
 
     if (leagueAheadOfSeason) {
+        const restarted = progressOffseason(state);
+        if (restarted !== state) {
+            return resumeAssignedMatchup(restarted);
+        }
         return state;
     }
     if (offseason?.active && !offseason.nextSeasonStarted && offseasonAppliesToCurrentSeason) {
