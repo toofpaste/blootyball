@@ -91,6 +91,27 @@ describe('postseason scheduling', () => {
     expect(second.index).toBe(first.index + 1);
   });
 
+  test('season pointer ignores mismatched assignment slots when wrapping schedule', () => {
+    const season = createSeasonState({ seasonConfig: { longSeason: false } });
+    season.assignmentStride = 2;
+    season.assignmentOffset = 1;
+    season.assignment = { stride: 2, offset: 1, totalGames: 0 };
+
+    season.schedule = season.schedule.map((game, idx) => ({
+      ...game,
+      index: idx,
+      played: idx % 2 === 1,
+    }));
+
+    const lastOddIndex = season.schedule.length - (season.schedule.length % 2 === 0 ? 1 : 0);
+    season.currentGameIndex = lastOddIndex;
+
+    const matchup = advanceSeasonPointer(season);
+
+    expect(matchup).toBeNull();
+    expect(season.currentGameIndex).toBe(lastOddIndex + season.assignmentStride);
+  });
+
   test('existing semifinal bracket entries realign to assignment stride slots', () => {
     const season = createSeasonState({ seasonConfig: { longSeason: false } });
     season.assignmentStride = 4;
