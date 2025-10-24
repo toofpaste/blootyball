@@ -358,6 +358,11 @@ function defaultScores() {
 const TEAM_STAT_KEYS = ['passingYards', 'passingTD', 'rushingYards', 'rushingTD', 'receivingYards', 'receivingTD', 'tackles', 'sacks', 'interceptions'];
 const PLAYOFF_STAGE_ORDER = { regular: 0, semifinals: 1, championship: 2, complete: 3 };
 
+function isPlayoffTag(tag) {
+    const text = String(tag || '');
+    return text.startsWith('playoff');
+}
+
 function stageRank(stage) {
     return PLAYOFF_STAGE_ORDER[stage] ?? -1;
 }
@@ -579,14 +584,30 @@ function synchronizeSeasonTotals(state) {
         return acc;
     }, {});
 
-    state.season.results = aggregated.results;
-    aggregated.results.forEach((result) => {
+    const filteredResults = aggregated.results.filter((result) => {
+        const idx = Number.isFinite(result?.index) ? result.index : null;
+        if (idx == null) return true;
+        const entry = state.season.schedule?.[idx];
+        if (!entry) return true;
+        const entryIsPlayoff = isPlayoffTag(entry.tag);
+        const resultIsPlayoff = isPlayoffTag(result?.tag);
+        if (entryIsPlayoff !== resultIsPlayoff) return false;
+        return true;
+    });
+
+    state.season.results = filteredResults;
+    filteredResults.forEach((result) => {
         const idx = result.index;
         if (idx != null && state.season.schedule[idx]) {
-            state.season.schedule[idx] = { ...state.season.schedule[idx], played: true, result };
+            const existing = state.season.schedule[idx];
+            const entryIsPlayoff = isPlayoffTag(existing.tag);
+            const resultIsPlayoff = isPlayoffTag(result?.tag);
+            if (entryIsPlayoff === resultIsPlayoff) {
+                state.season.schedule[idx] = { ...existing, played: true, result };
+            }
         }
     });
-    state.season.completedGames = aggregated.results.length;
+    state.season.completedGames = filteredResults.length;
     state.season.playerStats = aggregated.playerStats || {};
     recomputeAssignmentTotals(state.season);
 
