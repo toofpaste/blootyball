@@ -1205,9 +1205,21 @@ export function combineSeasonSnapshots(rawSnapshots) {
 }
 
 function computeSeasonProgress(season) {
+  const seasonNumber = Number.isFinite(season?.seasonNumber) ? season.seasonNumber : null;
+  const formatSeasonPrefix = () => {
+    if (Number.isFinite(seasonNumber) && seasonNumber > 0) {
+      return `Season ${seasonNumber}`;
+    }
+    return 'Season';
+  };
+  const buildWeekLabel = (week, totalWeeks) => {
+    const prefix = formatSeasonPrefix();
+    return `${prefix} Week ${week} of ${totalWeeks}`;
+  };
+
   if (!season) {
     return {
-      label: 'Week 1 of 16',
+      label: buildWeekLabel(1, 16),
       currentWeek: 1,
       totalWeeks: 16,
       phase: 'regular',
@@ -1238,7 +1250,8 @@ function computeSeasonProgress(season) {
     : season.regularSeasonLength
       ? Math.max(1, Math.round((season.regularSeasonLength || 0) / Math.max(1, gamesInWeekOne || 4)))
       : 16;
-  const totalWeeks = inferredWeeks || defaultWeeks || 16;
+  const rawTotalWeeks = inferredWeeks || defaultWeeks || 16;
+  const totalWeeks = Math.max(1, rawTotalWeeks);
   const gamesPerWeek = Math.max(
     1,
     gamesInWeekOne || Math.round((regularGames.length || totalWeeks) / Math.max(1, totalWeeks)) || 4,
@@ -1256,7 +1269,7 @@ function computeSeasonProgress(season) {
 
   if (phase === 'complete' || bracketStage === 'complete') {
     return {
-      label: 'Season Complete',
+      label: `${formatSeasonPrefix()} Complete`,
       currentWeek: totalWeeks,
       totalWeeks,
       phase: 'complete',
@@ -1265,7 +1278,7 @@ function computeSeasonProgress(season) {
   }
   if (phase === 'championship' || bracketStage === 'championship') {
     return {
-      label: 'Playoffs • Championship',
+      label: `${formatSeasonPrefix()} Playoffs • Championship`,
       currentWeek: totalWeeks,
       totalWeeks,
       phase: 'championship',
@@ -1274,7 +1287,7 @@ function computeSeasonProgress(season) {
   }
   if (phase === 'playoffs' || phase === 'semifinals' || bracketStage === 'semifinals') {
     return {
-      label: 'Playoffs • Semifinals',
+      label: `${formatSeasonPrefix()} Playoffs • Semifinals`,
       currentWeek: totalWeeks,
       totalWeeks,
       phase: 'playoffs',
@@ -1284,7 +1297,7 @@ function computeSeasonProgress(season) {
 
   if (!regularGames.length) {
     return {
-      label: 'Week 1 of 16',
+      label: buildWeekLabel(1, 16),
       currentWeek: 1,
       totalWeeks: 16,
       phase: 'regular',
@@ -1294,7 +1307,7 @@ function computeSeasonProgress(season) {
 
   if (playedRegular >= regularGames.length) {
     return {
-      label: 'Regular Season Complete',
+      label: `${formatSeasonPrefix()} Regular Season Complete`,
       currentWeek: totalWeeks,
       totalWeeks,
       phase: 'regular',
@@ -1308,7 +1321,7 @@ function computeSeasonProgress(season) {
   if (currentWeek <= 0) currentWeek = 1;
 
   return {
-    label: `Week ${currentWeek} of ${totalWeeks}`,
+    label: buildWeekLabel(currentWeek, totalWeeks),
     currentWeek,
     totalWeeks,
     phase: 'regular',
@@ -1339,6 +1352,7 @@ export default function App() {
   const [now, setNow] = useState(() => Date.now());
   const [longSeasonEnabled, setLongSeasonEnabled] = useState(false);
   const gameRefs = useRef([]);
+  const lastKnownSeasonNumberRef = useRef(1);
   const seasonConfig = useMemo(() => ({ longSeason: longSeasonEnabled }), [longSeasonEnabled]);
 
   const handleGameComplete = useCallback((index, { shouldAutoResume } = {}) => {
@@ -1496,6 +1510,10 @@ export default function App() {
     [seasonSnapshots],
   );
 
+  const aggregatedSeasonNumber = aggregatedSeasonStats?.season?.seasonNumber
+    ?? aggregatedSeasonStats?.league?.seasonNumber
+    ?? null;
+
   useEffect(() => {
     if (!globalRunning) return undefined;
     setNow(Date.now());
@@ -1510,14 +1528,39 @@ export default function App() {
     onOverride: handleApplyWikiOverrides,
   });
 
+  useEffect(() => {
+    if (!Number.isFinite(aggregatedSeasonNumber)) return;
+    const previousSeason = Number.isFinite(lastKnownSeasonNumberRef.current)
+      ? lastKnownSeasonNumberRef.current
+      : aggregatedSeasonNumber;
+    if (aggregatedSeasonNumber > previousSeason) {
+      autoResumeRef.current = Array(GAME_COUNT).fill(false);
+      setCompletionFlags(Array(GAME_COUNT).fill(false));
+      setResetSignal((prev) => ({
+        token: prev.token + 1,
+        autoResume: Array(GAME_COUNT).fill(false),
+      }));
+      prevActiveSlotCountRef.current = GAME_COUNT;
+    }
+    lastKnownSeasonNumberRef.current = aggregatedSeasonNumber;
+  }, [aggregatedSeasonNumber]);
+
   const seasonProgress = useMemo(
     () => computeSeasonProgress(aggregatedSeasonStats?.season || null),
     [aggregatedSeasonStats],
   );
 
+  const fallbackSeasonNumber = Number.isFinite(aggregatedSeasonNumber)
+    ? aggregatedSeasonNumber
+    : (Number.isFinite(lastKnownSeasonNumberRef.current) ? lastKnownSeasonNumberRef.current : 1);
+  const safeFallbackSeason = Number.isFinite(fallbackSeasonNumber) && fallbackSeasonNumber > 0
+    ? fallbackSeasonNumber
+    : 1;
+  const fallbackWeeks = longSeasonEnabled ? 14 : 7;
+
   const seasonProgressLabel = aggregatedSeasonStats?.season
     ? seasonProgress.label
-    : (longSeasonEnabled ? 'Week 1 of 14' : 'Week 1 of 7');
+    : `Season ${safeFallbackSeason} Week 1 of ${fallbackWeeks}`;
 
   const offseasonState = aggregatedSeasonStats?.league?.offseason || null;
 
