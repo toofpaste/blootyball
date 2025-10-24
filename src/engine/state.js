@@ -703,6 +703,12 @@ function prepareGameForMatchup(state, matchup) {
 
     synchronizeSeasonTotals(state);
 
+    const matchupIndex = Number.isFinite(matchup?.index) ? matchup.index : null;
+    if (state.season && matchupIndex != null && state.season.schedule?.[matchupIndex]) {
+        const existing = state.season.schedule[matchupIndex];
+        state.season.schedule[matchupIndex] = { ...existing, inProgress: true };
+    }
+
     state.matchup = matchup;
     state.possession = TEAM_RED;
     state.overtime = null;

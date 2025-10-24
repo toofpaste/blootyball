@@ -1850,9 +1850,15 @@ export function applyGameResultToSeason(season, game, scores, directory, playerS
   nextSeason.completedGames = nextSeason.results.length;
 
   if (nextSeason.schedule[game.index]) {
-    nextSeason.schedule[game.index] = { ...nextSeason.schedule[game.index], ...game, played: true, result };
+    nextSeason.schedule[game.index] = {
+      ...nextSeason.schedule[game.index],
+      ...game,
+      played: true,
+      inProgress: false,
+      result,
+    };
   } else {
-    nextSeason.schedule[game.index] = { ...game, played: true, result };
+    nextSeason.schedule[game.index] = { ...game, played: true, inProgress: false, result };
   }
 
   if (tag === 'playoff-semifinal' && nextSeason.playoffBracket) {
@@ -2001,6 +2007,7 @@ export function advanceSeasonPointer(season) {
 
   let nextIndex = currentIndex + stride;
   const seen = new Set();
+  const IN_PROGRESS = Symbol('in-progress');
 
   const tryIndex = (targetIndex) => {
     if (!Number.isFinite(targetIndex)) return null;
@@ -2009,6 +2016,10 @@ export function advanceSeasonPointer(season) {
     seen.add(targetIndex);
     const entry = season.schedule[targetIndex];
     if (!entry) return null;
+    if (entry.inProgress) {
+      season.currentGameIndex = targetIndex;
+      return IN_PROGRESS;
+    }
     if (entry.played) return null;
     season.currentGameIndex = targetIndex;
     return prepareSeasonMatchup(season);
@@ -2016,17 +2027,20 @@ export function advanceSeasonPointer(season) {
 
   if (nextIndex < scheduleLength) {
     const matchup = tryIndex(nextIndex);
+    if (matchup === IN_PROGRESS) return null;
     if (matchup) return matchup;
   }
 
   for (let idx = currentIndex + 1; idx < scheduleLength; idx += 1) {
     if (idx === nextIndex) continue;
     const matchup = tryIndex(idx);
+    if (matchup === IN_PROGRESS) return null;
     if (matchup) return matchup;
   }
 
   for (let idx = 0; idx < currentIndex; idx += 1) {
     const matchup = tryIndex(idx);
+    if (matchup === IN_PROGRESS) return null;
     if (matchup) return matchup;
   }
 
