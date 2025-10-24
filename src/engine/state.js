@@ -693,6 +693,7 @@ function prepareGameForMatchup(state, matchup) {
         state.playerStats = {};
         state.playLog = [];
         state.gameDynamics = null;
+        state.__finalSecondsMeta = null;
         state.pendingMatchup = null;
         state.awaitingNextMatchup = false;
         state.gameComplete = true;
@@ -778,6 +779,7 @@ function prepareGameForMatchup(state, matchup) {
     state.drive = { losYards: 25, down: 1, toGo: 10 };
     state.clock = createClock(state.coaches);
     state.scores = defaultScores();
+    state.__finalSecondsMeta = null;
     state.pendingExtraPoint = null;
     state.playLog = [];
     state.playerDirectory = buildPlayerDirectory(state.teams, matchup.slotToTeam, matchup.identities);
