@@ -1353,6 +1353,7 @@ export default function App() {
   const [longSeasonEnabled, setLongSeasonEnabled] = useState(false);
   const gameRefs = useRef([]);
   const lastKnownSeasonNumberRef = useRef(1);
+  const pendingAutoResetRef = useRef(null);
   const seasonConfig = useMemo(() => ({ longSeason: longSeasonEnabled }), [longSeasonEnabled]);
 
   const handleGameComplete = useCallback((index, { shouldAutoResume } = {}) => {
@@ -1376,6 +1377,10 @@ export default function App() {
   }, []);
 
   const handleToggleRunning = useCallback(() => {
+    if (pendingAutoResetRef.current) {
+      clearTimeout(pendingAutoResetRef.current);
+      pendingAutoResetRef.current = null;
+    }
     setGlobalRunning(prev => !prev);
   }, []);
 
@@ -1652,6 +1657,8 @@ export default function App() {
     autoResumeRef.current = Array(GAME_COUNT).fill(false);
 
     const timeout = setTimeout(() => {
+      if (pendingAutoResetRef.current !== timeout) return;
+      pendingAutoResetRef.current = null;
       const shouldResume = autoResume.slice(0, activeSlotCount).some(Boolean);
       setGlobalRunning(shouldResume);
       setResetSignal(prev => ({
@@ -1661,7 +1668,14 @@ export default function App() {
       setCompletionFlags(prevFlags => prevFlags.map((flag, idx) => (idx < activeSlotCount ? false : true)));
     }, RESET_DELAY_MS);
 
-    return () => clearTimeout(timeout);
+    pendingAutoResetRef.current = timeout;
+
+    return () => {
+      if (pendingAutoResetRef.current === timeout) {
+        pendingAutoResetRef.current = null;
+      }
+      clearTimeout(timeout);
+    };
   }, [completionFlags, activeSlotCount]);
 
   const pressWeekKey = useMemo(() => {
