@@ -190,6 +190,45 @@ describe('progressOffseason', () => {
 
     delete window.__blootyball;
   });
+
+  test('clears stray playoff bracket when regular season games remain', () => {
+    window.__blootyball = { games: [] };
+
+    const state = createInitialGameState({
+      assignmentOffset: 1,
+      assignmentStride: 2,
+      lockstepAssignments: true,
+    });
+
+    const strayChampion = state.season.schedule[0].homeTeam;
+    state.season.playoffBracket = {
+      stage: 'semifinals',
+      semifinalGames: [
+        {
+          index: state.season.assignmentOffset,
+          homeTeam: state.season.schedule[state.season.assignmentOffset].homeTeam,
+          awayTeam: state.season.schedule[state.season.assignmentOffset].awayTeam,
+        },
+      ],
+      seeds: [],
+    };
+    state.season.phase = 'semifinals';
+    state.season.championTeamId = strayChampion;
+    state.season.championResult = { winner: strayChampion, tag: 'playoff-semifinal' };
+
+    window.__blootyball.games.push({ state });
+
+    const resumed = resumeAssignedMatchup(state);
+
+    expect(resumed.season.playoffBracket).toBeNull();
+    expect(resumed.season.phase).toBe('regular');
+    expect(resumed.season.championTeamId).toBeNull();
+    expect(resumed.season.championResult).toBeNull();
+    expect(resumed.matchup).not.toBeNull();
+    expect(resumed.matchup.tag).toBe('regular-season');
+
+    delete window.__blootyball;
+  });
 });
 
 describe('resumeAssignedMatchup', () => {

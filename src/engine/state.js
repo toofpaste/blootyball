@@ -611,6 +611,9 @@ function synchronizeSeasonTotals(state) {
     state.season.playerStats = aggregated.playerStats || {};
     recomputeAssignmentTotals(state.season);
 
+    const scheduleHasUnplayedRegular = scheduleEntries.some((entry) => entry && !isPlayoffTag(entry.tag) && !entry.played);
+    const hasPlayoffResults = filteredResults.some((result) => isPlayoffTag(result?.tag));
+
     let chosenBracket = state.season.playoffBracket || null;
     let chosenPhase = state.season.phase || 'regular';
     let championTeamId = state.season.championTeamId || null;
@@ -632,6 +635,17 @@ function synchronizeSeasonTotals(state) {
     state.season.phase = chosenPhase;
     if (championTeamId) state.season.championTeamId = championTeamId;
     if (championResult) state.season.championResult = championResult;
+
+    const bracketStage = state.season.playoffBracket?.stage || null;
+    const bracketImpliesPlayoffs = bracketStage && stageRank(bracketStage) >= stageRank('semifinals');
+    if (!scheduleHasPlayoffEntries && !hasPlayoffResults && scheduleHasUnplayedRegular) {
+        if (bracketImpliesPlayoffs) {
+            state.season.playoffBracket = null;
+        }
+        state.season.phase = 'regular';
+        state.season.championTeamId = null;
+        state.season.championResult = null;
+    }
 }
 
 function scheduleNextMatchupFromSeason(state) {
