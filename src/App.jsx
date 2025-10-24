@@ -1362,23 +1362,27 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (!completionFlags.some(Boolean)) return;
-    if (!completionFlags.every(Boolean)) return;
+    const required = Array.from({ length: GAME_COUNT }, (_, idx) => idx < activeSlotCount);
+    const anyRequiredComplete = required.some((needed, idx) => needed && completionFlags[idx]);
+    if (!anyRequiredComplete) return;
+    const missingRequired = required.some((needed, idx) => needed && !completionFlags[idx]);
+    if (missingRequired) return;
 
-    const autoResume = autoResumeRef.current.slice();
+    const autoResume = autoResumeRef.current.map((value, idx) => (idx < activeSlotCount ? value : false));
     autoResumeRef.current = Array(GAME_COUNT).fill(false);
 
     const timeout = setTimeout(() => {
-      setGlobalRunning(autoResume.some(Boolean));
+      const shouldResume = autoResume.slice(0, activeSlotCount).some(Boolean);
+      setGlobalRunning(shouldResume);
       setResetSignal(prev => ({
         token: prev.token + 1,
         autoResume,
       }));
-      setCompletionFlags(Array(GAME_COUNT).fill(false));
+      setCompletionFlags(prevFlags => prevFlags.map((flag, idx) => (idx < activeSlotCount ? false : true)));
     }, RESET_DELAY_MS);
 
     return () => clearTimeout(timeout);
-  }, [completionFlags]);
+  }, [completionFlags, activeSlotCount]);
 
   const handleToggleRunning = useCallback(() => {
     setGlobalRunning(prev => !prev);
@@ -1582,6 +1586,41 @@ export default function App() {
     seasonProgress?.phase && seasonProgress.phase !== 'regular',
   );
 
+  const activeSlotCount = postseasonSingleField ? 1 : GAME_COUNT;
+  const prevActiveSlotCountRef = useRef(activeSlotCount);
+
+  useEffect(() => {
+    const prev = prevActiveSlotCountRef.current;
+    if (activeSlotCount === prev) return;
+
+    for (let idx = activeSlotCount; idx < GAME_COUNT; idx += 1) {
+      autoResumeRef.current[idx] = false;
+    }
+
+    setCompletionFlags((prevFlags) => {
+      const next = prevFlags.slice();
+      let changed = false;
+
+      for (let idx = 0; idx < GAME_COUNT; idx += 1) {
+        if (idx >= activeSlotCount) {
+          if (!next[idx]) {
+            next[idx] = true;
+            changed = true;
+          }
+        } else if (idx >= prev) {
+          if (next[idx]) {
+            next[idx] = false;
+            changed = true;
+          }
+        }
+      }
+
+      return changed ? next : prevFlags;
+    });
+
+    prevActiveSlotCountRef.current = activeSlotCount;
+  }, [activeSlotCount]);
+
   const pressWeekKey = useMemo(() => {
     const seasonNumber = aggregatedSeasonStats?.season?.seasonNumber
       || aggregatedSeasonStats?.league?.seasonNumber
@@ -1701,23 +1740,28 @@ export default function App() {
           onToggleFinalSecondsMode={handleToggleFinalSecondsMode}
         />
       <div className={`games-stack${postseasonSingleField ? ' games-stack--single' : ''}`}>
-        {Array.from({ length: GAME_COUNT }).map((_, index) => (
-          <GameView
-            key={index}
-            ref={(instance) => { gameRefs.current[index] = instance; }}
-            gameIndex={index}
-            label={`Game ${index + 1}`}
-            resetSignal={resetSignal}
-            onGameComplete={handleGameComplete}
-            onManualReset={handleGameReset}
-            globalRunning={globalRunning}
-            simSpeed={simSpeed}
-            parallelSlotCount={GAME_COUNT}
-            seasonConfig={seasonConfig}
-            startAtFinalSeconds={finalSecondsMode}
-            hidden={postseasonSingleField && index > 0}
-          />
-        ))}
+        {Array.from({ length: GAME_COUNT }).map((_, index) => {
+          const active = index < activeSlotCount;
+          const assignmentOffset = active ? index : Math.min(activeSlotCount - 1, index);
+          return (
+            <GameView
+              key={index}
+              ref={(instance) => { gameRefs.current[index] = instance; }}
+              gameIndex={index}
+              label={`Game ${index + 1}`}
+              resetSignal={resetSignal}
+              onGameComplete={handleGameComplete}
+              onManualReset={handleGameReset}
+              globalRunning={active ? globalRunning : false}
+              simSpeed={simSpeed}
+              parallelSlotCount={activeSlotCount}
+              assignmentOffset={assignmentOffset >= 0 ? assignmentOffset : 0}
+              seasonConfig={seasonConfig}
+              startAtFinalSeconds={finalSecondsMode}
+              hidden={!active}
+            />
+          );
+        })}
       </div>
       <Modal
         open={seasonStatsOpen}
