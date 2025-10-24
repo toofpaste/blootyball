@@ -50,6 +50,7 @@ const GameView = React.forwardRef(function GameView({
   parallelSlotCount = 1,
   seasonConfig = null,
   startAtFinalSeconds = false,
+  hidden = false,
 }, ref) {
   const canvasRef = useRef(null);
   const [localRunning, setLocalRunning] = useState(false);
@@ -366,8 +367,10 @@ const GameView = React.forwardRef(function GameView({
   const statsTeams = [awayStatsTeam, homeStatsTeam].filter(Boolean);
   const hasStatsTeams = statsTeams.length > 0;
 
+  const rootClassName = hidden ? 'game-instance game-instance--hidden' : 'game-instance';
+
   return (
-    <section className="game-instance">
+    <section className={rootClassName} aria-hidden={hidden}>
       <h2 className="game-instance__title">{label}</h2>
       <Scoreboard
         home={homeTeam}
