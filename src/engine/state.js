@@ -606,6 +606,68 @@ function synchronizeSeasonTotals(state) {
     if (championResult) state.season.championResult = championResult;
 }
 
+function scheduleNextMatchupFromSeason(state) {
+    if (!state?.season) return null;
+
+    let nextMatchup = null;
+
+    synchronizeSeasonTotals(state);
+
+    const bracketStage = state.season.playoffBracket?.stage || state.season.phase || 'regular';
+    if (stageRank(bracketStage) <= stageRank('semifinals')) {
+        const semifinalTargetsSet = new Set();
+        const added = ensurePlayoffsScheduled(state.season, state.league) || [];
+        added
+            .filter((index) => Number.isFinite(index) && index >= 0)
+            .forEach((index) => semifinalTargetsSet.add(index));
+
+        const semifinalGames = state.season.playoffBracket?.semifinalGames || [];
+        semifinalGames.forEach((game) => {
+            const idx = Number.isFinite(game?.index) ? game.index : null;
+            if (idx == null || idx < 0) return;
+            const entry = state.season.schedule?.[idx] || null;
+            if (entry?.played) return;
+            semifinalTargetsSet.add(idx);
+        });
+
+        const semifinalTargets = Array.from(semifinalTargetsSet).sort((a, b) => a - b);
+        const assigned = pickAssignedIndex(state.season, semifinalTargets);
+        if (assigned != null) {
+            state.season.currentGameIndex = assigned;
+            nextMatchup = prepareSeasonMatchup(state.season);
+        } else if (semifinalTargets.length) {
+            const fallbackIndex = semifinalTargets.reduce(
+                (min, index) => (min == null || index < min ? index : min),
+                null,
+            );
+            if (fallbackIndex != null) {
+                state.season.currentGameIndex = fallbackIndex;
+                nextMatchup = prepareSeasonMatchup(state.season);
+            }
+        }
+    }
+
+    if (nextMatchup) return nextMatchup;
+
+    const finals = ensureChampionshipScheduled(state.season) || [];
+    const assignedFinal = pickAssignedIndex(state.season, finals);
+    if (assignedFinal != null) {
+        state.season.currentGameIndex = assignedFinal;
+        return prepareSeasonMatchup(state.season);
+    }
+
+    if (finals.length) {
+        const fallbackIndex = finals.find((index) => Number.isFinite(index) && index >= 0);
+        if (fallbackIndex != null) {
+            state.season.currentGameIndex = fallbackIndex;
+            return prepareSeasonMatchup(state.season);
+        }
+        state.season.currentGameIndex = state.season.schedule.length;
+    }
+
+    return null;
+}
+
 function pickAssignedIndex(season, indices = []) {
     const stride = Math.max(1, season.assignmentStride || season.assignment?.stride || 1);
     const offset = season.assignmentOffset ?? season.assignment?.offset ?? 0;
@@ -979,58 +1041,7 @@ function finalizeCurrentGame(state) {
     let nextMatchup = advanceSeasonPointer(state.season);
 
     if (!nextMatchup) {
-        synchronizeSeasonTotals(state);
-
-        const bracketStage = state.season.playoffBracket?.stage || state.season.phase || 'regular';
-        if (stageRank(bracketStage) <= stageRank('semifinals')) {
-            const added = ensurePlayoffsScheduled(state.season, state.league);
-            const semifinalTargetsSet = new Set();
-            added
-                .filter((index) => Number.isFinite(index) && index >= 0)
-                .forEach((index) => semifinalTargetsSet.add(index));
-
-            const semifinalGames = state.season.playoffBracket?.semifinalGames || [];
-            semifinalGames.forEach((game) => {
-                const idx = Number.isFinite(game?.index) ? game.index : null;
-                if (idx == null || idx < 0) return;
-                const entry = state.season.schedule?.[idx] || null;
-                if (entry?.played) return;
-                semifinalTargetsSet.add(idx);
-            });
-
-            const semifinalTargets = Array.from(semifinalTargetsSet).sort((a, b) => a - b);
-            const assigned = pickAssignedIndex(state.season, semifinalTargets);
-            if (assigned != null) {
-                state.season.currentGameIndex = assigned;
-                nextMatchup = prepareSeasonMatchup(state.season);
-            } else if (semifinalTargets.length) {
-                const fallbackIndex = semifinalTargets.reduce(
-                    (min, index) => (min == null || index < min ? index : min),
-                    null,
-                );
-                if (fallbackIndex != null) {
-                    state.season.currentGameIndex = fallbackIndex;
-                    nextMatchup = prepareSeasonMatchup(state.season);
-                }
-            }
-        }
-
-        if (!nextMatchup) {
-            const finals = ensureChampionshipScheduled(state.season);
-            const assignedFinal = pickAssignedIndex(state.season, finals);
-            if (assignedFinal != null) {
-                state.season.currentGameIndex = assignedFinal;
-                nextMatchup = prepareSeasonMatchup(state.season);
-            } else if (finals.length) {
-                const fallbackIndex = finals.find((index) => Number.isFinite(index) && index >= 0);
-                if (fallbackIndex != null) {
-                    state.season.currentGameIndex = fallbackIndex;
-                    nextMatchup = prepareSeasonMatchup(state.season);
-                } else {
-                    state.season.currentGameIndex = state.season.schedule.length;
-                }
-            }
-        }
+        nextMatchup = scheduleNextMatchupFromSeason(state);
 
         if (!nextMatchup && seasonCompleted(state.season)) {
             if (state.league) {
@@ -2581,7 +2592,19 @@ export function resumeAssignedMatchup(state) {
         return next;
     }
 
-    const nextMatchup = next.pendingMatchup || prepareSeasonMatchup(next.season);
+    let nextMatchup = next.pendingMatchup || prepareSeasonMatchup(next.season);
+
+    if (!nextMatchup) {
+        nextMatchup = scheduleNextMatchupFromSeason(next);
+    }
+
+    if (!nextMatchup && next.season) {
+        nextMatchup = advanceSeasonPointer(next.season);
+        if (!nextMatchup) {
+            nextMatchup = scheduleNextMatchupFromSeason(next);
+        }
+    }
+
     if (nextMatchup) {
         next.pendingMatchup = null;
         next.awaitingNextMatchup = false;
