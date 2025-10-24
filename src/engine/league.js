@@ -2002,12 +2002,22 @@ export function prepareSeasonMatchup(season) {
 export function advanceSeasonPointer(season) {
   if (!season) return null;
   const stride = Math.max(1, season.assignmentStride || season.assignment?.stride || 1);
+  const rawOffset = season.assignmentOffset ?? season.assignment?.offset ?? 0;
+  const offset = Number.isFinite(rawOffset) ? rawOffset : 0;
   const scheduleLength = season.schedule?.length ?? 0;
   const currentIndex = Number.isFinite(season.currentGameIndex) ? season.currentGameIndex : 0;
 
   let nextIndex = currentIndex + stride;
   const seen = new Set();
   const IN_PROGRESS = Symbol('in-progress');
+
+  const matchesAssignment = (targetIndex) => {
+    if (stride <= 1) return true;
+    if (!Number.isFinite(targetIndex)) return false;
+    const diff = targetIndex - offset;
+    if (diff < 0) return false;
+    return diff % stride === 0;
+  };
 
   const tryIndex = (targetIndex) => {
     if (!Number.isFinite(targetIndex)) return null;
@@ -2016,6 +2026,8 @@ export function advanceSeasonPointer(season) {
     seen.add(targetIndex);
     const entry = season.schedule[targetIndex];
     if (!entry) return null;
+    const tag = String(entry.tag || '');
+    if (!matchesAssignment(targetIndex) && !tag.startsWith('playoff')) return null;
     if (entry.inProgress) {
       season.currentGameIndex = targetIndex;
       return IN_PROGRESS;
