@@ -1,4 +1,5 @@
-import { createInitialGameState, progressOffseason } from './state';
+import { createInitialGameState, progressOffseason, resumeAssignedMatchup } from './state';
+import { applyGameResultToSeason } from './league';
 import { TEAM_IDS } from './data/teamLibrary';
 
 describe('progressOffseason', () => {
@@ -51,5 +52,71 @@ describe('progressOffseason', () => {
 
     expect(progressed[0].matchup).not.toBeNull();
     expect(progressed[1].matchup).not.toBeNull();
+  });
+});
+
+describe('resumeAssignedMatchup', () => {
+  afterEach(() => {
+    if (window.__blootyball) {
+      delete window.__blootyball;
+    }
+  });
+
+  test('schedules semifinals once all assignment slots finish the regular season', () => {
+    window.__blootyball = { games: [] };
+
+    const slots = [
+      createInitialGameState({
+        assignmentOffset: 0,
+        assignmentStride: 2,
+        lockstepAssignments: true,
+        seasonConfig: { longSeason: false },
+      }),
+      createInitialGameState({
+        assignmentOffset: 1,
+        assignmentStride: 2,
+        lockstepAssignments: true,
+        seasonConfig: { longSeason: false },
+      }),
+    ];
+
+    slots.forEach((state, index) => {
+      const stride = state.season.assignmentStride;
+      const offset = state.season.assignmentOffset;
+
+      for (let idx = offset; idx < state.season.schedule.length; idx += stride) {
+        const game = state.season.schedule[idx];
+        if (!game || String(game.tag || '').startsWith('playoff')) continue;
+        const scores = {
+          [game.homeTeam]: 31,
+          [game.awayTeam]: 17,
+        };
+        state.season.currentGameIndex = idx;
+        state.season = applyGameResultToSeason(state.season, game, scores, {}, {}, []);
+      }
+
+      state.matchup = null;
+      state.pendingMatchup = null;
+      state.awaitingNextMatchup = false;
+      state.gameComplete = true;
+      state.clock.running = false;
+      state.season.currentGameIndex = state.season.schedule.length;
+
+      window.__blootyball.games[index] = { state };
+    });
+
+    const slotOneResumed = resumeAssignedMatchup(slots[1]);
+    window.__blootyball.games[1] = { state: slotOneResumed };
+
+    const resumed = resumeAssignedMatchup(slots[0]);
+
+    expect(slotOneResumed.gameComplete).toBe(false);
+    expect(slotOneResumed.matchup).not.toBeNull();
+    expect(slotOneResumed.matchup.tag).toBe('playoff-semifinal');
+
+    expect(resumed.gameComplete).toBe(false);
+    expect(resumed.matchup).not.toBeNull();
+    expect(resumed.matchup.tag).toBe('playoff-semifinal');
+    expect(resumed.season.phase).toBe('semifinals');
   });
 });
