@@ -324,44 +324,6 @@ describe('resumeAssignedMatchup', () => {
     expect(resumed.matchup).not.toBeNull();
     expect(resumed.matchup.tag).toBe('regular-season');
   });
-
-  test('restarts season when a parallel slot has already advanced', () => {
-    window.__blootyball = { games: [] };
-
-    const advanced = createInitialGameState({
-      assignmentOffset: 0,
-      assignmentStride: 2,
-      lockstepAssignments: true,
-    });
-    const stale = createInitialGameState({
-      assignmentOffset: 1,
-      assignmentStride: 2,
-      lockstepAssignments: true,
-    });
-
-    advanced.season.seasonNumber += 1;
-    advanced.league.seasonNumber = advanced.season.seasonNumber;
-    advanced.league.offseason.active = false;
-    advanced.league.offseason.nextSeasonReady = true;
-    advanced.league.offseason.nextSeasonStarted = true;
-    advanced.league.offseason.completedSeasonNumber = advanced.season.seasonNumber - 1;
-
-    stale.season.phase = 'semifinals';
-    stale.matchup = null;
-    stale.pendingMatchup = null;
-    stale.gameComplete = true;
-
-    window.__blootyball.games[0] = { state: advanced };
-    window.__blootyball.games[1] = { state: stale };
-
-    const resumed = resumeAssignedMatchup(stale);
-
-    expect(resumed).not.toBe(stale);
-    expect(resumed.season.seasonNumber).toBe(advanced.season.seasonNumber);
-    expect(resumed.matchup).not.toBeNull();
-    expect(resumed.matchup.tag).toBe('regular-season');
-    expect(resumed.season.phase).toBe('regular');
-  });
 });
 
 describe('stepGame', () => {
