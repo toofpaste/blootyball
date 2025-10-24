@@ -1607,9 +1607,11 @@ export default function App() {
     return completedWeeks;
   }, [seasonProgress]);
 
-  const postseasonSingleField = Boolean(
-    seasonProgress?.phase && seasonProgress.phase !== 'regular',
-  );
+  const postseasonSingleField = useMemo(() => {
+    const phase = seasonProgress?.phase;
+    if (!phase) return false;
+    return phase === 'playoffs' || phase === 'semifinals' || phase === 'championship';
+  }, [seasonProgress?.phase]);
 
   const activeSlotCount = postseasonSingleField ? 1 : GAME_COUNT;
   const prevActiveSlotCountRef = useRef(activeSlotCount);
