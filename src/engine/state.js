@@ -2627,7 +2627,45 @@ export function resumeAssignedMatchup(state) {
     const leagueAheadOfSeason = Number.isFinite(leagueSeasonNumber)
         && (!Number.isFinite(seasonNumber) || leagueSeasonNumber > seasonNumber);
 
+    let globalSeasonAhead = null;
+    if (typeof window !== 'undefined') {
+        const games = window.__blootyball?.games || [];
+        const currentSeasonNumber = Number.isFinite(seasonNumber) ? seasonNumber : -Infinity;
+        games.forEach((entry) => {
+            const other = entry?.state;
+            if (!other || other === state) return;
+            const otherSeasonNumber = other?.season?.seasonNumber;
+            if (!Number.isFinite(otherSeasonNumber)) return;
+            if (otherSeasonNumber > currentSeasonNumber) {
+                if (!globalSeasonAhead || (otherSeasonNumber > (globalSeasonAhead?.season?.seasonNumber ?? -Infinity))) {
+                    globalSeasonAhead = other;
+                }
+            }
+        });
+    }
+
+    if (globalSeasonAhead) {
+        const stride = Math.max(1, state?.season?.assignmentStride || state?.season?.assignment?.stride || 1);
+        const offset = state?.season?.assignmentOffset ?? state?.season?.assignment?.offset ?? 0;
+        const seasonConfig = state?.seasonConfig || globalSeasonAhead?.seasonConfig || null;
+        const league = globalSeasonAhead?.league || state?.league || null;
+        const restarted = createInitialGameState({
+            assignmentOffset: offset,
+            assignmentStride: stride,
+            league,
+            lockstepAssignments: state.lockstepAssignments,
+            seasonConfig,
+        });
+        restarted.debug = state.debug;
+        restarted.lockstepAssignments = state.lockstepAssignments;
+        return restarted;
+    }
+
     if (leagueAheadOfSeason) {
+        const restarted = progressOffseason(state);
+        if (restarted !== state) {
+            return resumeAssignedMatchup(restarted);
+        }
         return state;
     }
     if (offseason?.active && !offseason.nextSeasonStarted && offseasonAppliesToCurrentSeason) {
