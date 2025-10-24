@@ -132,6 +132,19 @@ describe('resumeAssignedMatchup', () => {
 
     expect(resumed).toBe(state);
   });
+
+  test('returns original state when league season number has advanced', () => {
+    const state = createInitialGameState({ assignmentOffset: 1, assignmentStride: 2, lockstepAssignments: true });
+    state.league.offseason.active = false;
+    state.league.offseason.nextSeasonReady = true;
+    state.league.offseason.nextSeasonStarted = true;
+    state.league.offseason.completedSeasonNumber = state.season.seasonNumber;
+    state.league.seasonNumber = (state.league.seasonNumber || state.season.seasonNumber) + 1;
+
+    const resumed = resumeAssignedMatchup(state);
+
+    expect(resumed).toBe(state);
+  });
 });
 
 describe('stepGame', () => {
