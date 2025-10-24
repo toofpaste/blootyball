@@ -324,20 +324,12 @@ const GameView = React.forwardRef(function GameView({
   ]);
 
   const season = state.season || {};
-  const assignmentStride = season.assignmentStride || season.assignment?.stride || 1;
-  const assignmentOffset = season.assignmentOffset ?? season.assignment?.offset ?? 0;
-  const totalGames = season.assignmentTotalGames || season.assignment?.totalGames || season.schedule?.length || 0;
+  const scheduledGames = Number.isFinite(season.schedule?.length) ? season.schedule.length : null;
+  const totalAssignedGames = season.assignmentTotalGames || season.assignment?.totalGames || 0;
+  const totalGames = scheduledGames || totalAssignedGames || 0;
   const activeMatchup = state.matchup || null;
   const fallbackMatchup = !activeMatchup ? state.lastCompletedGame?.matchup : null;
   const activeScores = activeMatchup ? state.scores : (state.lastCompletedGame?.scores || {});
-
-  const computeDisplayIndex = (indexValue) => {
-    if (indexValue == null || indexValue < 0) return null;
-    if (assignmentStride <= 1) return indexValue;
-    const normalized = indexValue - assignmentOffset;
-    if (normalized < 0) return null;
-    return Math.floor(normalized / assignmentStride);
-  };
 
   const buildTeam = (slot) => {
     const matchupInfo = activeMatchup || fallbackMatchup;
@@ -367,23 +359,38 @@ const GameView = React.forwardRef(function GameView({
   const awayTeam = buildTeam(TEAM_BLK);
 
   let gameLabel = '';
+  const resolveGameNumber = (indexValue) => {
+    if (!Number.isFinite(indexValue)) return 1;
+    return Math.max(1, Math.floor(indexValue) + 1);
+  };
+  const formatGameProgress = (gameNumber, prefix = '') => {
+    if (!Number.isFinite(gameNumber)) return prefix || '';
+    const safeNumber = totalGames > 0 ? Math.min(gameNumber, totalGames) : gameNumber;
+    const progressText = totalGames > 0
+      ? `Game ${safeNumber} of ${totalGames}`
+      : `Game ${safeNumber}`;
+    return prefix ? `${prefix} ${progressText}` : progressText;
+  };
   if (activeMatchup?.tag === 'playoff-championship') {
     gameLabel = 'BluperBowl';
   } else if (activeMatchup?.tag === 'playoff-semifinal') {
     gameLabel = activeMatchup.round ? `Playoffs • ${activeMatchup.round}` : 'Playoffs • Semifinal';
-  } else if (totalGames) {
+  } else {
     if (!activeMatchup && state.gameComplete) {
       gameLabel = 'Season complete';
     } else if (activeMatchup) {
       const index = activeMatchup.index != null ? activeMatchup.index : season.currentGameIndex;
-      const displayIndex = computeDisplayIndex(index);
-      const gameNumber = displayIndex != null ? displayIndex + 1 : (index != null ? index + 1 : 1);
-      gameLabel = `Game ${Math.min(gameNumber, totalGames)} of ${totalGames}`;
+      const gameNumber = resolveGameNumber(index);
+      if (Number.isFinite(gameNumber)) {
+        gameLabel = formatGameProgress(gameNumber);
+      }
     } else if (fallbackMatchup) {
       const index = fallbackMatchup.index != null ? fallbackMatchup.index : (season.completedGames ?? 1) - 1;
-      const displayIndex = computeDisplayIndex(index);
-      const safeIndex = displayIndex != null ? displayIndex : (index != null ? index : 0);
-      gameLabel = `Final • Game ${Math.min(safeIndex + 1, totalGames)} of ${totalGames}`;
+      const safeIndex = Number.isFinite(index) ? index : 0;
+      const gameNumber = resolveGameNumber(safeIndex);
+      if (Number.isFinite(gameNumber)) {
+        gameLabel = formatGameProgress(gameNumber, 'Final •');
+      }
     }
   }
 
