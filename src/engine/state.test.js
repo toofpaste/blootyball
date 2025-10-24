@@ -1,8 +1,69 @@
 import { createInitialGameState, progressOffseason, resumeAssignedMatchup, stepGame } from './state';
-import { applyGameResultToSeason } from './league';
+import { applyGameResultToSeason, createSeasonState } from './league';
 import { TEAM_IDS } from './data/teamLibrary';
 
 describe('progressOffseason', () => {
+  test('createInitialGameState ignores stray playoff results from global state', () => {
+    window.__blootyball = { games: [] };
+
+    const straySeason = createSeasonState({ seasonConfig: { longSeason: false } });
+    const targetIndex = 1;
+    const baseGame = straySeason.schedule[targetIndex];
+    const playoffResult = {
+      gameId: 'PO01-SF2',
+      index: targetIndex,
+      homeTeamId: baseGame.homeTeam,
+      awayTeamId: baseGame.awayTeam,
+      score: {
+        [baseGame.homeTeam]: 35,
+        [baseGame.awayTeam]: 14,
+      },
+      winner: baseGame.homeTeam,
+      tag: 'playoff-semifinal',
+      playerStats: {},
+      playerTeams: {},
+      playLog: [],
+    };
+    straySeason.results = [playoffResult];
+    straySeason.completedGames = straySeason.results.length;
+    straySeason.schedule[targetIndex] = {
+      ...baseGame,
+      tag: 'playoff-semifinal',
+      played: true,
+      result: playoffResult,
+    };
+    straySeason.playoffBracket = {
+      stage: 'semifinals',
+      semifinalGames: [
+        {
+          index: targetIndex,
+          homeTeam: baseGame.homeTeam,
+          awayTeam: baseGame.awayTeam,
+        },
+      ],
+    };
+    straySeason.phase = 'semifinals';
+
+    window.__blootyball.games.push({ state: { season: straySeason } });
+
+    const state = createInitialGameState({
+      assignmentOffset: 1,
+      assignmentStride: 2,
+      lockstepAssignments: true,
+      seasonConfig: { longSeason: false },
+    });
+
+    const assignedIndex = state.season.assignmentOffset;
+    const scheduledGame = state.season.schedule[assignedIndex];
+
+    expect(state.season.results).toHaveLength(0);
+    expect(scheduledGame.tag).toBe('regular-season');
+    expect(scheduledGame.played).not.toBe(true);
+    expect(state.season.playoffBracket).toBeNull();
+
+    delete window.__blootyball;
+  });
+
   test('restarts season when league has already advanced', () => {
     const primary = createInitialGameState({
       assignmentOffset: 0,
