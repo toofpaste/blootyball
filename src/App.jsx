@@ -1709,7 +1709,10 @@ export default function App() {
       if (pendingAutoResetRef.current !== timeout) return;
       pendingAutoResetRef.current = null;
       const shouldResume = autoResume.slice(0, activeSlotCount).some(Boolean);
-      setGlobalRunning(shouldResume);
+      setGlobalRunning((prevRunning) => {
+        if (shouldResume) return true;
+        return prevRunning;
+      });
       setResetSignal(prev => ({
         token: prev.token + 1,
         autoResume,
