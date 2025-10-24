@@ -102,7 +102,7 @@ export default function GlobalControls({
     }
   };
 
-  const defaultProgressText = longSeasonEnabled ? 'Week 1 of 14' : 'Week 1 of 7';
+  const defaultProgressText = longSeasonEnabled ? 'Season 1 Week 1 of 14' : 'Season 1 Week 1 of 7';
   const progressText = seasonProgressLabel || defaultProgressText;
 
   const formatCountdown = (ms) => {
