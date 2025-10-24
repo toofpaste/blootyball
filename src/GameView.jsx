@@ -74,6 +74,7 @@ const GameView = React.forwardRef(function GameView({
   globalRunning = false,
   simSpeed = 1,
   parallelSlotCount = 1,
+  assignmentOffset = null,
   seasonConfig = null,
   startAtFinalSeconds = false,
   hidden = false,
@@ -83,7 +84,7 @@ const GameView = React.forwardRef(function GameView({
   const [statsModalOpen, setStatsModalOpen] = useState(false);
   const [state, setState] = useState(() => {
     const baseState = createInitialGameState({
-      assignmentOffset: gameIndex,
+      assignmentOffset: assignmentOffset ?? gameIndex,
       assignmentStride: parallelSlotCount,
       lockstepAssignments: true,
       seasonConfig,
@@ -273,7 +274,7 @@ const GameView = React.forwardRef(function GameView({
         }
       }
       const nextState = createInitialGameState({
-        assignmentOffset: gameIndex,
+        assignmentOffset: assignmentOffset ?? gameIndex,
         assignmentStride: parallelSlotCount,
         league: configChanged ? null : (prev?.league || null),
         lockstepAssignments: true,
@@ -287,7 +288,15 @@ const GameView = React.forwardRef(function GameView({
     });
     setLocalRunning(shouldResume);
     onManualReset?.(gameIndex);
-  }, [resetSignal, gameIndex, onManualReset, parallelSlotCount, seasonConfig, startAtFinalSeconds]);
+  }, [
+    resetSignal,
+    gameIndex,
+    assignmentOffset,
+    onManualReset,
+    parallelSlotCount,
+    seasonConfig,
+    startAtFinalSeconds,
+  ]);
 
   useEffect(() => {
     if (!startAtFinalSeconds) return;
