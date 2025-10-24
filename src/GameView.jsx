@@ -23,20 +23,46 @@ const LOGICAL_H = FIELD_PIX_W;
 
 function enforceFinalSeconds(state, reason = 'Final seconds mode enabled') {
   if (!state) return state;
+
   const currentQuarter = state.clock?.quarter ?? 1;
   const currentTime = state.clock?.time ?? 900;
-  if (currentQuarter === 4 && currentTime <= 5) {
+  const needsClockAdjustment = currentQuarter !== 4 || currentTime > 5;
+  const alreadyBoosted = state.__finalSecondsMeta?.boostedTeam != null;
+
+  if (!needsClockAdjustment && alreadyBoosted) {
     return state;
   }
-  const nextClock = {
-    ...(state.clock || {}),
-    quarter: 4,
-    time: 5,
-    running: false,
-    awaitSnap: true,
-    stopReason: reason,
-  };
-  return { ...state, clock: nextClock };
+
+  const nextState = { ...state };
+
+  if (needsClockAdjustment) {
+    nextState.clock = {
+      ...(state.clock || {}),
+      quarter: 4,
+      time: 5,
+      running: false,
+      awaitSnap: true,
+      stopReason: reason,
+    };
+  }
+
+  if (!alreadyBoosted) {
+    const baseScores = state.scores || {};
+    const boostedTeam = Math.random() < 0.5 ? TEAM_RED : TEAM_BLK;
+    const boostAmount = 25 + Math.floor(Math.random() * 21);
+    nextState.scores = {
+      [TEAM_RED]: baseScores?.[TEAM_RED] ?? 0,
+      [TEAM_BLK]: baseScores?.[TEAM_BLK] ?? 0,
+    };
+    nextState.scores[boostedTeam] = Math.max(nextState.scores[boostedTeam], boostAmount);
+    nextState.__finalSecondsMeta = {
+      ...(state.__finalSecondsMeta || {}),
+      boostedTeam,
+      boostedScore: nextState.scores[boostedTeam],
+    };
+  }
+
+  return nextState;
 }
 
 const GameView = React.forwardRef(function GameView({
