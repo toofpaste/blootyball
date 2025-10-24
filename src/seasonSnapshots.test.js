@@ -105,4 +105,41 @@ describe('combineSeasonSnapshots', () => {
     expect(combined.season.results).toHaveLength(0);
     expect(combined.currentMatchup?.index).toBe(0);
   });
+
+  it('keeps regular season openers when stray playoff entries appear in snapshots', () => {
+    const opener = createSeasonSnapshot({
+      seasonNumber: 2,
+      assignmentOffset: 0,
+      currentGameIndex: 0,
+      scheduleLength: 28,
+    });
+    const stray = createSeasonSnapshot({
+      seasonNumber: 2,
+      assignmentOffset: 1,
+      currentGameIndex: 0,
+      scheduleLength: 28,
+    });
+
+    const semifinal = {
+      ...stray.season.schedule[1],
+      tag: 'playoff-semifinal',
+      round: 'Semifinal 2',
+      played: false,
+    };
+    stray.season.schedule[1] = semifinal;
+    stray.season.playoffBracket = {
+      stage: 'semifinals',
+      semifinalGames: [
+        {
+          index: 1,
+          homeTeam: semifinal.homeTeam,
+          awayTeam: semifinal.awayTeam,
+        },
+      ],
+    };
+
+    const combined = combineSeasonSnapshots([opener, stray]);
+
+    expect(combined.season.schedule[1].tag).toBe('regular-season');
+  });
 });

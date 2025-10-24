@@ -107,6 +107,11 @@ function cloneScheduleGame(game) {
   };
 }
 
+function isPlayoffEntry(entry) {
+  const tag = String(entry?.tag || '');
+  return tag.startsWith('playoff');
+}
+
 function scheduleEntryPriority(entry) {
   if (!entry) return -Infinity;
   const tag = String(entry.tag || '');
@@ -1075,6 +1080,19 @@ export function combineSeasonSnapshots(rawSnapshots) {
       if (!game) return;
       const candidate = cloneScheduleGame(game);
       const existing = scheduleMap.get(idx);
+      const baseEntry = baseSchedule[idx] || null;
+      const candidateIsPlayoff = isPlayoffEntry(candidate);
+      const existingIsPlayoff = isPlayoffEntry(existing);
+      const baseIsPlayoff = isPlayoffEntry(baseEntry);
+      const regularLength = Number.isFinite(combinedSeason.regularSeasonLength)
+        ? combinedSeason.regularSeasonLength
+        : null;
+      const withinRegularSeason = Number.isFinite(regularLength) && idx < regularLength;
+
+      if (candidateIsPlayoff && !existingIsPlayoff && (withinRegularSeason || (baseEntry && !baseIsPlayoff))) {
+        return;
+      }
+
       if (!existing) {
         scheduleMap.set(idx, candidate);
         return;
