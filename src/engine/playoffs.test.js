@@ -407,6 +407,25 @@ describe('postseason scheduling', () => {
     expect(nextMatchup.tag).not.toMatch(/^playoff/);
   });
 
+  test('advanceSeasonPointer skips games already in progress', () => {
+    const season = createSeasonState({ seasonConfig: { longSeason: false } });
+
+    season.schedule = season.schedule.map((game, idx) => ({
+      ...game,
+      index: idx,
+      played: idx <= 2,
+      inProgress: idx === 3,
+    }));
+
+    season.currentGameIndex = 2;
+    const stride = season.assignmentStride || season.assignment?.stride || 1;
+
+    const nextMatchup = advanceSeasonPointer(season);
+
+    expect(nextMatchup).toBeNull();
+    expect(season.currentGameIndex).toBe(2 + stride);
+  });
+
   test('season does not complete until playoffs finish', () => {
     let season = createSeasonState({ seasonConfig: { longSeason: false } });
 
