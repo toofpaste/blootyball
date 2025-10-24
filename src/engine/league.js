@@ -2000,23 +2000,34 @@ export function advanceSeasonPointer(season) {
   const currentIndex = Number.isFinite(season.currentGameIndex) ? season.currentGameIndex : 0;
 
   let nextIndex = currentIndex + stride;
-  const indicesToCheck = [];
+  const seen = new Set();
+
+  const tryIndex = (targetIndex) => {
+    if (!Number.isFinite(targetIndex)) return null;
+    if (targetIndex < 0 || targetIndex >= scheduleLength) return null;
+    if (seen.has(targetIndex)) return null;
+    seen.add(targetIndex);
+    const entry = season.schedule[targetIndex];
+    if (!entry) return null;
+    if (entry.played) return null;
+    season.currentGameIndex = targetIndex;
+    return prepareSeasonMatchup(season);
+  };
+
   if (nextIndex < scheduleLength) {
-    indicesToCheck.push(nextIndex);
+    const matchup = tryIndex(nextIndex);
+    if (matchup) return matchup;
   }
 
   for (let idx = currentIndex + 1; idx < scheduleLength; idx += 1) {
     if (idx === nextIndex) continue;
-    indicesToCheck.push(idx);
+    const matchup = tryIndex(idx);
+    if (matchup) return matchup;
   }
 
-  for (let idx = 0; idx < indicesToCheck.length; idx += 1) {
-    const targetIndex = indicesToCheck[idx];
-    const entry = season.schedule[targetIndex];
-    if (!entry) continue;
-    if (entry.played) continue;
-    season.currentGameIndex = targetIndex;
-    return prepareSeasonMatchup(season);
+  for (let idx = 0; idx < currentIndex; idx += 1) {
+    const matchup = tryIndex(idx);
+    if (matchup) return matchup;
   }
 
   season.currentGameIndex = nextIndex;

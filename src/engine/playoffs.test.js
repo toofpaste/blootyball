@@ -388,6 +388,25 @@ describe('postseason scheduling', () => {
     expect(season.currentGameIndex).toBe(championshipIndex);
   });
 
+  test('advanceSeasonPointer revisits unfinished regular-season games before playoffs', () => {
+    const season = createSeasonState({ seasonConfig: { longSeason: false } });
+    const totalGames = season.schedule.length;
+
+    season.schedule = season.schedule.map((game, idx) => ({
+      ...game,
+      index: idx,
+      played: idx !== 3,
+    }));
+
+    season.currentGameIndex = totalGames - 1;
+
+    const nextMatchup = advanceSeasonPointer(season);
+
+    expect(nextMatchup).not.toBeNull();
+    expect(season.currentGameIndex).toBe(3);
+    expect(nextMatchup.tag).not.toMatch(/^playoff/);
+  });
+
   test('season does not complete until playoffs finish', () => {
     let season = createSeasonState({ seasonConfig: { longSeason: false } });
 
