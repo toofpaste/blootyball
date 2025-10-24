@@ -1361,29 +1361,6 @@ export default function App() {
     });
   }, []);
 
-  useEffect(() => {
-    const required = Array.from({ length: GAME_COUNT }, (_, idx) => idx < activeSlotCount);
-    const anyRequiredComplete = required.some((needed, idx) => needed && completionFlags[idx]);
-    if (!anyRequiredComplete) return;
-    const missingRequired = required.some((needed, idx) => needed && !completionFlags[idx]);
-    if (missingRequired) return;
-
-    const autoResume = autoResumeRef.current.map((value, idx) => (idx < activeSlotCount ? value : false));
-    autoResumeRef.current = Array(GAME_COUNT).fill(false);
-
-    const timeout = setTimeout(() => {
-      const shouldResume = autoResume.slice(0, activeSlotCount).some(Boolean);
-      setGlobalRunning(shouldResume);
-      setResetSignal(prev => ({
-        token: prev.token + 1,
-        autoResume,
-      }));
-      setCompletionFlags(prevFlags => prevFlags.map((flag, idx) => (idx < activeSlotCount ? false : true)));
-    }, RESET_DELAY_MS);
-
-    return () => clearTimeout(timeout);
-  }, [completionFlags, activeSlotCount]);
-
   const handleToggleRunning = useCallback(() => {
     setGlobalRunning(prev => !prev);
   }, []);
@@ -1620,6 +1597,29 @@ export default function App() {
 
     prevActiveSlotCountRef.current = activeSlotCount;
   }, [activeSlotCount]);
+
+  useEffect(() => {
+    const required = Array.from({ length: GAME_COUNT }, (_, idx) => idx < activeSlotCount);
+    const anyRequiredComplete = required.some((needed, idx) => needed && completionFlags[idx]);
+    if (!anyRequiredComplete) return;
+    const missingRequired = required.some((needed, idx) => needed && !completionFlags[idx]);
+    if (missingRequired) return;
+
+    const autoResume = autoResumeRef.current.map((value, idx) => (idx < activeSlotCount ? value : false));
+    autoResumeRef.current = Array(GAME_COUNT).fill(false);
+
+    const timeout = setTimeout(() => {
+      const shouldResume = autoResume.slice(0, activeSlotCount).some(Boolean);
+      setGlobalRunning(shouldResume);
+      setResetSignal(prev => ({
+        token: prev.token + 1,
+        autoResume,
+      }));
+      setCompletionFlags(prevFlags => prevFlags.map((flag, idx) => (idx < activeSlotCount ? false : true)));
+    }, RESET_DELAY_MS);
+
+    return () => clearTimeout(timeout);
+  }, [completionFlags, activeSlotCount]);
 
   const pressWeekKey = useMemo(() => {
     const seasonNumber = aggregatedSeasonStats?.season?.seasonNumber
