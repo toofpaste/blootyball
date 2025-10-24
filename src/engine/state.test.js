@@ -53,6 +53,82 @@ describe('progressOffseason', () => {
     expect(progressed[0].matchup).not.toBeNull();
     expect(progressed[1].matchup).not.toBeNull();
   });
+
+  test('new season resumes with regular games even if previous season semifinals remain in globals', () => {
+    window.__blootyball = { games: [] };
+
+    const primary = createInitialGameState({
+      assignmentOffset: 0,
+      assignmentStride: 2,
+      lockstepAssignments: true,
+    });
+    const sharedLeague = primary.league;
+    const secondary = createInitialGameState({
+      assignmentOffset: 1,
+      assignmentStride: 2,
+      league: sharedLeague,
+      lockstepAssignments: true,
+    });
+
+    const semifinalIndex = secondary.season.assignmentOffset;
+    const baseSemifinal = secondary.season.schedule[semifinalIndex];
+    const semifinalResult = {
+      gameId: 'PO01-SF2',
+      index: semifinalIndex,
+      homeTeamId: baseSemifinal.homeTeam,
+      awayTeamId: baseSemifinal.awayTeam,
+      score: {
+        [baseSemifinal.homeTeam]: 24,
+        [baseSemifinal.awayTeam]: 14,
+      },
+      winner: baseSemifinal.homeTeam,
+      tag: 'playoff-semifinal',
+      playerStats: {},
+      playerTeams: {},
+      playLog: [],
+    };
+    secondary.season.results.push(semifinalResult);
+    secondary.season.schedule[semifinalIndex] = {
+      ...baseSemifinal,
+      tag: 'playoff-semifinal',
+      played: true,
+      result: semifinalResult,
+    };
+    secondary.season.playoffBracket = {
+      stage: 'semifinals',
+      semifinalGames: [
+        {
+          index: semifinalIndex,
+          homeTeam: baseSemifinal.homeTeam,
+          awayTeam: baseSemifinal.awayTeam,
+          winner: baseSemifinal.homeTeam,
+        },
+      ],
+    };
+    secondary.season.phase = 'semifinals';
+
+    window.__blootyball.games[0] = { state: primary };
+    window.__blootyball.games[1] = { state: secondary };
+
+    sharedLeague.offseason ||= {};
+    sharedLeague.offseason.active = false;
+    sharedLeague.offseason.nextSeasonReady = true;
+    sharedLeague.offseason.nextSeasonStarted = false;
+    sharedLeague.offseason.completedSeasonNumber = primary.season.seasonNumber;
+    sharedLeague.seasonNumber = primary.season.seasonNumber + 1;
+
+    const restarted = progressOffseason(primary);
+    window.__blootyball.games[0] = { state: restarted };
+
+    const resumed = resumeAssignedMatchup(restarted);
+    const firstGame = resumed.season.schedule[resumed.season.assignmentOffset];
+
+    expect(resumed.matchup).not.toBeNull();
+    expect(resumed.matchup.tag).not.toBe('playoff-semifinal');
+    expect(firstGame.tag).not.toBe('playoff-semifinal');
+
+    delete window.__blootyball;
+  });
 });
 
 describe('resumeAssignedMatchup', () => {

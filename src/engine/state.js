@@ -365,9 +365,16 @@ function stageRank(stage) {
 function collectGlobalSeasons(state) {
     if (typeof window === 'undefined') return [state.season];
     const games = window.__blootyball?.games || [];
+    const targetSeasonNumber = state?.season?.seasonNumber;
     const seasons = games
         .map((entry) => entry?.state?.season)
-        .filter((season) => season && season.schedule);
+        .filter((season) => season && season.schedule)
+        .filter((season) => {
+            if (!Number.isFinite(targetSeasonNumber)) return true;
+            const seasonNumber = season?.seasonNumber;
+            if (!Number.isFinite(seasonNumber)) return false;
+            return seasonNumber === targetSeasonNumber;
+        });
     if (!seasons.includes(state.season)) seasons.push(state.season);
     return seasons;
 }
