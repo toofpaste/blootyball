@@ -309,7 +309,7 @@ describe('resumeAssignedMatchup', () => {
     expect(resumed).toBe(state);
   });
 
-  test('returns original state when league season number has advanced', () => {
+  test('restarts season when league season number has advanced', () => {
     const state = createInitialGameState({ assignmentOffset: 1, assignmentStride: 2, lockstepAssignments: true });
     state.league.offseason.active = false;
     state.league.offseason.nextSeasonReady = true;
@@ -319,7 +319,10 @@ describe('resumeAssignedMatchup', () => {
 
     const resumed = resumeAssignedMatchup(state);
 
-    expect(resumed).toBe(state);
+    expect(resumed).not.toBe(state);
+    expect(resumed.season.seasonNumber).toBe(state.league.seasonNumber);
+    expect(resumed.matchup).not.toBeNull();
+    expect(resumed.matchup.tag).toBe('regular-season');
   });
 });
 
