@@ -584,7 +584,7 @@ function synchronizeSeasonTotals(state) {
         return acc;
     }, {});
 
-    let filteredResults = aggregated.results.filter((result) => {
+    const filteredResults = aggregated.results.filter((result) => {
         const idx = Number.isFinite(result?.index) ? result.index : null;
         if (idx == null) return true;
         const entry = state.season.schedule?.[idx];
@@ -594,12 +594,6 @@ function synchronizeSeasonTotals(state) {
         if (entryIsPlayoff !== resultIsPlayoff) return false;
         return true;
     });
-
-    const scheduleEntries = Array.isArray(state.season.schedule) ? state.season.schedule : [];
-    const scheduleHasPlayoffEntries = scheduleEntries.some((entry) => entry && isPlayoffTag(entry.tag));
-    if (!scheduleHasPlayoffEntries) {
-        filteredResults = filteredResults.filter((result) => !isPlayoffTag(result?.tag));
-    }
 
     state.season.results = filteredResults;
     filteredResults.forEach((result) => {
