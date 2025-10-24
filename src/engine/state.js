@@ -611,6 +611,8 @@ function synchronizeSeasonTotals(state) {
     state.season.playerStats = aggregated.playerStats || {};
     recomputeAssignmentTotals(state.season);
 
+    const scheduleEntries = state.season.schedule || [];
+    const scheduleHasPlayoffEntries = scheduleEntries.some((entry) => entry && isPlayoffTag(entry.tag));
     const scheduleHasUnplayedRegular = scheduleEntries.some((entry) => entry && !isPlayoffTag(entry.tag) && !entry.played);
     const hasPlayoffResults = filteredResults.some((result) => isPlayoffTag(result?.tag));
 
