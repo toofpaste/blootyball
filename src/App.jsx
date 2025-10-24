@@ -1648,12 +1648,24 @@ export default function App() {
     prevActiveSlotCountRef.current = activeSlotCount;
   }, [activeSlotCount]);
 
+  const offseasonBlockingResets = Boolean(
+    offseasonState?.active && !offseasonState?.nextSeasonReady,
+  );
+
   useEffect(() => {
+    if (offseasonBlockingResets) {
+      if (pendingAutoResetRef.current) {
+        clearTimeout(pendingAutoResetRef.current);
+        pendingAutoResetRef.current = null;
+      }
+      return undefined;
+    }
+
     const required = Array.from({ length: GAME_COUNT }, (_, idx) => idx < activeSlotCount);
     const anyRequiredComplete = required.some((needed, idx) => needed && completionFlags[idx]);
-    if (!anyRequiredComplete) return;
+    if (!anyRequiredComplete) return undefined;
     const missingRequired = required.some((needed, idx) => needed && !completionFlags[idx]);
-    if (missingRequired) return;
+    if (missingRequired) return undefined;
 
     const autoResume = autoResumeRef.current.map((value, idx) => (idx < activeSlotCount ? value : false));
     autoResumeRef.current = Array(GAME_COUNT).fill(false);
@@ -1678,7 +1690,11 @@ export default function App() {
       }
       clearTimeout(timeout);
     };
-  }, [completionFlags, activeSlotCount]);
+  }, [
+    completionFlags,
+    activeSlotCount,
+    offseasonBlockingResets,
+  ]);
 
   const pressWeekKey = useMemo(() => {
     const seasonNumber = aggregatedSeasonStats?.season?.seasonNumber
