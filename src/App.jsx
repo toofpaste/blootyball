@@ -1610,8 +1610,25 @@ export default function App() {
   const postseasonSingleField = useMemo(() => {
     const phase = seasonProgress?.phase;
     if (!phase) return false;
-    return phase === 'playoffs' || phase === 'semifinals' || phase === 'championship';
-  }, [seasonProgress?.phase]);
+    if (phase === 'playoffs' || phase === 'semifinals' || phase === 'championship') {
+      return true;
+    }
+
+    if (phase === 'complete') {
+      const offseasonActive = Boolean(offseasonState?.active);
+      const offseasonWaiting = Boolean(offseasonState?.nextSeasonReady && !offseasonState?.nextSeasonStarted);
+      if ((offseasonActive || offseasonWaiting) && !offseasonState?.nextSeasonStarted) {
+        return true;
+      }
+    }
+
+    return false;
+  }, [
+    seasonProgress?.phase,
+    offseasonState?.active,
+    offseasonState?.nextSeasonReady,
+    offseasonState?.nextSeasonStarted,
+  ]);
 
   const activeSlotCount = postseasonSingleField ? 1 : GAME_COUNT;
   const prevActiveSlotCountRef = useRef(activeSlotCount);
