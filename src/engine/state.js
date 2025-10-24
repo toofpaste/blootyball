@@ -2579,6 +2579,13 @@ export function resumeAssignedMatchup(state) {
     const completedSeasonNumber = offseason?.completedSeasonNumber;
     const offseasonAppliesToCurrentSeason = Number.isFinite(completedSeasonNumber)
         && (!Number.isFinite(seasonNumber) || completedSeasonNumber >= seasonNumber);
+    const leagueSeasonNumber = state?.league?.seasonNumber;
+    const leagueAheadOfSeason = Number.isFinite(leagueSeasonNumber)
+        && (!Number.isFinite(seasonNumber) || leagueSeasonNumber > seasonNumber);
+
+    if (leagueAheadOfSeason) {
+        return state;
+    }
     if (offseason?.active && !offseason.nextSeasonStarted && offseasonAppliesToCurrentSeason) {
         return state;
     }
