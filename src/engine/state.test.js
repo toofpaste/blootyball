@@ -1,4 +1,4 @@
-import { createInitialGameState, progressOffseason, resumeAssignedMatchup } from './state';
+import { createInitialGameState, progressOffseason, resumeAssignedMatchup, stepGame } from './state';
 import { applyGameResultToSeason } from './league';
 import { TEAM_IDS } from './data/teamLibrary';
 
@@ -118,5 +118,33 @@ describe('resumeAssignedMatchup', () => {
     expect(resumed.matchup).not.toBeNull();
     expect(resumed.matchup.tag).toBe('playoff-semifinal');
     expect(resumed.season.phase).toBe('semifinals');
+  });
+
+  test('does not resume play while offseason is active', () => {
+    const state = createInitialGameState({ assignmentOffset: 0, assignmentStride: 2, lockstepAssignments: true });
+    state.league.offseason.active = true;
+    state.league.offseason.nextSeasonStarted = false;
+    state.league.offseason.completedSeasonNumber = state.season.seasonNumber;
+    state.season.phase = 'complete';
+    state.gameComplete = true;
+
+    const resumed = resumeAssignedMatchup(state);
+
+    expect(resumed).toBe(state);
+  });
+});
+
+describe('stepGame', () => {
+  test('halts simulation during the offseason', () => {
+    const state = createInitialGameState({ assignmentOffset: 0, assignmentStride: 2, lockstepAssignments: true });
+    state.league.offseason.active = true;
+    state.league.offseason.nextSeasonStarted = false;
+    state.league.offseason.completedSeasonNumber = state.season.seasonNumber;
+    state.season.phase = 'complete';
+    state.gameComplete = true;
+
+    const progressed = stepGame(state, 1);
+
+    expect(progressed).toBe(state);
   });
 });

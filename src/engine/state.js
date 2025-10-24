@@ -2574,6 +2574,14 @@ export function createPlayState(roster, drive) {
 
 export function resumeAssignedMatchup(state) {
     if (!state) return state;
+    const offseason = state?.league?.offseason;
+    const seasonNumber = state?.season?.seasonNumber;
+    const completedSeasonNumber = offseason?.completedSeasonNumber;
+    const offseasonAppliesToCurrentSeason = Number.isFinite(completedSeasonNumber)
+        && (!Number.isFinite(seasonNumber) || completedSeasonNumber >= seasonNumber);
+    if (offseason?.active && !offseason.nextSeasonStarted && offseasonAppliesToCurrentSeason) {
+        return state;
+    }
     const next = { ...state };
     if (next.season) {
         next.season = { ...next.season };
@@ -2675,6 +2683,14 @@ export function stepGame(state, dt) {
     const updated = progressOffseason(state);
     if (updated !== state) {
         state = updated;
+    }
+    const offseason = state?.league?.offseason;
+    const seasonNumber = state?.season?.seasonNumber;
+    const completedSeasonNumber = offseason?.completedSeasonNumber;
+    const offseasonAppliesToCurrentSeason = Number.isFinite(completedSeasonNumber)
+        && (!Number.isFinite(seasonNumber) || completedSeasonNumber >= seasonNumber);
+    if (offseason?.active && !offseason.nextSeasonStarted && offseasonAppliesToCurrentSeason) {
+        return state;
     }
     if (state?.overtime?.concluded && !state.overtime.finalized) {
         const overtimeInfo = { ...state.overtime, active: false, finalized: true };
