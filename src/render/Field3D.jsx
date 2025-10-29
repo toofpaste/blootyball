@@ -69,16 +69,24 @@ function isWebGLAvailable() {
   }
 }
 
-function useIsometricCamera(center) {
+function useSidelineCamera(center) {
   const { camera, size } = useThree();
   React.useLayoutEffect(() => {
-    const maxDimension = Math.max(FIELD_PIX_W, FIELD_PIX_H);
-    const distance = maxDimension * 1.08;
-    camera.position.set(distance, distance * 0.72, distance);
-    camera.fov = 32;
-    camera.lookAt(center[0], center[1], center[2]);
+    const aspect = size.width > 0 && size.height > 0 ? size.width / size.height : 16 / 9;
+    const verticalFov = 30;
+    const verticalFovRad = THREE.MathUtils.degToRad(verticalFov);
+    const horizontalFov = 2 * Math.atan(Math.tan(verticalFovRad / 2) * aspect);
+
+    const halfFieldLength = FIELD_PIX_H / 2;
+    const distance = (halfFieldLength / Math.tan(horizontalFov / 2)) * 1.03;
+    const height = FIELD_PIX_W * 0.78;
+
+    camera.position.set(distance, height, 0);
+    camera.fov = verticalFov;
     camera.near = 0.1;
-    camera.far = distance * 3.5;
+    camera.far = distance * 4;
+    camera.up.set(0, 1, 0);
+    camera.lookAt(center[0], center[1], center[2]);
     camera.updateProjectionMatrix();
   }, [camera, center, size]);
   return null;
@@ -375,7 +383,7 @@ function computeBall(state) {
 
 function SceneContent({ state }) {
   const center = [0, 0, 0];
-  useIsometricCamera(center);
+  useSidelineCamera(center);
 
   const teams = useMemo(() => computeTeams(state), [state]);
   const endzones = useMemo(() => computeEndzoneColors(state), [state]);
@@ -429,7 +437,7 @@ function Field3D({ state }) {
       className="field-canvas"
       shadows
       dpr={[1, 2]}
-      camera={{ fov: 40, position: [0, 800, 800], near: 0.1, far: 4000 }}
+      camera={{ fov: 30, position: [FIELD_PIX_H, FIELD_PIX_W * 0.78, 0], near: 0.1, far: 4000 }}
       gl={{ antialias: true }}
     >
       <color attach="background" args={["#021403"]} />
