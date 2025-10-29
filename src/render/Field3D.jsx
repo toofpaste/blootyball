@@ -31,6 +31,17 @@ const QB_VISION_COLORS = {
   SCAN: '#f5f5f5',
 };
 
+const STADIUM_COLORS = {
+  concrete: '#3c3f48',
+  seats: '#2a3560',
+  riser: '#1e2438',
+  pressBox: '#51586b',
+  glass: '#8ca2c9',
+  ads: ['#f05a28', '#ffd400', '#19b5fe', '#7fd162', '#f45b69'],
+  rail: '#d8dbe3',
+  lighting: '#ccccd8',
+};
+
 const shortRole = (role) => {
   const map = {
     QB: 'QB',
@@ -477,6 +488,164 @@ function FieldGoalPosts() {
   );
 }
 
+function StadiumEnvironment() {
+  const fieldHalfW = FIELD_PIX_W / 2;
+  const fieldHalfH = FIELD_PIX_H / 2;
+  const sidelineOffset = SIDELINE_BLEED + PX_PER_YARD * 2.6;
+  const endzoneOffset = PX_PER_YARD * 6.4;
+  const tierHeight = 5.2;
+  const tierDepth = 14;
+  const tierCount = 7;
+  const sidelineBaseX = -fieldHalfW - sidelineOffset - tierDepth / 2;
+  const endzoneBaseZ = fieldHalfH + endzoneOffset;
+  const seatingLength = FIELD_PIX_H + PX_PER_YARD * 8;
+  const endzoneWidth = FIELD_PIX_W * 0.82;
+
+  const renderTiers = ({ axis, base, length, direction = -1 }) => (
+    Array.from({ length: tierCount }).map((_, index) => {
+      const depthOffset = index * tierDepth * 0.78;
+      const height = tierHeight * (index + 1);
+      const taper = Math.max(0.6, 1 - index * 0.04);
+      const sizePrimary = tierDepth;
+      const sizeSecondary = length * taper;
+      const offset = depthOffset * direction;
+      const position = axis === 'x'
+        ? [base + offset, height / 2, 0]
+        : [0, height / 2, base + offset];
+      const geometryArgs = axis === 'x'
+        ? [sizePrimary, tierHeight, sizeSecondary]
+        : [sizeSecondary, tierHeight, sizePrimary];
+      const color = index % 2 === 0 ? STADIUM_COLORS.seats : STADIUM_COLORS.riser;
+      return (
+        <mesh key={`${axis}-tier-${index}`} position={position} castShadow receiveShadow>
+          <boxGeometry args={geometryArgs} />
+          <meshStandardMaterial color={color} metalness={0.08} roughness={0.7} />
+        </mesh>
+      );
+    })
+  );
+
+  const adBoards = (orientation) => {
+    const count = 6;
+    return Array.from({ length: count }).map((_, index) => {
+      const color = STADIUM_COLORS.ads[index % STADIUM_COLORS.ads.length];
+      const spacing = orientation === 'sideline'
+        ? (seatingLength - PX_PER_YARD * 4) / count
+        : (endzoneWidth - PX_PER_YARD * 2) / count;
+      const offset = -((count - 1) / 2) * spacing + spacing * index;
+      const position = orientation === 'sideline'
+        ? [sidelineBaseX + tierDepth * 0.65, tierHeight * 0.7, offset]
+        : [
+          offset,
+          tierHeight * 0.7,
+          orientation === 'endzone-north'
+            ? endzoneBaseZ - tierDepth * 0.4
+            : -endzoneBaseZ + tierDepth * 0.4,
+        ];
+      const geometryArgs = orientation === 'sideline'
+        ? [tierDepth * 0.8, tierHeight * 0.9, PX_PER_YARD * 3.6]
+        : [PX_PER_YARD * 3.2, tierHeight * 0.9, tierDepth * 0.8];
+      return (
+        <mesh key={`${orientation}-ad-${index}`} position={position} castShadow receiveShadow>
+          <boxGeometry args={geometryArgs} />
+          <meshStandardMaterial color={color} emissive={color} emissiveIntensity={0.12} />
+        </mesh>
+      );
+    });
+  };
+
+  const lightingTowers = [
+    [-fieldHalfW - sidelineOffset * 0.4, 0, endzoneBaseZ + PX_PER_YARD * 2.2],
+    [-fieldHalfW - sidelineOffset * 0.4, 0, -endzoneBaseZ - PX_PER_YARD * 2.2],
+    [-fieldHalfW - sidelineOffset * 0.4 - tierDepth * 3, 0, endzoneBaseZ + PX_PER_YARD * 2.2],
+    [-fieldHalfW - sidelineOffset * 0.4 - tierDepth * 3, 0, -endzoneBaseZ - PX_PER_YARD * 2.2],
+  ];
+
+  return (
+    <group>
+      {/* Far sideline seating */}
+      <group position={[0, 0, 0]}>
+        {renderTiers({ axis: 'x', base: sidelineBaseX, length: seatingLength })}
+        <mesh
+          position={[sidelineBaseX + tierDepth * 0.6, tierHeight * 0.25, 0]}
+          castShadow
+          receiveShadow
+        >
+          <boxGeometry args={[tierDepth * 1.2, tierHeight * 0.5, seatingLength + PX_PER_YARD * 2]} />
+          <meshStandardMaterial color={STADIUM_COLORS.concrete} roughness={0.82} />
+        </mesh>
+        <mesh
+          position={[sidelineBaseX - tierDepth * tierCount * 0.78 - tierDepth * 0.6, tierHeight * (tierCount + 0.6), 0]}
+          castShadow
+          receiveShadow
+        >
+          <boxGeometry args={[tierDepth * 2.4, tierHeight * 1.6, seatingLength * 0.62]} />
+          <meshStandardMaterial color={STADIUM_COLORS.pressBox} roughness={0.58} metalness={0.12} />
+        </mesh>
+        <mesh
+          position={[sidelineBaseX - tierDepth * tierCount * 0.78 - tierDepth * 0.6, tierHeight * (tierCount + 1.6), 0]}
+          castShadow
+        >
+          <boxGeometry args={[tierDepth * 2.6, tierHeight * 0.35, seatingLength * 0.66]} />
+          <meshStandardMaterial color={STADIUM_COLORS.rail} roughness={0.3} />
+        </mesh>
+        {Array.from({ length: 5 }).map((_, index) => {
+          const offset = -((5 - 1) / 2) * seatingLength * 0.12 + seatingLength * 0.12 * index;
+          return (
+            <mesh
+              key={`press-box-window-${index}`}
+              position={[sidelineBaseX - tierDepth * tierCount * 0.78 - tierDepth * 0.4, tierHeight * (tierCount + 0.9), offset]}
+              castShadow
+            >
+              <boxGeometry args={[tierDepth * 0.2, tierHeight * 0.9, seatingLength * 0.1]} />
+              <meshStandardMaterial color={STADIUM_COLORS.glass} transparent opacity={0.5} roughness={0.1} />
+            </mesh>
+          );
+        })}
+        {adBoards('sideline')}
+      </group>
+
+      {/* Endzone seating - north */}
+      <group position={[0, 0, endzoneBaseZ]}>
+        {renderTiers({ axis: 'z', base: 0, length: endzoneWidth, direction: 1 })}
+        <mesh position={[0, tierHeight * 0.25, tierDepth * -0.5]} castShadow receiveShadow>
+          <boxGeometry args={[endzoneWidth + PX_PER_YARD * 1.6, tierHeight * 0.5, tierDepth]} />
+          <meshStandardMaterial color={STADIUM_COLORS.concrete} roughness={0.82} />
+        </mesh>
+        {adBoards('endzone-north')}
+      </group>
+
+      {/* Endzone seating - south */}
+      <group position={[0, 0, -endzoneBaseZ]}>
+        {renderTiers({ axis: 'z', base: 0, length: endzoneWidth })}
+        <mesh position={[0, tierHeight * 0.25, tierDepth * 0.5]} castShadow receiveShadow>
+          <boxGeometry args={[endzoneWidth + PX_PER_YARD * 1.6, tierHeight * 0.5, tierDepth]} />
+          <meshStandardMaterial color={STADIUM_COLORS.concrete} roughness={0.82} />
+        </mesh>
+        {adBoards('endzone-south')}
+      </group>
+
+      {/* Lighting towers */}
+      {lightingTowers.map(([x, _y, z], index) => (
+        <group key={`lighting-${index}`} position={[x, 0, z]}>
+          <mesh position={[0, 22, 0]} castShadow>
+            <cylinderGeometry args={[2.6, 2.6, 44, 16]} />
+            <meshStandardMaterial color={STADIUM_COLORS.lighting} roughness={0.4} metalness={0.18} />
+          </mesh>
+          <mesh position={[0, 45, 0]} castShadow>
+            <boxGeometry args={[8, 3.6, 14]} />
+            <meshStandardMaterial color={STADIUM_COLORS.lighting} emissive="#f1f1f1" emissiveIntensity={0.2} />
+          </mesh>
+          <mesh position={[0, 47, 0]}>
+            <boxGeometry args={[10, 0.6, 18]} />
+            <meshStandardMaterial color={STADIUM_COLORS.rail} />
+          </mesh>
+        </group>
+      ))}
+    </group>
+  );
+}
+
 function computeTeams(state) {
   const formation = state?.play?.formation || {};
   const safePlayers = (group) => Object.values(group || {}).filter(
@@ -560,6 +729,7 @@ function SceneContent({ state }) {
       <FieldTopVolume colors={endzones} />
       <FieldTexture colors={endzones} />
       <FieldGoalPosts />
+      <StadiumEnvironment />
       <ambientLight intensity={0.55} />
       <directionalLight position={[320, 500, 420]} intensity={0.85} castShadow shadow-mapSize-width={2048} shadow-mapSize-height={2048} />
       <hemisphereLight args={[0x49753a, 0x0a1c0a, 0.35]} />
