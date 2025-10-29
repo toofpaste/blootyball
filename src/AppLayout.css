@@ -488,21 +488,15 @@
   width: 100%;
   display: flex;
   justify-content: center;
-  padding: clamp(12px, 3vw, 24px);
-  border-radius: 20px;
-  border: 1px solid rgba(40, 120, 40, 0.4);
-  background: linear-gradient(135deg, rgba(8, 44, 8, 0.95), rgba(4, 28, 4, 0.96));
-  box-shadow: 0 20px 38px rgba(0, 0, 0, 0.45);
 }
 
 .field-canvas {
-  border-radius: 16px;
-  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.5);
+  border-radius: 18px;
+  box-shadow: 0 20px 42px rgba(0, 0, 0, 0.55);
   background: #0a7f2e;
   width: 100%;
-  max-width: min(100%, 1100px);
-  height: auto;
-  aspect-ratio: 720 / 320;
+  max-width: 100%;
+  aspect-ratio: 16 / 9;
 }
 
 .field-canvas--fallback {
