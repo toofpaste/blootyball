@@ -268,9 +268,15 @@ function FieldTexture({ colors }) {
 
   if (!texture) return null;
   return (
-    <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.15, 0]} receiveShadow>
+    <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.18, 0]} receiveShadow>
       <planeGeometry args={[FIELD_PIX_W, FIELD_PIX_H]} />
-      <meshStandardMaterial map={texture} toneMapped={false} />
+      <meshStandardMaterial
+        map={texture}
+        toneMapped={false}
+        polygonOffset
+        polygonOffsetFactor={-1}
+        polygonOffsetUnits={-1}
+      />
     </mesh>
   );
 }
