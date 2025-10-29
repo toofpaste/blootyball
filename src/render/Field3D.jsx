@@ -18,6 +18,7 @@ import { resolveSlotColors, resolveTeamColor } from '../engine/colors';
 const PLAYER_RADIUS = 7;
 const PLAYER_HEIGHT = 16;
 const BALL_RADIUS = 3.4;
+const MARKER_MARGIN = PX_PER_YARD * 1.2;
 const QB_VISION_COLORS = {
   PRIMARY: '#ffd54f',
   THROW: '#ffb74d',
@@ -73,18 +74,18 @@ function useSidelineCamera(center) {
   const { camera, size } = useThree();
   React.useLayoutEffect(() => {
     const aspect = size.width > 0 && size.height > 0 ? size.width / size.height : 16 / 9;
-    const verticalFov = 30;
+    const verticalFov = 26;
     const verticalFovRad = THREE.MathUtils.degToRad(verticalFov);
     const horizontalFov = 2 * Math.atan(Math.tan(verticalFovRad / 2) * aspect);
 
     const halfFieldLength = FIELD_PIX_H / 2;
-    const distance = (halfFieldLength / Math.tan(horizontalFov / 2)) * 1.03;
-    const height = FIELD_PIX_W * 0.9;
+    const distance = (halfFieldLength / Math.tan(horizontalFov / 2)) * 0.92;
+    const height = FIELD_PIX_W * 1.28;
 
     camera.position.set(distance, height, 0);
     camera.fov = verticalFov;
     camera.near = 0.1;
-    camera.far = distance * 4;
+    camera.far = Math.max(distance, height) * 6;
     camera.up.set(0, 1, 0);
     camera.lookAt(center[0], center[1], center[2]);
     camera.updateProjectionMatrix();
@@ -100,6 +101,30 @@ function toWorldPosition(point) {
     0,
     halfH - point.y,
   ];
+}
+
+function FieldBase() {
+  const thickness = 24;
+  const apron = PX_PER_YARD * 3.2;
+  const width = FIELD_PIX_W + apron * 2;
+  const length = FIELD_PIX_H + apron * 2;
+  const padHeight = 6;
+  return (
+    <group>
+      <mesh position={[0, -thickness / 2, 0]} receiveShadow>
+        <boxGeometry args={[width, thickness, length]} />
+        <meshStandardMaterial color="#3b2612" roughness={0.92} />
+      </mesh>
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.02, 0]} receiveShadow>
+        <planeGeometry args={[width, length]} />
+        <meshStandardMaterial color="#1b2f16" />
+      </mesh>
+      <mesh position={[0, -thickness + padHeight / 2, 0]} receiveShadow>
+        <boxGeometry args={[width * 0.88, padHeight, length * 0.88]} />
+        <meshStandardMaterial color="#29190b" roughness={0.95} />
+      </mesh>
+    </group>
+  );
 }
 
 function FieldTexture({ colors }) {
@@ -190,7 +215,7 @@ function FieldTexture({ colors }) {
 
   if (!texture) return null;
   return (
-    <mesh rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
+    <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.15, 0]} receiveShadow>
       <planeGeometry args={[FIELD_PIX_W, FIELD_PIX_H]} />
       <meshStandardMaterial map={texture} toneMapped={false} />
     </mesh>
@@ -249,16 +274,21 @@ function QbVisionRing({ vision, playElapsed }) {
   );
 }
 
-function BallMarker({ pos, height, shadow }) {
+function BallMarker({ pos, height, shadow, carried }) {
   const ballHeight = Math.max(0, height || 0);
-  const [x, , z] = pos;
-  const baseY = PLAYER_RADIUS * 0.9;
-  const y = baseY + ballHeight * 0.18;
+  const carriedOffsetX = carried ? PLAYER_RADIUS * 1.45 : 0;
+  const [baseX, , baseZ] = pos;
+  const shadowX = shadow[0] + carriedOffsetX;
+  const shadowZ = shadow[2];
+  const baseY = carried ? PLAYER_HEIGHT * 0.58 : PLAYER_RADIUS * 0.9;
+  const y = carried ? baseY : baseY + ballHeight * 0.18;
+  const x = baseX + carriedOffsetX;
+  const z = baseZ;
   return (
     <group>
       <mesh
         rotation={[-Math.PI / 2, 0, 0]}
-        position={[shadow[0], 0.05, shadow[2]]}
+        position={[shadowX, 0.05, shadowZ]}
         scale={[1.4, 1, 1]}
       >
         <circleGeometry args={[5.2, 40]} />
@@ -275,29 +305,31 @@ function BallMarker({ pos, height, shadow }) {
 function FirstDownMarkers({ losY, ltgY }) {
   const losWorld = useMemo(() => toWorldPosition({ x: FIELD_PIX_W / 2, y: losY }), [losY]);
   const ltgWorld = useMemo(() => toWorldPosition({ x: FIELD_PIX_W / 2, y: ltgY }), [ltgY]);
+  const width = FIELD_PIX_W - MARKER_MARGIN * 2;
   return (
     <group>
-      <MarkerLine positionZ={losWorld[2]} color="#3da5ff" />
-      <MarkerLine positionZ={ltgWorld[2]} color="#ffd400" dashed />
+      <MarkerLine positionZ={losWorld[2]} color="#3da5ff" width={width} />
+      <MarkerLine positionZ={ltgWorld[2]} color="#ffd400" width={width} dashed />
     </group>
   );
 }
 
-function MarkerLine({ positionZ, color, dashed = false }) {
+function MarkerLine({ positionZ, color, width, dashed = false }) {
   const y = PLAYER_HEIGHT * 0.5 + 0.2;
+  const safeWidth = Math.max(10, width || FIELD_PIX_W);
   if (!dashed) {
     return (
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, y, positionZ]}>
-        <planeGeometry args={[FIELD_PIX_W, 1.2]} />
+        <planeGeometry args={[safeWidth, 1.2]} />
         <meshBasicMaterial color={color} transparent opacity={0.85} />
       </mesh>
     );
   }
 
-  const segmentCount = 28;
-  const segmentWidth = FIELD_PIX_W / (segmentCount * 1.35);
-  const spacing = segmentWidth * 0.6;
-  const startX = -FIELD_PIX_W / 2 + segmentWidth / 2;
+  const segmentCount = 26;
+  const segmentWidth = safeWidth / (segmentCount * 1.18);
+  const spacing = segmentWidth * 0.7;
+  const startX = -safeWidth / 2 + segmentWidth / 2;
 
   return (
     <group position={[0, y, positionZ]}>
@@ -314,6 +346,71 @@ function MarkerLine({ positionZ, color, dashed = false }) {
           </mesh>
         );
       })}
+    </group>
+  );
+}
+
+function FieldGoalPosts() {
+  const crossbarHeight = 28;
+  const uprightHeight = 62;
+  const uprightGap = PX_PER_YARD * 6.2;
+  const supportDepth = PX_PER_YARD * 2.6;
+  const postColor = '#f6f0c4';
+  const padColor = '#d9c88a';
+  const crossbarZ = FIELD_PIX_H / 2 - PX_PER_YARD * 0.4;
+  const basePadRadius = 8;
+  const postThickness = 2.1;
+
+  const renderPost = (flip) => (
+    <group key={flip} position={[0, 0, flip * crossbarZ]}>
+      <mesh
+        position={[0, crossbarHeight / 2, flip * supportDepth]}
+        castShadow
+      >
+        <cylinderGeometry args={[postThickness * 1.2, postThickness * 1.5, crossbarHeight, 20]} />
+        <meshStandardMaterial color={padColor} metalness={0.05} roughness={0.6} />
+      </mesh>
+      <mesh
+        rotation={[0, 0, 0]}
+        position={[0, 3, flip * supportDepth]}
+        castShadow
+      >
+        <cylinderGeometry args={[basePadRadius, basePadRadius, 6, 24]} />
+        <meshStandardMaterial color="#3d2a1a" roughness={0.8} />
+      </mesh>
+      <mesh
+        rotation={[0, 0, 0]}
+        position={[0, crossbarHeight, 0]}
+        castShadow
+      >
+        <boxGeometry args={[uprightGap + 6, 2.6, 2.6]} />
+        <meshStandardMaterial color={postColor} metalness={0.22} roughness={0.38} />
+      </mesh>
+      {[-1, 1].map((dir) => (
+        <mesh
+          key={dir}
+          position={[dir * uprightGap / 2, crossbarHeight + uprightHeight / 2, 0]}
+          castShadow
+        >
+          <cylinderGeometry args={[postThickness, postThickness, uprightHeight, 20]} />
+          <meshStandardMaterial color={postColor} metalness={0.2} roughness={0.45} />
+        </mesh>
+      ))}
+      <mesh
+        position={[0, crossbarHeight / 2, flip * supportDepth * 0.6]}
+        rotation={[flip * THREE.MathUtils.degToRad(18), 0, 0]}
+        castShadow
+      >
+        <cylinderGeometry args={[postThickness * 0.9, postThickness * 0.9, supportDepth * 1.15, 16]} />
+        <meshStandardMaterial color={postColor} metalness={0.18} roughness={0.52} />
+      </mesh>
+    </group>
+  );
+
+  return (
+    <group>
+      {renderPost(1)}
+      {renderPost(-1)}
     </group>
   );
 }
@@ -377,8 +474,10 @@ function computeBall(state) {
     const worldPos = toWorldPosition(pos);
     const shadowSource = state?.play?.ball?.shadowPos || pos;
     const shadow = toWorldPosition(shadowSource);
-    const height = state?.play?.ball?.flight?.height || 0;
-    return { pos: worldPos, shadow, height };
+    const ballState = state?.play?.ball || null;
+    const height = ballState?.flight?.height || 0;
+    const carried = !!(ballState && ballState.carrierId && !ballState.inAir);
+    return { pos: worldPos, shadow, height, carried };
   } catch (err) {
     return null;
   }
@@ -395,7 +494,9 @@ function SceneContent({ state }) {
 
   return (
     <group>
+      <FieldBase />
       <FieldTexture colors={endzones} />
+      <FieldGoalPosts />
       <ambientLight intensity={0.55} />
       <directionalLight position={[320, 500, 420]} intensity={0.85} castShadow shadow-mapSize-width={2048} shadow-mapSize-height={2048} />
       <hemisphereLight args={[0x49753a, 0x0a1c0a, 0.35]} />
@@ -419,7 +520,7 @@ function SceneContent({ state }) {
           />
         ))}
       </group>
-      {ball ? <BallMarker pos={ball.pos} height={ball.height} shadow={ball.shadow} /> : null}
+      {ball ? <BallMarker pos={ball.pos} height={ball.height} shadow={ball.shadow} carried={ball.carried} /> : null}
       <FirstDownMarkers losY={lines.losY} ltgY={lines.ltgY} />
     </group>
   );
@@ -440,7 +541,7 @@ function Field3D({ state }) {
       className="field-canvas"
       shadows
       dpr={[1, 2]}
-      camera={{ fov: 30, position: [FIELD_PIX_H, FIELD_PIX_W * 0.9, 0], near: 0.1, far: 4000 }}
+      camera={{ fov: 26, position: [FIELD_PIX_H * 0.9, FIELD_PIX_W * 1.2, 0], near: 0.1, far: 6000 }}
       gl={{ antialias: true }}
     >
       <color attach="background" args={["#021403"]} />
