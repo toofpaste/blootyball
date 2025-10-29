@@ -32,15 +32,19 @@ const QB_VISION_COLORS = {
 };
 
 const STADIUM_COLORS = {
-  concrete: '#3f434a',
-  seats: '#6e747e',
-  riser: '#525860',
-  pressBox: '#7c848f',
-  glass: '#b7bec9',
-  ads: ['#6a6f78', '#8a9098', '#a6abb3', '#7f848c', '#969ba3'],
-  rail: '#d2d5dc',
-  lighting: '#d8dbe3',
-  fascia: '#5a606a',
+  concrete: '#1f242b',
+  seats: '#373e49',
+  riser: '#2a3038',
+  walkway: '#2d333c',
+  adBand: '#eb6a1f',
+  adText: '#f4f2eb',
+  pressBox: '#4f5662',
+  pressBoxFrame: '#5b626f',
+  glass: '#a6b1bf',
+  roof: '#262b33',
+  rail: '#d8dce3',
+  lightingStructure: '#3a404a',
+  lighting: '#f0f2f6',
 };
 
 const shortRole = (role) => {
@@ -489,475 +493,421 @@ function FieldGoalPosts() {
   );
 }
 
+function createAdTexture() {
+  if (typeof document === 'undefined') return null;
+  const canvas = document.createElement('canvas');
+  canvas.width = 1024;
+  canvas.height = 256;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return null;
+  ctx.fillStyle = STADIUM_COLORS.adBand;
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.fillStyle = STADIUM_COLORS.adText;
+  ctx.font = 'bold 160px "Oswald", sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  const count = 8;
+  for (let i = 0; i < count; i += 1) {
+    const x = (i + 0.5) * (canvas.width / count);
+    ctx.fillText('AD', x, canvas.height / 2);
+  }
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.anisotropy = 8;
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.needsUpdate = true;
+  return texture;
+}
+
+function LightTower({ position }) {
+  const baseHeight = 7;
+  const mastHeight = 64;
+  const platformHeight = 6;
+  const headHeight = 4;
+  const headWidth = 28;
+
+  return (
+    <group position={position}>
+      <mesh position={[0, baseHeight / 2, 0]} castShadow receiveShadow>
+        <boxGeometry args={[12, baseHeight, 12]} />
+        <meshStandardMaterial color={STADIUM_COLORS.concrete} roughness={0.82} />
+      </mesh>
+      <mesh position={[0, baseHeight + mastHeight / 2, 0]} castShadow>
+        <boxGeometry args={[6, mastHeight, 6]} />
+        <meshStandardMaterial color={STADIUM_COLORS.lightingStructure} roughness={0.5} metalness={0.28} />
+      </mesh>
+      <mesh position={[0, baseHeight + mastHeight + platformHeight / 2, 0]} castShadow>
+        <boxGeometry args={[16, platformHeight, 16]} />
+        <meshStandardMaterial color={STADIUM_COLORS.lightingStructure} roughness={0.45} />
+      </mesh>
+      <mesh position={[0, baseHeight + mastHeight + platformHeight + headHeight / 2, 0]} castShadow>
+        <boxGeometry args={[headWidth, headHeight, 6]} />
+        <meshStandardMaterial color={STADIUM_COLORS.lightingStructure} roughness={0.35} />
+      </mesh>
+      {[-1, 0, 1].map((offset) => (
+        <mesh
+          key={offset}
+          position={[0, baseHeight + mastHeight + platformHeight + headHeight / 2, offset * 6]}
+        >
+          <boxGeometry args={[headWidth * 0.7, headHeight * 0.85, 4]} />
+          <meshStandardMaterial
+            color={STADIUM_COLORS.lighting}
+            emissive={STADIUM_COLORS.lighting}
+            emissiveIntensity={0.38}
+            roughness={0.25}
+          />
+        </mesh>
+      ))}
+      <mesh position={[0, baseHeight + mastHeight * 0.45, 0]} rotation={[0, 0, Math.PI / 4]}>
+        <boxGeometry args={[2.2, mastHeight * 0.78, 2.2]} />
+        <meshStandardMaterial color={STADIUM_COLORS.lightingStructure} roughness={0.5} metalness={0.2} />
+      </mesh>
+      <mesh position={[0, baseHeight + mastHeight * 0.45, 0]} rotation={[0, 0, -Math.PI / 4]}>
+        <boxGeometry args={[2.2, mastHeight * 0.78, 2.2]} />
+        <meshStandardMaterial color={STADIUM_COLORS.lightingStructure} roughness={0.5} metalness={0.2} />
+      </mesh>
+    </group>
+  );
+}
+
 function StadiumEnvironment() {
   const fieldHalfW = FIELD_PIX_W / 2;
   const fieldHalfH = FIELD_PIX_H / 2;
-  const sidelineOffset = SIDELINE_BLEED + PX_PER_YARD * 2.6;
-  const endzoneOffset = PX_PER_YARD * 6.4;
-  const tierHeight = 5.2;
-  const tierDepth = 14;
-  const tierCount = 7;
-  const sidelineBaseX = -fieldHalfW - sidelineOffset - tierDepth / 2;
-  const nearSidelineBaseX = fieldHalfW + sidelineOffset + tierDepth / 2;
-  const endzoneBaseZ = fieldHalfH + endzoneOffset;
-  const seatingLength = FIELD_PIX_H + PX_PER_YARD * 8;
-  const endzoneWidth = FIELD_PIX_W * 0.82;
-  const nearTierCount = Math.max(4, Math.round(tierCount * 0.75));
-  const bowlCornerLength = endzoneWidth * 0.54;
+  const sidelineOffset = SIDELINE_BLEED + PX_PER_YARD * 1.4;
+  const standFrontX = -fieldHalfW - sidelineOffset;
+  const adTexture = useMemo(() => createAdTexture(), []);
+  const mainWidth = FIELD_PIX_H * 0.68;
+  const baseHeight = 8;
+  const foundationDepth = 36;
+  const adBandDepth = 2.8;
+  const adBandHeight = 4.2;
+  const tierGap = 6;
+  const railHeight = 2.2;
 
-  const tierSpacing = {
-    lowerSpacing: 0.78,
-    upperSpacing: 0.74,
-    walkwayGap: 0.45,
-    walkwayWidth: 0.9,
-    walkwayHeight: 0.35,
-    secondTierHeightGap: 0.85,
-  };
+  const tierConfigs = [
+    { width: mainWidth, depth: 18, height: 12, offset: 0 },
+    { width: mainWidth * 0.84, depth: 17, height: 11.5, offset: 14 },
+    { width: mainWidth * 0.68, depth: 16, height: 11, offset: 28 },
+  ];
 
-  const getTierDistribution = (count) => {
-    if (count <= 3) {
-      return { primary: count, secondary: 0 };
-    }
-    let primary = Math.max(2, Math.round(count * 0.55));
-    let secondary = Math.max(0, count - primary);
-    if (secondary > 0 && secondary < 2) {
-      secondary = 2;
-      primary = Math.max(1, count - secondary);
-    }
-    secondary = Math.max(0, count - primary);
-    return { primary, secondary };
-  };
+  const furthestOffset = tierConfigs.reduce(
+    (max, tier) => Math.max(max, tier.offset + tier.depth),
+    0,
+  );
 
-  const getTwoTierBackOffset = (count, depthScale = 1) => {
-    const depth = tierDepth * depthScale;
-    const { primary, secondary } = getTierDistribution(count);
-    const lowerSpacing = depth * tierSpacing.lowerSpacing;
-    const walkwayGap = depth * tierSpacing.walkwayGap;
-    const walkwayWidth = depth * tierSpacing.walkwayWidth;
-    const upperSpacing = depth * tierSpacing.upperSpacing;
+  let elevation = baseHeight;
+  const mainTiers = [];
+  tierConfigs.forEach((tier, index) => {
+    const seatCenterY = elevation + tier.height / 2;
+    const seatX = -tier.offset - tier.depth / 2;
 
-    if (secondary > 0) {
-      const baseOffset = primary * lowerSpacing + walkwayGap + walkwayWidth + walkwayGap;
-      const lastCenter = baseOffset + (secondary - 1) * upperSpacing;
-      return lastCenter + depth * 0.5;
-    }
+    mainTiers.push(
+      <mesh
+        key={`main-tier-${index}`}
+        position={[seatX, seatCenterY, 0]}
+        castShadow
+        receiveShadow
+      >
+        <boxGeometry args={[tier.depth, tier.height, tier.width]} />
+        <meshStandardMaterial color={STADIUM_COLORS.seats} roughness={0.68} />
+      </mesh>,
+    );
 
-    const lastCenter = primary > 0 ? (primary - 1) * lowerSpacing : 0;
-    return lastCenter + depth * 0.5;
-  };
+    const fasciaHeight = Math.min(3.6, tier.height * 0.38);
+    const fasciaCenterY = seatCenterY - tier.height / 2 + fasciaHeight / 2;
+    mainTiers.push(
+      <mesh
+        key={`main-fascia-${index}`}
+        position={[seatX + tier.depth / 2 - 1.6, fasciaCenterY, 0]}
+      >
+        <boxGeometry args={[3.2, fasciaHeight, tier.width]} />
+        <meshStandardMaterial color={STADIUM_COLORS.riser} roughness={0.62} />
+      </mesh>,
+    );
 
-  const getTwoTierTopHeight = (count, heightScale = 1) => {
-    const rowHeight = tierHeight * heightScale;
-    const { primary, secondary } = getTierDistribution(count);
-    if (secondary > 0) {
-      const baseHeight = rowHeight * (primary + tierSpacing.secondTierHeightGap);
-      const center = baseHeight + rowHeight * (secondary - 1 + 0.5);
-      return center + rowHeight / 2;
-    }
-    if (primary === 0) {
-      return rowHeight / 2;
-    }
-    const center = rowHeight * (primary - 1 + 0.5);
-    return center + rowHeight / 2;
-  };
+    const railCenterY = seatCenterY + tier.height / 2 - railHeight / 2;
+    mainTiers.push(
+      <mesh
+        key={`main-rail-${index}`}
+        position={[-tier.offset + 0.5, railCenterY, 0]}
+      >
+        <boxGeometry args={[1.2, railHeight, tier.width * 0.94]} />
+        <meshStandardMaterial color={STADIUM_COLORS.rail} roughness={0.2} />
+      </mesh>,
+    );
 
-  const renderTiers = ({
-    axis,
-    base,
-    length,
-    direction = -1,
-    count = tierCount,
-    heightScale = 1,
-    depthScale = 1,
-  }) => {
-    const rowHeight = tierHeight * heightScale;
-    const depth = tierDepth * depthScale;
-    const { primary, secondary } = getTierDistribution(count);
-    const lowerSpacing = depth * tierSpacing.lowerSpacing;
-    const upperSpacing = depth * tierSpacing.upperSpacing;
-    const walkwayGap = depth * tierSpacing.walkwayGap;
-    const walkwayWidth = depth * tierSpacing.walkwayWidth;
-    const walkwayHeight = rowHeight * tierSpacing.walkwayHeight;
-    const walkwayElevation = rowHeight * primary + walkwayHeight / 2;
-    const secondTierBaseHeight = rowHeight * (primary + tierSpacing.secondTierHeightGap);
-    const meshes = [];
-    let offsetAccumulator = 0;
-    let globalIndex = 0;
+    const adCenterY = seatCenterY + tier.height / 2 + adBandHeight / 2;
+    mainTiers.push(
+      <mesh
+        key={`main-adband-${index}`}
+        position={[-tier.offset + adBandDepth / 2, adCenterY, 0]}
+        castShadow
+      >
+        <boxGeometry args={[adBandDepth, adBandHeight, tier.width]} />
+        <meshStandardMaterial
+          color={STADIUM_COLORS.adBand}
+          emissive={STADIUM_COLORS.adBand}
+          emissiveIntensity={0.14}
+        />
+      </mesh>,
+    );
 
-    const createRow = (key, offset, centerHeight) => {
-      const taper = Math.max(0.5, 1 - globalIndex * 0.045);
-      const sizePrimary = depth;
-      const sizeSecondary = length * taper;
-      const color = globalIndex % 2 === 0 ? STADIUM_COLORS.seats : STADIUM_COLORS.riser;
-      const position = axis === 'x'
-        ? [base + offset * direction, centerHeight, 0]
-        : [0, centerHeight, base + offset * direction];
-      const geometryArgs = axis === 'x'
-        ? [sizePrimary, rowHeight, sizeSecondary]
-        : [sizeSecondary, rowHeight, sizePrimary];
-      meshes.push(
-        <mesh key={`${key}-${globalIndex}`} position={position} castShadow receiveShadow>
-          <boxGeometry args={geometryArgs} />
-          <meshStandardMaterial color={color} metalness={0.08} roughness={0.7} />
+    if (adTexture) {
+      mainTiers.push(
+        <mesh
+          key={`main-adpanel-${index}`}
+          position={[-tier.offset + adBandDepth + 0.05, adCenterY, 0]}
+          rotation={[0, Math.PI / 2, 0]}
+        >
+          <planeGeometry args={[tier.width, adBandHeight * 0.92]} />
+          <meshStandardMaterial
+            map={adTexture}
+            toneMapped={false}
+            transparent
+            opacity={0.97}
+          />
         </mesh>,
       );
-      globalIndex += 1;
-    };
-
-    for (let i = 0; i < primary; i += 1) {
-      const centerHeight = rowHeight * (i + 0.5);
-      createRow(`${axis}-tier`, offsetAccumulator, centerHeight);
-      offsetAccumulator += lowerSpacing;
     }
 
-    if (secondary > 0) {
-      offsetAccumulator += walkwayGap;
-      const walkwayCenter = offsetAccumulator + walkwayWidth / 2;
-      const walkwayPosition = axis === 'x'
-        ? [base + walkwayCenter * direction, walkwayElevation, 0]
-        : [0, walkwayElevation, base + walkwayCenter * direction];
-      const walkwayGeometry = axis === 'x'
-        ? [walkwayWidth, walkwayHeight, length * 0.94]
-        : [length * 0.94, walkwayHeight, walkwayWidth];
-      meshes.push(
+    elevation = adCenterY + adBandHeight / 2 + tierGap;
+  });
+
+  const topTier = tierConfigs[tierConfigs.length - 1];
+  const pressPlatformHeight = 4.2;
+  const pressPlatformDepth = 24;
+  const pressPlatformWidth = topTier.width * 0.9;
+  const pressPlatformY = elevation + pressPlatformHeight / 2;
+  const pressPlatformX = -topTier.offset - pressPlatformDepth / 2 - 6;
+
+  const pressRailHeight = 2;
+  const pressRailOffset = -topTier.offset + 0.6;
+
+  const pressBoxHeight = 15;
+  const pressBoxDepth = 26;
+  const pressBoxWidth = topTier.width * 0.62;
+  const pressBoxY = pressPlatformY + pressPlatformHeight / 2 + pressBoxHeight / 2 + 1.6;
+  const pressBoxX = pressPlatformX - pressBoxDepth / 2 + 0.6;
+
+  const roofHeight = 5;
+  const roofDepth = pressBoxDepth + 10;
+  const roofWidth = pressBoxWidth + 18;
+  const roofY = pressBoxY + pressBoxHeight / 2 + roofHeight / 2 + 1.1;
+  const roofX = pressBoxX - 1.6;
+
+  const sidelineWallX = fieldHalfW + SIDELINE_BLEED + PX_PER_YARD * 0.9;
+  const sidelineWallWidth = FIELD_PIX_H + PX_PER_YARD * 6;
+  const endzoneWallZ = fieldHalfH + PX_PER_YARD * 2.6;
+  const endzoneWallWidth = FIELD_PIX_W + SIDELINE_BLEED * 2 + PX_PER_YARD * 3.4;
+  const wallHeight = 4.4;
+  const wallThickness = 4.4;
+
+  const renderWing = (direction) => {
+    const wingBaseHeight = baseHeight * 0.9;
+    const wingFoundationDepth = 26;
+    const wingConfigs = [
+      { width: mainWidth * 0.46, depth: 14, height: 9.5, offset: 0 },
+      { width: mainWidth * 0.38, depth: 13, height: 9, offset: 11 },
+    ];
+    const wingAdHeight = 3.4;
+    const wingAdDepth = 2.4;
+    const wingGap = 4.5;
+    const wingRailHeight = 2;
+    let wingElevation = wingBaseHeight;
+    const wingElements = [];
+
+    wingConfigs.forEach((tier, index) => {
+      const seatCenterY = wingElevation + tier.height / 2;
+      const seatX = -tier.offset - tier.depth / 2;
+
+      wingElements.push(
         <mesh
-          key={`${axis}-walkway`}
-          position={walkwayPosition}
+          key={`wing-${direction}-tier-${index}`}
+          position={[seatX, seatCenterY, 0]}
           castShadow
           receiveShadow
         >
-          <boxGeometry args={walkwayGeometry} />
-          <meshStandardMaterial color={STADIUM_COLORS.concrete} roughness={0.82} />
+          <boxGeometry args={[tier.depth, tier.height, tier.width]} />
+          <meshStandardMaterial color={STADIUM_COLORS.seats} roughness={0.68} />
         </mesh>,
       );
-      offsetAccumulator += walkwayWidth + walkwayGap;
 
-      for (let j = 0; j < secondary; j += 1) {
-        const centerHeight = secondTierBaseHeight + rowHeight * (j + 0.5);
-        createRow(`${axis}-tier-upper`, offsetAccumulator, centerHeight);
-        offsetAccumulator += upperSpacing;
-      }
-    }
-
-    return meshes;
-  };
-
-  const adBoards = (orientation) => {
-    const count = 6;
-    return Array.from({ length: count }).map((_, index) => {
-      const color = STADIUM_COLORS.ads[index % STADIUM_COLORS.ads.length];
-      const isSideline = orientation === 'sideline' || orientation === 'sideline-near';
-      const spacing = isSideline
-        ? (seatingLength - PX_PER_YARD * 4) / count
-        : (endzoneWidth - PX_PER_YARD * 2) / count;
-      const offset = -((count - 1) / 2) * spacing + spacing * index;
-      const position = isSideline
-        ? [
-          (orientation === 'sideline' ? sidelineBaseX : nearSidelineBaseX) + tierDepth * 0.65,
-          tierHeight * 0.7,
-          offset,
-        ]
-        : [
-          offset,
-          tierHeight * 0.7,
-          orientation === 'endzone-north'
-            ? endzoneBaseZ - tierDepth * 0.4
-            : -endzoneBaseZ + tierDepth * 0.4,
-        ];
-      const geometryArgs = isSideline
-        ? [tierDepth * 0.8, tierHeight * 0.9, PX_PER_YARD * 3.6]
-        : [PX_PER_YARD * 3.2, tierHeight * 0.9, tierDepth * 0.8];
-      return (
-        <mesh key={`${orientation}-ad-${index}`} position={position} castShadow receiveShadow>
-          <boxGeometry args={geometryArgs} />
-          <meshStandardMaterial color={color} emissive={color} emissiveIntensity={0.12} />
-        </mesh>
+      const fasciaHeight = Math.min(3, tier.height * 0.35);
+      const fasciaCenterY = seatCenterY - tier.height / 2 + fasciaHeight / 2;
+      wingElements.push(
+        <mesh
+          key={`wing-${direction}-fascia-${index}`}
+          position={[seatX + tier.depth / 2 - 1.4, fasciaCenterY, 0]}
+        >
+          <boxGeometry args={[2.8, fasciaHeight, tier.width]} />
+          <meshStandardMaterial color={STADIUM_COLORS.riser} roughness={0.62} />
+        </mesh>,
       );
+
+      const railCenterY = seatCenterY + tier.height / 2 - wingRailHeight / 2;
+      wingElements.push(
+        <mesh
+          key={`wing-${direction}-rail-${index}`}
+          position={[-tier.offset + 0.4, railCenterY, 0]}
+        >
+          <boxGeometry args={[1, wingRailHeight, tier.width * 0.92]} />
+          <meshStandardMaterial color={STADIUM_COLORS.rail} roughness={0.2} />
+        </mesh>,
+      );
+
+      const adCenterY = seatCenterY + tier.height / 2 + wingAdHeight / 2;
+      wingElements.push(
+        <mesh
+          key={`wing-${direction}-ad-${index}`}
+          position={[-tier.offset + wingAdDepth / 2, adCenterY, 0]}
+          castShadow
+        >
+          <boxGeometry args={[wingAdDepth, wingAdHeight, tier.width]} />
+          <meshStandardMaterial
+            color={STADIUM_COLORS.adBand}
+            emissive={STADIUM_COLORS.adBand}
+            emissiveIntensity={0.12}
+          />
+        </mesh>,
+      );
+
+      if (adTexture) {
+        wingElements.push(
+          <mesh
+            key={`wing-${direction}-adpanel-${index}`}
+            position={[-tier.offset + wingAdDepth + 0.05, adCenterY, 0]}
+            rotation={[0, Math.PI / 2, 0]}
+          >
+            <planeGeometry args={[tier.width, wingAdHeight * 0.92]} />
+            <meshStandardMaterial
+              map={adTexture}
+              toneMapped={false}
+              transparent
+              opacity={0.97}
+            />
+          </mesh>,
+        );
+      }
+
+      wingElevation = adCenterY + wingAdHeight / 2 + wingGap;
     });
-  };
 
-  const renderCornerWrap = (position, rotationY) => {
-    const totalRows = Math.max(2, tierCount - 1);
-    const { primary, secondary } = getTierDistribution(totalRows);
-    const rowHeight = tierHeight * 1.05;
-    const depth = tierDepth * 0.86;
-    const lowerSpacing = depth * 0.72;
-    const upperSpacing = depth * 0.66;
-    const walkwayGap = depth * 0.42;
-    const walkwayWidth = depth * 0.88;
-    const walkwayHeight = rowHeight * 0.32;
-    const walkwayElevation = rowHeight * primary + walkwayHeight / 2;
-    const secondTierBaseHeight = rowHeight * (primary + 0.75);
-    const dot = position[0] * Math.cos(rotationY) - position[2] * Math.sin(rotationY);
-    const directionSign = dot >= 0 ? 1 : -1;
-    const meshes = [];
-    let offsetAccumulator = 0;
-    let globalIndex = 0;
-    let lastRowCenter = 0;
-
-    const pushRow = (key, offset, centerHeight) => {
-      lastRowCenter = offset;
-      const taper = Math.max(0.45, 1 - globalIndex * 0.08);
-      const width = bowlCornerLength * taper;
-      const color = globalIndex % 2 === 0 ? STADIUM_COLORS.seats : STADIUM_COLORS.riser;
-      const rowRotationY = directionSign === -1 ? Math.PI : 0;
-      meshes.push(
-        <mesh
-          key={`${key}-${globalIndex}`}
-          position={[directionSign * offset, centerHeight, 0]}
-          rotation={[0, rowRotationY, 0]}
-          castShadow
-          receiveShadow
-        >
-          <boxGeometry args={[depth, rowHeight, width]} />
-          <meshStandardMaterial color={color} metalness={0.08} roughness={0.7} />
-        </mesh>,
-      );
-      globalIndex += 1;
-    };
-
-    for (let i = 0; i < primary; i += 1) {
-      const centerHeight = rowHeight * (i + 0.5);
-      pushRow('corner-tier', offsetAccumulator, centerHeight);
-      offsetAccumulator += lowerSpacing;
-    }
-
-    if (secondary > 0) {
-      offsetAccumulator += walkwayGap;
-      const walkwayCenter = offsetAccumulator + walkwayWidth / 2;
-      meshes.push(
-        <mesh
-          key="corner-walkway"
-          position={[directionSign * walkwayCenter, walkwayElevation, 0]}
-          rotation={[0, directionSign === -1 ? Math.PI : 0, 0]}
-          castShadow
-          receiveShadow
-        >
-          <boxGeometry args={[walkwayWidth, walkwayHeight, bowlCornerLength * 0.92]} />
-          <meshStandardMaterial color={STADIUM_COLORS.concrete} roughness={0.82} />
-        </mesh>,
-      );
-      offsetAccumulator += walkwayWidth + walkwayGap;
-
-      for (let j = 0; j < secondary; j += 1) {
-        const centerHeight = secondTierBaseHeight + rowHeight * (j + 0.5);
-        pushRow('corner-tier-upper', offsetAccumulator, centerHeight);
-        offsetAccumulator += upperSpacing;
-      }
-    }
-
-    const furthestOffset = lastRowCenter + depth * 0.6;
-    const guardRailHeight = rowHeight * (primary + secondary + 0.4);
+    const wingFurthestOffset = wingConfigs.reduce(
+      (max, tier) => Math.max(max, tier.offset + tier.depth),
+      0,
+    );
+    const wingBackX = -wingFurthestOffset - 6;
+    const wingBackHeight = wingElevation + 6;
+    const wingWidth = wingConfigs[0].width;
+    const wingInnerEdge = endzoneWallZ + wallThickness / 2;
+    const wingCenterZ = wingInnerEdge + wingWidth / 2;
 
     return (
-      <group position={position} rotation={[0, rotationY, 0]}>
-        {meshes}
-        <mesh
-          position={[directionSign * depth * 0.6, tierHeight * 0.3, 0]}
-          rotation={[0, directionSign === -1 ? Math.PI : 0, 0]}
-          castShadow
-          receiveShadow
-        >
-          <boxGeometry args={[tierDepth * 1.4, tierHeight * 0.6, bowlCornerLength * 0.9]} />
+      <group
+        key={`wing-${direction}`}
+        position={[standFrontX - 2, 0, direction * wingCenterZ]}
+        rotation={[0, direction * -Math.PI / 9, 0]}
+      >
+        <mesh position={[-wingFoundationDepth / 2, wingBaseHeight / 2, 0]} castShadow receiveShadow>
+          <boxGeometry args={[wingFoundationDepth, wingBaseHeight, wingWidth * 1.12]} />
           <meshStandardMaterial color={STADIUM_COLORS.concrete} roughness={0.82} />
         </mesh>
-        <mesh
-          position={[directionSign * furthestOffset, guardRailHeight, 0]}
-          rotation={[0, directionSign === -1 ? Math.PI : 0, 0]}
-        >
-          <boxGeometry args={[tierDepth * 1.1, tierHeight * 0.32, bowlCornerLength * 0.92]} />
-          <meshStandardMaterial color={STADIUM_COLORS.rail} roughness={0.3} />
+        <mesh position={[-wingFoundationDepth * 0.6, wingBaseHeight * 0.35, 0]} receiveShadow>
+          <boxGeometry args={[wingFoundationDepth * 0.8, wingBaseHeight * 0.4, wingWidth * 1.18]} />
+          <meshStandardMaterial color={STADIUM_COLORS.walkway} roughness={0.7} />
+        </mesh>
+        {wingElements}
+        <mesh position={[wingBackX, wingBackHeight / 2, 0]} receiveShadow>
+          <boxGeometry args={[8, wingBackHeight, wingWidth * 1.18]} />
+          <meshStandardMaterial color={STADIUM_COLORS.riser} roughness={0.6} />
         </mesh>
       </group>
     );
   };
 
-  const lightingTowers = [
-    [-fieldHalfW - sidelineOffset * 0.4, 0, endzoneBaseZ + PX_PER_YARD * 2.2],
-    [-fieldHalfW - sidelineOffset * 0.4, 0, -endzoneBaseZ - PX_PER_YARD * 2.2],
-    [-fieldHalfW - sidelineOffset * 0.4 - tierDepth * 3, 0, endzoneBaseZ + PX_PER_YARD * 2.2],
-    [-fieldHalfW - sidelineOffset * 0.4 - tierDepth * 3, 0, -endzoneBaseZ - PX_PER_YARD * 2.2],
-    [fieldHalfW + sidelineOffset * 0.4, 0, endzoneBaseZ + PX_PER_YARD * 2.2],
-    [fieldHalfW + sidelineOffset * 0.4, 0, -endzoneBaseZ - PX_PER_YARD * 2.2],
+  const lightingPositions = [
+    [standFrontX - 46, 0, mainWidth / 2 + 78],
+    [standFrontX - 46, 0, -mainWidth / 2 - 78],
+    [standFrontX - 96, 0, mainWidth / 2 + 58],
+    [standFrontX - 96, 0, -mainWidth / 2 - 58],
   ];
-
-  const farSidelineDirection = -1;
-  const nearSidelineDirection = 1;
-  const farSidelineBackOffset = getTwoTierBackOffset(tierCount);
-  const nearSidelineBackOffset = getTwoTierBackOffset(nearTierCount, 0.9);
-  const farSidelineTopHeight = getTwoTierTopHeight(tierCount);
-  const nearSidelineTopHeight = getTwoTierTopHeight(nearTierCount, 1.08);
 
   return (
     <group>
-      {/* Far sideline seating */}
-      <group position={[0, 0, 0]}>
-        {renderTiers({ axis: 'x', base: sidelineBaseX, length: seatingLength })}
-        <mesh
-          position={[sidelineBaseX + tierDepth * 0.6, tierHeight * 0.25, 0]}
-          castShadow
-          receiveShadow
-        >
-          <boxGeometry args={[tierDepth * 1.2, tierHeight * 0.5, seatingLength + PX_PER_YARD * 2]} />
+      <group position={[standFrontX, 0, 0]}>
+        <mesh position={[-foundationDepth / 2, baseHeight / 2, 0]} castShadow receiveShadow>
+          <boxGeometry args={[foundationDepth, baseHeight, mainWidth * 1.12]} />
           <meshStandardMaterial color={STADIUM_COLORS.concrete} roughness={0.82} />
         </mesh>
-        <mesh
-          position={[
-            sidelineBaseX + farSidelineDirection * (farSidelineBackOffset + tierDepth * 0.6),
-            farSidelineTopHeight + tierHeight * 0.6,
-            0,
-          ]}
-          castShadow
-          receiveShadow
-        >
-          <boxGeometry args={[tierDepth * 2.4, tierHeight * 1.6, seatingLength * 0.62]} />
-          <meshStandardMaterial color={STADIUM_COLORS.pressBox} roughness={0.58} metalness={0.12} />
+        <mesh position={[-foundationDepth * 0.6, baseHeight * 0.35, 0]} receiveShadow>
+          <boxGeometry args={[foundationDepth * 0.9, baseHeight * 0.4, mainWidth * 1.18]} />
+          <meshStandardMaterial color={STADIUM_COLORS.walkway} roughness={0.72} />
         </mesh>
-        <mesh
-          position={[
-            sidelineBaseX + farSidelineDirection * (farSidelineBackOffset + tierDepth * 0.6),
-            farSidelineTopHeight + tierHeight * 1.6,
-            0,
-          ]}
-          castShadow
-        >
-          <boxGeometry args={[tierDepth * 2.6, tierHeight * 0.35, seatingLength * 0.66]} />
-          <meshStandardMaterial color={STADIUM_COLORS.rail} roughness={0.3} />
+        {mainTiers}
+        <mesh position={[-furthestOffset - 8, (elevation + 10) / 2, 0]} receiveShadow>
+          <boxGeometry args={[10, elevation + 10, mainWidth * 1.2]} />
+          <meshStandardMaterial color={STADIUM_COLORS.riser} roughness={0.6} />
+        </mesh>
+        <mesh position={[pressPlatformX, pressPlatformY, 0]} castShadow receiveShadow>
+          <boxGeometry args={[pressPlatformDepth, pressPlatformHeight, pressPlatformWidth]} />
+          <meshStandardMaterial color={STADIUM_COLORS.walkway} roughness={0.7} />
+        </mesh>
+        <mesh position={[pressRailOffset, pressPlatformY + pressPlatformHeight / 2 - pressRailHeight / 2, 0]}>
+          <boxGeometry args={[1.2, pressRailHeight, pressPlatformWidth * 0.92]} />
+          <meshStandardMaterial color={STADIUM_COLORS.rail} roughness={0.25} />
+        </mesh>
+        <mesh position={[pressBoxX, pressBoxY, 0]} castShadow receiveShadow>
+          <boxGeometry args={[pressBoxDepth, pressBoxHeight, pressBoxWidth]} />
+          <meshStandardMaterial color={STADIUM_COLORS.pressBoxFrame} roughness={0.6} metalness={0.18} />
+        </mesh>
+        <mesh position={[pressBoxX + pressBoxDepth * 0.12, pressBoxY + pressBoxHeight * 0.08, 0]}>
+          <boxGeometry args={[pressBoxDepth * 0.76, pressBoxHeight * 0.54, pressBoxWidth * 0.9]} />
+          <meshStandardMaterial
+            color={STADIUM_COLORS.glass}
+            transparent
+            opacity={0.55}
+            roughness={0.08}
+            metalness={0.1}
+          />
         </mesh>
         {Array.from({ length: 5 }).map((_, index) => {
-          const offset = -((5 - 1) / 2) * seatingLength * 0.12 + seatingLength * 0.12 * index;
+          const spacing = pressBoxWidth * 0.18;
+          const offset = -((5 - 1) / 2) * spacing + spacing * index;
           return (
             <mesh
-              key={`press-box-window-${index}`}
-              position={[
-                sidelineBaseX + farSidelineDirection * (farSidelineBackOffset + tierDepth * 0.4),
-                farSidelineTopHeight + tierHeight * 0.9,
-                offset,
-              ]}
-              castShadow
+              key={`press-mullion-${index}`}
+              position={[pressBoxX + pressBoxDepth * 0.12, pressBoxY + pressBoxHeight * 0.08, offset]}
             >
-              <boxGeometry args={[tierDepth * 0.2, tierHeight * 0.9, seatingLength * 0.1]} />
-              <meshStandardMaterial color={STADIUM_COLORS.glass} transparent opacity={0.5} roughness={0.1} />
+              <boxGeometry args={[pressBoxDepth * 0.78, pressBoxHeight * 0.54, pressBoxWidth * 0.02]} />
+              <meshStandardMaterial color={STADIUM_COLORS.pressBoxFrame} roughness={0.4} />
             </mesh>
           );
         })}
-        {adBoards('sideline')}
+        <mesh position={[roofX, roofY, 0]} castShadow receiveShadow>
+          <boxGeometry args={[roofDepth, roofHeight, roofWidth]} />
+          <meshStandardMaterial color={STADIUM_COLORS.roof} roughness={0.4} />
+        </mesh>
+        <mesh position={[roofX + roofDepth / 2 - 2.4, roofY - roofHeight / 2 + 1.2, 0]}>
+          <boxGeometry args={[4.8, 2.4, roofWidth * 0.96]} />
+          <meshStandardMaterial color={STADIUM_COLORS.rail} roughness={0.28} />
+        </mesh>
       </group>
-
-      {/* Near sideline seating */}
-      <group position={[0, 0, 0]}>
-        {renderTiers({
-          axis: 'x',
-          base: nearSidelineBaseX,
-          length: seatingLength * 0.95,
-          direction: 1,
-          count: nearTierCount,
-          heightScale: 1.08,
-          depthScale: 0.9,
-        })}
+      {[-1, 1].map((direction) => renderWing(direction))}
+      <mesh position={[sidelineWallX, wallHeight / 2, 0]} receiveShadow>
+        <boxGeometry args={[wallThickness, wallHeight, sidelineWallWidth]} />
+        <meshStandardMaterial color={STADIUM_COLORS.walkway} roughness={0.68} />
+      </mesh>
+      {[-1, 1].map((direction) => (
         <mesh
-          position={[nearSidelineBaseX - tierDepth * 0.6, tierHeight * 0.22, 0]}
-          castShadow
+          key={`endzone-wall-${direction}`}
+          position={[0, wallHeight / 2, direction * endzoneWallZ]}
           receiveShadow
         >
-          <boxGeometry args={[tierDepth * 1.1, tierHeight * 0.45, seatingLength + PX_PER_YARD * 1.6]} />
-          <meshStandardMaterial color={STADIUM_COLORS.concrete} roughness={0.82} />
+          <boxGeometry args={[endzoneWallWidth, wallHeight, wallThickness]} />
+          <meshStandardMaterial color={STADIUM_COLORS.walkway} roughness={0.68} />
         </mesh>
-        <mesh
-          position={[
-            nearSidelineBaseX + nearSidelineDirection * (nearSidelineBackOffset + tierDepth * 0.45),
-            nearSidelineTopHeight + tierHeight * 0.35,
-            0,
-          ]}
-          castShadow
-        >
-          <boxGeometry args={[tierDepth * 1.6, tierHeight * 0.35, seatingLength * 0.68]} />
-          <meshStandardMaterial color={STADIUM_COLORS.rail} roughness={0.35} />
-        </mesh>
-        <mesh
-          position={[
-            nearSidelineBaseX + nearSidelineDirection * (nearSidelineBackOffset + tierDepth * 0.45),
-            nearSidelineTopHeight + tierHeight * 0.05,
-            0,
-          ]}
-          receiveShadow
-        >
-          <boxGeometry args={[tierDepth * 1.8, tierHeight * 0.7, seatingLength * 0.32]} />
-          <meshStandardMaterial color={STADIUM_COLORS.fascia} roughness={0.55} />
-        </mesh>
-        {adBoards('sideline-near')}
-      </group>
-
-      {/* Endzone seating - north */}
-      <group position={[0, 0, endzoneBaseZ]}>
-        {renderTiers({ axis: 'z', base: 0, length: endzoneWidth, direction: 1 })}
-        <mesh position={[0, tierHeight * 0.25, tierDepth * -0.5]} castShadow receiveShadow>
-          <boxGeometry args={[endzoneWidth + PX_PER_YARD * 1.6, tierHeight * 0.5, tierDepth]} />
-          <meshStandardMaterial color={STADIUM_COLORS.concrete} roughness={0.82} />
-        </mesh>
-        {adBoards('endzone-north')}
-      </group>
-
-      {/* Endzone seating - south */}
-      <group position={[0, 0, -endzoneBaseZ]}>
-        {renderTiers({ axis: 'z', base: 0, length: endzoneWidth })}
-        <mesh position={[0, tierHeight * 0.25, tierDepth * 0.5]} castShadow receiveShadow>
-          <boxGeometry args={[endzoneWidth + PX_PER_YARD * 1.6, tierHeight * 0.5, tierDepth]} />
-          <meshStandardMaterial color={STADIUM_COLORS.concrete} roughness={0.82} />
-        </mesh>
-        {adBoards('endzone-south')}
-      </group>
-
-      {/* Corner wraps */}
-      {renderCornerWrap(
-        [sidelineBaseX - tierDepth * 0.35, 0, endzoneBaseZ - tierDepth * 0.35],
-        -Math.PI / 4,
-      )}
-      {renderCornerWrap(
-        [sidelineBaseX - tierDepth * 0.35, 0, -endzoneBaseZ + tierDepth * 0.35],
-        Math.PI / 4,
-      )}
-      {renderCornerWrap(
-        [nearSidelineBaseX + tierDepth * 0.35, 0, endzoneBaseZ - tierDepth * 0.35],
-        Math.PI / 4,
-      )}
-      {renderCornerWrap(
-        [nearSidelineBaseX + tierDepth * 0.35, 0, -endzoneBaseZ + tierDepth * 0.35],
-        -Math.PI / 4,
-      )}
-
-      {/* Scoreboard */}
-      <group position={[0, tierHeight * (tierCount + 3.8), endzoneBaseZ + tierDepth * 1.6]}>
-        <mesh castShadow position={[0, 0, 0]}>
-          <boxGeometry args={[endzoneWidth * 0.8, tierHeight * 1.1, tierDepth * 0.9]} />
-          <meshStandardMaterial color={STADIUM_COLORS.fascia} roughness={0.4} />
-        </mesh>
-        <mesh position={[0, 0, -tierDepth * 0.2]}>
-          <boxGeometry args={[endzoneWidth * 0.72, tierHeight * 0.8, tierDepth * 0.1]} />
-          <meshStandardMaterial color="#121418" emissive="#111" emissiveIntensity={0.25} />
-        </mesh>
-        <mesh position={[0, -tierHeight * 0.9, -tierDepth * 0.05]}>
-          <boxGeometry args={[endzoneWidth * 0.6, tierHeight * 0.25, tierDepth * 0.25]} />
-          <meshStandardMaterial color={STADIUM_COLORS.ads[2]} emissive={STADIUM_COLORS.ads[2]} emissiveIntensity={0.18} />
-        </mesh>
-      </group>
-
-      {/* Lighting towers */}
-      {lightingTowers.map(([x, _y, z], index) => (
-        <group key={`lighting-${index}`} position={[x, 0, z]}>
-          <mesh position={[0, 22, 0]} castShadow>
-            <cylinderGeometry args={[2.6, 2.6, 44, 16]} />
-            <meshStandardMaterial color={STADIUM_COLORS.lighting} roughness={0.4} metalness={0.18} />
-          </mesh>
-          <mesh position={[0, 45, 0]} castShadow>
-            <boxGeometry args={[8, 3.6, 14]} />
-            <meshStandardMaterial color={STADIUM_COLORS.lighting} emissive="#f1f1f1" emissiveIntensity={0.2} />
-          </mesh>
-          <mesh position={[0, 47, 0]}>
-            <boxGeometry args={[10, 0.6, 18]} />
-            <meshStandardMaterial color={STADIUM_COLORS.rail} />
-          </mesh>
-        </group>
+      ))}
+      {lightingPositions.map((position, index) => (
+        <LightTower key={`tower-${index}`} position={position} />
       ))}
     </group>
   );
