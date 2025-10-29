@@ -505,6 +505,33 @@
   aspect-ratio: 720 / 320;
 }
 
+.field-canvas--fallback {
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: radial-gradient(circle at 20% 20%, rgba(18, 88, 18, 0.95), rgba(6, 30, 6, 0.95));
+  color: rgba(232, 248, 232, 0.85);
+  font-size: clamp(14px, 2vw, 18px);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.field-canvas__fallback-glow {
+  position: absolute;
+  width: 140%;
+  height: 140%;
+  background: radial-gradient(circle, rgba(56, 200, 120, 0.25), transparent 65%);
+  filter: blur(28px);
+  opacity: 0.65;
+}
+
+.field-canvas__fallback-text {
+  position: relative;
+  z-index: 1;
+}
+
 .scoreboard {
   width: min(900px, 92%);
   margin: 0 auto;
