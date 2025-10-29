@@ -79,7 +79,7 @@ function useSidelineCamera(center) {
     const horizontalFov = 2 * Math.atan(Math.tan(verticalFovRad / 2) * aspect);
 
     const halfFieldLength = FIELD_PIX_H / 2;
-    const distance = (halfFieldLength / Math.tan(horizontalFov / 2)) * 0.92;
+    const distance = (halfFieldLength / Math.tan(horizontalFov / 2)) * 1.02;
     const height = FIELD_PIX_W * 1.28;
 
     camera.position.set(distance, height, 0);
@@ -139,14 +139,8 @@ function FieldTexture({ colors }) {
     if (!ctx) return null;
     ctx.scale(scale, scale);
 
-    ctx.fillStyle = '#0a6b24';
+    ctx.fillStyle = '#18a854';
     ctx.fillRect(0, 0, width, height);
-
-    const stripeHeight = PX_PER_YARD * 2;
-    for (let y = 0; y < height; y += stripeHeight) {
-      ctx.fillStyle = y % (stripeHeight * 2) === 0 ? '#0c7428' : '#0a6b24';
-      ctx.fillRect(0, y, width, stripeHeight);
-    }
 
     const endzonePix = ENDZONE_YARDS * PX_PER_YARD;
     if (colors?.north) {
@@ -194,12 +188,57 @@ function FieldTexture({ colors }) {
     }
     ctx.globalAlpha = 1;
 
-    ctx.fillStyle = '#dff2d8';
+    ctx.fillStyle = '#e9fbe5';
     const hashSpacing = PX_PER_YARD;
     for (let y = playingStart; y <= playingEnd; y += hashSpacing) {
       ctx.fillRect(width * 0.25 - 1, y - 1, 2, 4);
       ctx.fillRect(width * 0.75 - 1, y - 1, 2, 4);
     }
+
+    const numberSequence = [10, 20, 30, 40, 50, 40, 30, 20, 10];
+    const leftNumberX = width * 0.18;
+    const rightNumberX = width - leftNumberX;
+    const numberOffset = PX_PER_YARD * 4.2;
+
+    ctx.font = 'bold 34px "Oswald", sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = '#f4fff4';
+    ctx.strokeStyle = 'rgba(0,0,0,0.55)';
+    ctx.lineWidth = 3;
+
+    numberSequence.forEach((num, index) => {
+      const yardLineY = playingStart + (index + 1) * 10 * PX_PER_YARD;
+      const topY = yardLineY - numberOffset;
+      const bottomY = yardLineY + numberOffset;
+      const text = String(num);
+
+      ctx.save();
+      ctx.translate(leftNumberX, topY);
+      ctx.rotate(Math.PI);
+      ctx.strokeText(text, 0, 0);
+      ctx.fillText(text, 0, 0);
+      ctx.restore();
+
+      ctx.save();
+      ctx.translate(rightNumberX, topY);
+      ctx.rotate(Math.PI);
+      ctx.strokeText(text, 0, 0);
+      ctx.fillText(text, 0, 0);
+      ctx.restore();
+
+      ctx.save();
+      ctx.translate(leftNumberX, bottomY);
+      ctx.strokeText(text, 0, 0);
+      ctx.fillText(text, 0, 0);
+      ctx.restore();
+
+      ctx.save();
+      ctx.translate(rightNumberX, bottomY);
+      ctx.strokeText(text, 0, 0);
+      ctx.fillText(text, 0, 0);
+      ctx.restore();
+    });
 
     const texture = new THREE.CanvasTexture(canvas);
     texture.anisotropy = 8;

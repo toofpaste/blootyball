@@ -21,9 +21,9 @@ export const ROLES_OFF = ['QB', 'RB', 'WR1', 'WR2', 'WR3', 'TE', 'LT', 'LG', 'C'
 export const ROLES_DEF = ['LE', 'DT', 'RTk', 'RE', 'LB1', 'LB2', 'CB1', 'CB2', 'S1', 'S2', 'NB'];
 
 export const COLORS = {
-    fieldGreen: '#0a7f2e',
+    fieldGreen: '#18a854',
     lineWhite: '#ffffff',
-    hash: '#dfe',
+    hash: '#f0fff0',
     red: '#e53935',
     black: '#222',
     ball: '#8B4513',
