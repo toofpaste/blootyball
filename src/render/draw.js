@@ -388,7 +388,7 @@ function drawField(ctx, state) {
 
     // Endzones
     const ezPix = yardsToPixY(ENDZONE_YARDS);
-    ctx.fillStyle = '#075e22';
+    ctx.fillStyle = '#158545';
     ctx.fillRect(0, 0, FIELD_PIX_W, ezPix);
     ctx.fillRect(0, FIELD_PIX_H - ezPix, FIELD_PIX_W, ezPix);
 
