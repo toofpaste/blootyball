@@ -9,7 +9,7 @@ import StatsSummary from './ui/StatsSummary';
 import Modal from './ui/Modal';
 import { formatRecord } from './engine/league';
 import { resolveTeamColor } from './engine/colors';
-import { draw } from './render/draw';
+import Field3D from './render/Field3D';
 import './AppLayout.css';
 
 function fmtClock(seconds) {
@@ -17,9 +17,6 @@ function fmtClock(seconds) {
   const ss = String(Math.floor(seconds % 60)).padStart(2, '0');
   return `${m}:${ss}`;
 }
-
-const LOGICAL_W = FIELD_PIX_H;
-const LOGICAL_H = FIELD_PIX_W;
 
 function enforceFinalSeconds(state, reason = 'Final seconds mode enabled') {
   if (!state) return state;
@@ -79,7 +76,6 @@ const GameView = React.forwardRef(function GameView({
   startAtFinalSeconds = false,
   hidden = false,
 }, ref) {
-  const canvasRef = useRef(null);
   const [localRunning, setLocalRunning] = useState(false);
   const [statsModalOpen, setStatsModalOpen] = useState(false);
   const [state, setState] = useState(() => {
@@ -135,17 +131,6 @@ const GameView = React.forwardRef(function GameView({
   }), [label, state]);
 
   useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const dpr = Math.max(1, Math.floor(window.devicePixelRatio || 1));
-    canvas.width = Math.round(LOGICAL_W * dpr);
-    canvas.height = Math.round(LOGICAL_H * dpr);
-    canvas.style.width = '100%';
-    canvas.style.maxWidth = 'min(100%, 900px)';
-    canvas.style.height = 'auto';
-  }, []);
-
-  useEffect(() => {
     let rafId;
     let last = performance.now();
     const loop = (now) => {
@@ -157,10 +142,6 @@ const GameView = React.forwardRef(function GameView({
           stateRef.current = next;
           return next;
         });
-      }
-      const snapshot = stateRef.current;
-      if (canvasRef.current && snapshot) {
-        drawSafe(canvasRef.current, snapshot);
       }
       rafId = requestAnimationFrame(loop);
     };
@@ -426,7 +407,7 @@ const GameView = React.forwardRef(function GameView({
       />
       <div className="game-instance__body">
         <div className="field-shell">
-          <canvas ref={canvasRef} className="field-canvas" />
+          <Field3D state={state} />
         </div>
         <PlayLog items={state.playLog} />
       </div>
@@ -451,14 +432,5 @@ const GameView = React.forwardRef(function GameView({
     </section>
   );
 });
-
-function drawSafe(canvas, state) {
-  try {
-    draw(canvas, state);
-  } catch (err) {
-    // eslint-disable-next-line no-console
-    console.error('Failed to draw game', err);
-  }
-}
 
 export default GameView;
