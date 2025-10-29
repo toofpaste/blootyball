@@ -386,6 +386,24 @@ function drawField(ctx, state) {
     ctx.fillStyle = COLORS.fieldGreen;
     ctx.fillRect(0, 0, FIELD_PIX_W, FIELD_PIX_H);
 
+    // Add subtle depth near the near sideline so the turf stands apart from the track
+    const turfLipHeight = 26;
+    const lipStartY = FIELD_PIX_H - turfLipHeight;
+    const lipGradient = ctx.createLinearGradient(0, lipStartY - 10, 0, FIELD_PIX_H + 2);
+    lipGradient.addColorStop(0, 'rgba(0, 0, 0, 0)');
+    lipGradient.addColorStop(0.55, 'rgba(6, 60, 28, 0.18)');
+    lipGradient.addColorStop(1, 'rgba(2, 24, 12, 0.42)');
+    ctx.fillStyle = lipGradient;
+    ctx.fillRect(0, lipStartY - 10, FIELD_PIX_W, turfLipHeight + 12);
+
+    ctx.save();
+    ctx.lineWidth = 1.2;
+    ctx.strokeStyle = 'rgba(0, 0, 0, 0.32)';
+    line(ctx, 0, FIELD_PIX_H - 0.6, FIELD_PIX_W, FIELD_PIX_H - 0.6);
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.18)';
+    line(ctx, 0, lipStartY - 1.5, FIELD_PIX_W, lipStartY - 1.5);
+    ctx.restore();
+
     // Endzones
     const ezPix = yardsToPixY(ENDZONE_YARDS);
     ctx.fillStyle = '#158545';
