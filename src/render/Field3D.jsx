@@ -19,6 +19,7 @@ const PLAYER_RADIUS = 7;
 const PLAYER_HEIGHT = 16;
 const BALL_RADIUS = 3.4;
 const MARKER_MARGIN = PX_PER_YARD * 1.2;
+const SIDELINE_BLEED = PX_PER_YARD * 0.9;
 const QB_VISION_COLORS = {
   PRIMARY: '#ffd54f',
   THROW: '#ffb74d',
@@ -105,7 +106,7 @@ function toWorldPosition(point) {
 
 function FieldBase() {
   const thickness = 24;
-  const sidelineApron = 0;
+  const sidelineApron = SIDELINE_BLEED;
   const endzoneApron = PX_PER_YARD * 3.2;
   const width = FIELD_PIX_W + sidelineApron * 2;
   const length = FIELD_PIX_H + endzoneApron * 2;
@@ -133,6 +134,7 @@ function FieldTopVolume({ colors }) {
   const thickness = 9;
   const endzonePix = ENDZONE_YARDS * PX_PER_YARD;
   const fieldHalf = FIELD_PIX_H / 2;
+  const width = FIELD_PIX_W + SIDELINE_BLEED * 2;
   const centerLength = FIELD_PIX_H - endzonePix * 2;
   const centerY = topSurfaceY - thickness / 2;
   const northColor = colors?.north?.color || COLORS.fieldGreen;
@@ -141,15 +143,15 @@ function FieldTopVolume({ colors }) {
   return (
     <group>
       <mesh position={[0, centerY, 0]} receiveShadow>
-        <boxGeometry args={[FIELD_PIX_W, thickness, centerLength]} />
+        <boxGeometry args={[width, thickness, centerLength]} />
         <meshStandardMaterial color={COLORS.fieldGreen} />
       </mesh>
       <mesh position={[0, centerY, fieldHalf - endzonePix / 2]} receiveShadow>
-        <boxGeometry args={[FIELD_PIX_W, thickness, endzonePix]} />
+        <boxGeometry args={[width, thickness, endzonePix]} />
         <meshStandardMaterial color={northColor} />
       </mesh>
       <mesh position={[0, centerY, -fieldHalf + endzonePix / 2]} receiveShadow>
-        <boxGeometry args={[FIELD_PIX_W, thickness, endzonePix]} />
+        <boxGeometry args={[width, thickness, endzonePix]} />
         <meshStandardMaterial color={southColor} />
       </mesh>
     </group>
@@ -158,27 +160,31 @@ function FieldTopVolume({ colors }) {
 
 function FieldTexture({ colors }) {
   const texture = useMemo(() => {
-    const width = FIELD_PIX_W;
-    const height = FIELD_PIX_H;
+    const fieldWidth = FIELD_PIX_W;
+    const fieldHeight = FIELD_PIX_H;
+    const sidelineBleed = SIDELINE_BLEED;
+    const canvasWidth = fieldWidth + sidelineBleed * 2;
+    const canvasHeight = fieldHeight;
+    const fieldOffsetX = sidelineBleed;
     const canvas = document.createElement('canvas');
     const scale = 2;
-    canvas.width = width * scale;
-    canvas.height = height * scale;
+    canvas.width = canvasWidth * scale;
+    canvas.height = canvasHeight * scale;
     const ctx = canvas.getContext('2d');
     if (!ctx) return null;
     ctx.scale(scale, scale);
 
     ctx.fillStyle = '#18a854';
-    ctx.fillRect(0, 0, width, height);
+    ctx.fillRect(0, 0, canvasWidth, canvasHeight);
 
     const endzonePix = ENDZONE_YARDS * PX_PER_YARD;
     if (colors?.north) {
       ctx.fillStyle = colors.north.color;
-      ctx.fillRect(0, 0, width, endzonePix);
+      ctx.fillRect(fieldOffsetX, 0, fieldWidth, endzonePix);
       const northLabel = String(colors.north.label || '').trim().toUpperCase();
       if (northLabel) {
         ctx.save();
-        ctx.translate(width / 2, endzonePix * 0.6);
+        ctx.translate(fieldOffsetX + fieldWidth / 2, endzonePix * 0.6);
         ctx.fillStyle = '#f6f6f6';
         ctx.font = 'bold 32px "Oswald", sans-serif';
         ctx.textAlign = 'center';
@@ -189,11 +195,11 @@ function FieldTexture({ colors }) {
     }
     if (colors?.south) {
       ctx.fillStyle = colors.south.color;
-      ctx.fillRect(0, height - endzonePix, width, endzonePix);
+      ctx.fillRect(fieldOffsetX, fieldHeight - endzonePix, fieldWidth, endzonePix);
       const southLabel = String(colors.south.label || '').trim().toUpperCase();
       if (southLabel) {
         ctx.save();
-        ctx.translate(width / 2, height - endzonePix * 0.6);
+        ctx.translate(fieldOffsetX + fieldWidth / 2, fieldHeight - endzonePix * 0.6);
         ctx.fillStyle = '#f6f6f6';
         ctx.font = 'bold 32px "Oswald", sans-serif';
         ctx.textAlign = 'center';
@@ -206,13 +212,13 @@ function FieldTexture({ colors }) {
     ctx.strokeStyle = '#ffffff';
     ctx.lineWidth = 2;
     const playingStart = endzonePix;
-    const playingEnd = height - endzonePix;
+    const playingEnd = fieldHeight - endzonePix;
     const fiveYards = PX_PER_YARD * 5;
     for (let y = playingStart; y <= playingEnd; y += fiveYards) {
       ctx.globalAlpha = (y - playingStart) % (PX_PER_YARD * 10) === 0 ? 1 : 0.45;
       ctx.beginPath();
-      ctx.moveTo(0, y);
-      ctx.lineTo(width, y);
+      ctx.moveTo(fieldOffsetX, y);
+      ctx.lineTo(fieldOffsetX + fieldWidth, y);
       ctx.stroke();
     }
     ctx.globalAlpha = 1;
@@ -220,13 +226,13 @@ function FieldTexture({ colors }) {
     ctx.fillStyle = '#e9fbe5';
     const hashSpacing = PX_PER_YARD;
     for (let y = playingStart; y <= playingEnd; y += hashSpacing) {
-      ctx.fillRect(width * 0.25 - 1, y - 1, 2, 4);
-      ctx.fillRect(width * 0.75 - 1, y - 1, 2, 4);
+      ctx.fillRect(fieldOffsetX + fieldWidth * 0.25 - 1, y - 1, 2, 4);
+      ctx.fillRect(fieldOffsetX + fieldWidth * 0.75 - 1, y - 1, 2, 4);
     }
 
     const numberSequence = [10, 20, 30, 40, 50, 40, 30, 20, 10];
-    const leftNumberX = width * 0.18;
-    const rightNumberX = width - leftNumberX;
+    const leftNumberX = fieldOffsetX + fieldWidth * 0.18;
+    const rightNumberX = fieldOffsetX + fieldWidth - fieldWidth * 0.18;
     const numberOffset = PX_PER_YARD * 4.2;
 
     ctx.font = 'bold 34px "Oswald", sans-serif';
@@ -267,9 +273,10 @@ function FieldTexture({ colors }) {
   ]);
 
   if (!texture) return null;
+  const planeWidth = FIELD_PIX_W + SIDELINE_BLEED * 2;
   return (
     <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.18, 0]} receiveShadow>
-      <planeGeometry args={[FIELD_PIX_W, FIELD_PIX_H]} />
+      <planeGeometry args={[planeWidth, FIELD_PIX_H]} />
       <meshStandardMaterial
         map={texture}
         toneMapped={false}
