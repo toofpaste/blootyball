@@ -198,7 +198,10 @@ function FieldTexture({ colors }) {
 }
 
 function PlayerMarker({ player, color, qbVision, playElapsed }) {
-  const position = useMemo(() => toWorldPosition(player.pos), [player.pos]);
+  const position = useMemo(
+    () => toWorldPosition({ x: player.pos.x, y: player.pos.y }),
+    [player.pos.x, player.pos.y],
+  );
   const vision = player.role === 'QB' ? qbVision : null;
   const height = PLAYER_HEIGHT;
   return (
