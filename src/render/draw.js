@@ -59,13 +59,20 @@ function drawContent(ctx, state) {
     const ltgY = yardsToPixY(ENDZONE_YARDS + losYards + cappedToGo);
 
     // Colors: LOS = blue, First Down = yellow
-    ctx.lineWidth = 2;
+    ctx.save();
+    const broadcastLineWidth = 3.5;
+    const sidelineBuffer = 3;
+    const lineStartX = sidelineBuffer;
+    const lineEndX = FIELD_PIX_W - sidelineBuffer;
+    ctx.lineWidth = broadcastLineWidth;
+    ctx.lineCap = 'round';
     // LOS (blue)
     ctx.strokeStyle = '#3da5ff';
-    dashLine(ctx, 0, losY, FIELD_PIX_W, losY, [10, 8]);
+    dashLine(ctx, lineStartX, losY, lineEndX, losY, [10, 8]);
     // First down (yellow)
     ctx.strokeStyle = '#ffd400';
-    dashLine(ctx, 0, ltgY, FIELD_PIX_W, ltgY, [10, 8]);
+    dashLine(ctx, lineStartX, ltgY, lineEndX, ltgY, [10, 8]);
+    ctx.restore();
 
 
     // Players
