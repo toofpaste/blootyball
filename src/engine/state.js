@@ -2815,6 +2815,8 @@ export function stepGame(state, dt) {
             const minPresnap = s.play?.preSnap?.minDuration ?? 1.0;
             if (s.play.elapsed > minPresnap && presnapReady(s.play)) {
                 s.play.phase = 'POSTSNAP';
+                s.play.postSnapStartedAt = s.play.elapsed;
+                s.play.postSnapDelay = s.play.preSnap?.postSnapDelay ?? 0.05;
                 s.play.ball.carrierId = 'QB';
                 s.play.ball.inAir = false;
                 s.play.resultText = s.play.playCall?.name || 'Play';
@@ -2823,16 +2825,23 @@ export function stepGame(state, dt) {
             return s;
         }
         case 'POSTSNAP': {
-            if (s.play.elapsed > 1.2) {
-                s.play.phase = 'LIVE';
-                s.play.liveAt = s.play.elapsed;
-                s.play.handed = false;
-                s.play.handoffTime = null;
-                s.play.handoffPending = null;
-                startClockOnSnap(s);
-                recordPlayEvent(s, { type: 'phase:live' });
+            if (s.play.postSnapStartedAt == null) {
+                s.play.postSnapStartedAt = s.play.elapsed;
             }
-            return s;
+            const postSnapDelay = s.play.postSnapDelay ?? 0.05;
+            const postSnapElapsed = s.play.elapsed - s.play.postSnapStartedAt;
+            if (postSnapElapsed < postSnapDelay) {
+                return s;
+            }
+            s.play.phase = 'LIVE';
+            s.play.liveAt = s.play.elapsed;
+            s.play.handed = false;
+            s.play.handoffTime = null;
+            s.play.handoffPending = null;
+            s.play.postSnapDelay = null;
+            s.play.postSnapStartedAt = null;
+            startClockOnSnap(s);
+            recordPlayEvent(s, { type: 'phase:live' });
         }
         case 'LIVE': {
             if (!s.play.formation) s.play.formation = { off: {}, def: {} };

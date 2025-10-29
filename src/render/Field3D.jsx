@@ -79,7 +79,7 @@ function useSidelineCamera(center) {
 
     const halfFieldLength = FIELD_PIX_H / 2;
     const distance = (halfFieldLength / Math.tan(horizontalFov / 2)) * 1.03;
-    const height = FIELD_PIX_W * 0.78;
+    const height = FIELD_PIX_W * 0.9;
 
     camera.position.set(distance, height, 0);
     camera.fov = verticalFov;
@@ -437,7 +437,7 @@ function Field3D({ state }) {
       className="field-canvas"
       shadows
       dpr={[1, 2]}
-      camera={{ fov: 30, position: [FIELD_PIX_H, FIELD_PIX_W * 0.78, 0], near: 0.1, far: 4000 }}
+      camera={{ fov: 30, position: [FIELD_PIX_H, FIELD_PIX_W * 0.9, 0], near: 0.1, far: 4000 }}
       gl={{ antialias: true }}
     >
       <color attach="background" args={["#021403"]} />
