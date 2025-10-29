@@ -700,10 +700,12 @@ function StadiumEnvironment() {
       const taper = Math.max(0.45, 1 - globalIndex * 0.08);
       const width = bowlCornerLength * taper;
       const color = globalIndex % 2 === 0 ? STADIUM_COLORS.seats : STADIUM_COLORS.riser;
+      const rowRotationY = directionSign === -1 ? Math.PI : 0;
       meshes.push(
         <mesh
           key={`${key}-${globalIndex}`}
           position={[directionSign * offset, centerHeight, 0]}
+          rotation={[0, rowRotationY, 0]}
           castShadow
           receiveShadow
         >
@@ -727,6 +729,7 @@ function StadiumEnvironment() {
         <mesh
           key="corner-walkway"
           position={[directionSign * walkwayCenter, walkwayElevation, 0]}
+          rotation={[0, directionSign === -1 ? Math.PI : 0, 0]}
           castShadow
           receiveShadow
         >
@@ -751,13 +754,17 @@ function StadiumEnvironment() {
         {meshes}
         <mesh
           position={[directionSign * depth * 0.6, tierHeight * 0.3, 0]}
+          rotation={[0, directionSign === -1 ? Math.PI : 0, 0]}
           castShadow
           receiveShadow
         >
           <boxGeometry args={[tierDepth * 1.4, tierHeight * 0.6, bowlCornerLength * 0.9]} />
           <meshStandardMaterial color={STADIUM_COLORS.concrete} roughness={0.82} />
         </mesh>
-        <mesh position={[directionSign * furthestOffset, guardRailHeight, 0]}>
+        <mesh
+          position={[directionSign * furthestOffset, guardRailHeight, 0]}
+          rotation={[0, directionSign === -1 ? Math.PI : 0, 0]}
+        >
           <boxGeometry args={[tierDepth * 1.1, tierHeight * 0.32, bowlCornerLength * 0.92]} />
           <meshStandardMaterial color={STADIUM_COLORS.rail} roughness={0.3} />
         </mesh>
