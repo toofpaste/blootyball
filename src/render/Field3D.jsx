@@ -128,6 +128,34 @@ function FieldBase() {
   );
 }
 
+function FieldTopVolume({ colors }) {
+  const topSurfaceY = 0.14;
+  const thickness = 9;
+  const endzonePix = ENDZONE_YARDS * PX_PER_YARD;
+  const fieldHalf = FIELD_PIX_H / 2;
+  const centerLength = FIELD_PIX_H - endzonePix * 2;
+  const centerY = topSurfaceY - thickness / 2;
+  const northColor = colors?.north?.color || COLORS.fieldGreen;
+  const southColor = colors?.south?.color || COLORS.fieldGreen;
+
+  return (
+    <group>
+      <mesh position={[0, centerY, 0]} receiveShadow>
+        <boxGeometry args={[FIELD_PIX_W, thickness, centerLength]} />
+        <meshStandardMaterial color={COLORS.fieldGreen} />
+      </mesh>
+      <mesh position={[0, centerY, fieldHalf - endzonePix / 2]} receiveShadow>
+        <boxGeometry args={[FIELD_PIX_W, thickness, endzonePix]} />
+        <meshStandardMaterial color={northColor} />
+      </mesh>
+      <mesh position={[0, centerY, -fieldHalf + endzonePix / 2]} receiveShadow>
+        <boxGeometry args={[FIELD_PIX_W, thickness, endzonePix]} />
+        <meshStandardMaterial color={southColor} />
+      </mesh>
+    </group>
+  );
+}
+
 function FieldTexture({ colors }) {
   const texture = useMemo(() => {
     const width = FIELD_PIX_W;
@@ -520,6 +548,7 @@ function SceneContent({ state }) {
   return (
     <group>
       <FieldBase />
+      <FieldTopVolume colors={endzones} />
       <FieldTexture colors={endzones} />
       <FieldGoalPosts />
       <ambientLight intensity={0.55} />
