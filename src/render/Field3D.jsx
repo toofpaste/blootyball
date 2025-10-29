@@ -32,14 +32,14 @@ const QB_VISION_COLORS = {
 };
 
 const STADIUM_COLORS = {
-  concrete: '#3c3f48',
-  seats: '#2a3560',
-  riser: '#1e2438',
-  pressBox: '#51586b',
-  glass: '#8ca2c9',
-  ads: ['#f05a28', '#ffd400', '#19b5fe', '#7fd162', '#f45b69'],
-  rail: '#d8dbe3',
-  lighting: '#ccccd8',
+  concrete: '#3f434a',
+  seats: '#6e747e',
+  riser: '#525860',
+  pressBox: '#7c848f',
+  glass: '#b7bec9',
+  ads: ['#6a6f78', '#8a9098', '#a6abb3', '#7f848c', '#969ba3'],
+  rail: '#d2d5dc',
+  lighting: '#d8dbe3',
 };
 
 const shortRole = (role) => {
