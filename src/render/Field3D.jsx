@@ -105,9 +105,10 @@ function toWorldPosition(point) {
 
 function FieldBase() {
   const thickness = 24;
-  const apron = PX_PER_YARD * 3.2;
-  const width = FIELD_PIX_W + apron * 2;
-  const length = FIELD_PIX_H + apron * 2;
+  const sidelineApron = 0;
+  const endzoneApron = PX_PER_YARD * 3.2;
+  const width = FIELD_PIX_W + sidelineApron * 2;
+  const length = FIELD_PIX_H + endzoneApron * 2;
   const padHeight = 6;
   return (
     <group>
