@@ -117,10 +117,6 @@ function FieldBase() {
         <boxGeometry args={[width, thickness, length]} />
         <meshStandardMaterial color="#c5a46a" roughness={0.92} />
       </mesh>
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.02, 0]} receiveShadow>
-        <planeGeometry args={[width, length]} />
-        <meshStandardMaterial color="#b98c4f" />
-      </mesh>
       <mesh position={[0, -thickness + padHeight / 2, 0]} receiveShadow>
         <boxGeometry args={[width * 0.88, padHeight, length * 0.88]} />
         <meshStandardMaterial color="#9a6b3c" roughness={0.95} />
