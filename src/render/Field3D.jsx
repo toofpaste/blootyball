@@ -73,11 +73,12 @@ function useIsometricCamera(center) {
   const { camera, size } = useThree();
   React.useLayoutEffect(() => {
     const maxDimension = Math.max(FIELD_PIX_W, FIELD_PIX_H);
-    const distance = maxDimension * 1.25;
-    camera.position.set(distance, distance * 0.75, distance);
+    const distance = maxDimension * 1.08;
+    camera.position.set(distance, distance * 0.72, distance);
+    camera.fov = 32;
     camera.lookAt(center[0], center[1], center[2]);
     camera.near = 0.1;
-    camera.far = distance * 4;
+    camera.far = distance * 3.5;
     camera.updateProjectionMatrix();
   }, [camera, center, size]);
   return null;
