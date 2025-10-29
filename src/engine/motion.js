@@ -49,7 +49,13 @@ function roleToTemplateKey(role = '') {
 }
 
 const BASE_SPEED_BOOST = 1.08;
-const PLAYER_SPEED_MULTIPLIER = 2;
+// Global throttle that keeps player movement grounded near broadcast pacing.
+// Previous tuning (2x) caused players to cover ~5x more ground than desired at
+// the default 1.0× simulation speed, forcing users to slow the sim down to
+// 0.2× just to approach a realistic cadence. 0.35 brings the baseline close to
+// that user-tested pace without requiring manual slowdown and also scales
+// acceleration by the same factor for smoother breakouts.
+const PLAYER_SPEED_MULTIPLIER = 0.35;
 
 function resolveTemplate(role) {
     const key = roleToTemplateKey(role);
