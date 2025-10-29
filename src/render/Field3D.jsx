@@ -113,15 +113,15 @@ function FieldBase() {
     <group>
       <mesh position={[0, -thickness / 2, 0]} receiveShadow>
         <boxGeometry args={[width, thickness, length]} />
-        <meshStandardMaterial color="#3b2612" roughness={0.92} />
+        <meshStandardMaterial color="#c5a46a" roughness={0.92} />
       </mesh>
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.02, 0]} receiveShadow>
         <planeGeometry args={[width, length]} />
-        <meshStandardMaterial color="#1b2f16" />
+        <meshStandardMaterial color="#b98c4f" />
       </mesh>
       <mesh position={[0, -thickness + padHeight / 2, 0]} receiveShadow>
         <boxGeometry args={[width * 0.88, padHeight, length * 0.88]} />
-        <meshStandardMaterial color="#29190b" roughness={0.95} />
+        <meshStandardMaterial color="#9a6b3c" roughness={0.95} />
       </mesh>
     </group>
   );
@@ -209,23 +209,8 @@ function FieldTexture({ colors }) {
 
     numberSequence.forEach((num, index) => {
       const yardLineY = playingStart + (index + 1) * 10 * PX_PER_YARD;
-      const topY = yardLineY - numberOffset;
       const bottomY = yardLineY + numberOffset;
       const text = String(num);
-
-      ctx.save();
-      ctx.translate(leftNumberX, topY);
-      ctx.rotate(Math.PI);
-      ctx.strokeText(text, 0, 0);
-      ctx.fillText(text, 0, 0);
-      ctx.restore();
-
-      ctx.save();
-      ctx.translate(rightNumberX, topY);
-      ctx.rotate(Math.PI);
-      ctx.strokeText(text, 0, 0);
-      ctx.fillText(text, 0, 0);
-      ctx.restore();
 
       ctx.save();
       ctx.translate(leftNumberX, bottomY);
