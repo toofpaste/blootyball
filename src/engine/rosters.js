@@ -2,7 +2,7 @@ import { TEAM_RED, TEAM_BLK, ROLES_OFF, ROLES_DEF } from './constants';
 import { clamp, rand, yardsToPixY } from './helpers';
 import { ENDZONE_YARDS, FIELD_PIX_W } from './constants';
 import { resetMotion } from './motion';
-import { getTeamData, getTeamIdentity } from './data/teamLibrary';
+import { TEAM_IDS, getTeamData, getTeamIdentity } from './data/teamLibrary';
 import { initializeLeaguePersonnel } from './personnel';
 
 /* =========================================================
@@ -151,7 +151,7 @@ export function createTeams(matchup = null, league = null) {
     const buildSide = (team) => {
         const actualId = slotToTeam[team] || team;
         const rosterSource = leagueRosters?.[actualId] || null;
-        const teamData = !league ? (getTeamData(actualId) || {}) : null;
+        const teamData = getTeamData(actualId) || null;
         const identity = identities[team] || getTeamIdentity(actualId) || { id: actualId, displayName: actualId };
         const off = {}; const def = {};
         ROLES_OFF.forEach((r) => {
@@ -174,7 +174,28 @@ export function createTeams(matchup = null, league = null) {
                 abbr: identity.abbr,
             });
         });
-        const kickerData = rosterSource?.special?.K || (!league ? teamData?.specialTeams?.K : null);
+        let kickerData = rosterSource?.special?.K
+            || rosterSource?.specialTeams?.K
+            || teamData?.specialTeams?.K
+            || null;
+        if (!kickerData) {
+            const fallbackId = TEAM_IDS.find(id => getTeamData(id)?.specialTeams?.K);
+            const fallback = fallbackId ? getTeamData(fallbackId)?.specialTeams?.K : null;
+            if (fallback) {
+                kickerData = {
+                    ...fallback,
+                    id: fallback.id || `${actualId}-K`,
+                };
+            } else {
+                kickerData = {
+                    id: `${actualId}-K`,
+                    firstName: 'Kicker',
+                    lastName: '',
+                    maxDistance: 45,
+                    accuracy: 0.72,
+                };
+            }
+        }
         const special = {};
         if (kickerData) {
             special.K = makeKicker(team, kickerData, {
