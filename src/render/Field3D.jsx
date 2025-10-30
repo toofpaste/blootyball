@@ -703,48 +703,76 @@ function StadiumEnvironment() {
   const wingFoundationDepth = 34;
   const wingBaseHeight = baseHeight * 0.92;
 
+  const mainWalkwayWidth = mainWidth * 1.02;
+  const mainFoundationWidth = mainWidth * 1.08;
+
+  const mainFoundationGeometry = useMemo(
+    () =>
+      createDiagonalSlabGeometry({
+        width: mainFoundationWidth,
+        depth: foundationDepth,
+        height: baseHeight,
+        cutDepth: mainFoundationWidth * 0.18,
+      }),
+    [baseHeight, foundationDepth, mainFoundationWidth],
+  );
+
   const mainApronGeometry = useMemo(
     () =>
       createDiagonalSlabGeometry({
-        width: mainWidth * 1.18,
+        width: mainWalkwayWidth,
         depth: foundationDepth * 0.9,
         height: baseHeight * 0.4,
-        cutDepth: mainWidth * 0.18,
+        cutDepth: mainWalkwayWidth * 0.2,
       }),
-    [baseHeight, foundationDepth, mainWidth],
+    [baseHeight, foundationDepth, mainWalkwayWidth],
   );
 
   const mainDeckGeometry = useMemo(
     () =>
       createDiagonalSlabGeometry({
-        width: mainWidth * 1.08,
+        width: mainWalkwayWidth,
         depth: foundationDepth * 0.62,
         height: 2.2,
-        cutDepth: mainWidth * 0.16,
+        cutDepth: mainWalkwayWidth * 0.18,
       }),
-    [foundationDepth, mainWidth],
+    [foundationDepth, mainWalkwayWidth],
+  );
+
+  const wingWalkwayWidth = endzoneStandWidth * 1.02;
+  const wingFoundationWidth = wingWalkwayWidth * 1.08;
+
+  const wingFoundationGeometry = useMemo(
+    () =>
+      createDiagonalSlabGeometry({
+        width: wingFoundationWidth,
+        depth: wingFoundationDepth,
+        height: wingBaseHeight,
+        cutDepth: wingFoundationWidth * 0.2,
+      }),
+    [wingBaseHeight, wingFoundationDepth, wingFoundationWidth],
   );
 
   const wingApronGeometry = useMemo(
     () =>
       createDiagonalSlabGeometry({
-        width: endzoneStandWidth * 1.02 * 1.18,
+        width: wingWalkwayWidth,
         depth: wingFoundationDepth * 0.78,
         height: wingBaseHeight * 0.42,
-        cutDepth: endzoneStandWidth * 0.18,
+        cutDepth: wingWalkwayWidth * 0.2,
       }),
-    [endzoneStandWidth, wingBaseHeight, wingFoundationDepth],
+    [wingBaseHeight, wingFoundationDepth, wingWalkwayWidth],
   );
 
   const wingDeckGeometry = useMemo(
     () =>
       createDiagonalSlabGeometry({
-        width: endzoneStandWidth * 1.1,
+        width: wingWalkwayWidth,
         depth: wingFoundationDepth * 0.64,
         height: 1.8,
-        cutDepth: endzoneStandWidth * 0.16,
+        cutDepth: wingWalkwayWidth * 0.18,
       }),
-    [endzoneStandWidth, wingFoundationDepth],
+    [wingFoundationDepth, wingWalkwayWidth],
   );
 
   const mainAisleCount = 9;
@@ -962,7 +990,7 @@ function StadiumEnvironment() {
         position={[adX, adCenterY, 0]}
         castShadow
       >
-        <boxGeometry args={[adBandDepth, adBandHeight, tier.width * 1.04]} />
+        <boxGeometry args={[adBandDepth, adBandHeight, tier.width * 0.98]} />
         <meshStandardMaterial
           color={STADIUM_COLORS.adBand}
           emissive={STADIUM_COLORS.adBand}
@@ -977,7 +1005,7 @@ function StadiumEnvironment() {
         position={[walkwayDeckX, walkwayY, 0]}
         receiveShadow
       >
-        <boxGeometry args={[tier.walkwayDepth, walkwayDeckHeight, tier.width * 1.06]} />
+        <boxGeometry args={[tier.walkwayDepth, walkwayDeckHeight, tier.width]} />
         <meshStandardMaterial color={STADIUM_COLORS.walkway} roughness={0.52} />
       </mesh>,
     );
@@ -998,7 +1026,7 @@ function StadiumEnvironment() {
         key={`main-walkway-rail-${index}`}
         position={[walkwayDeckX - tier.walkwayDepth / 2 + 0.8, walkwayY + walkwayDeckHeight / 2 + railHeight / 2 - 0.3, 0]}
       >
-        <boxGeometry args={[1.2, railHeight, tier.width * 1.02]} />
+        <boxGeometry args={[1.2, railHeight, tier.width * 0.96]} />
         <meshStandardMaterial color={STADIUM_COLORS.rail} roughness={0.24} />
       </mesh>,
     );
@@ -1009,7 +1037,7 @@ function StadiumEnvironment() {
         key={`main-adband-highlight-${index}`}
         position={[adX + adBandDepth / 2 - 0.6, adCenterY + adBandHeight / 2 - bannerHeight / 2 - 0.1, 0]}
       >
-        <boxGeometry args={[1.4, bannerHeight, tier.width * 1.02]} />
+        <boxGeometry args={[1.4, bannerHeight, tier.width * 0.96]} />
         <meshStandardMaterial color={STADIUM_COLORS.bannerHighlight} emissive={STADIUM_COLORS.bannerHighlight} emissiveIntensity={0.2} />
       </mesh>,
     );
@@ -1035,7 +1063,7 @@ function StadiumEnvironment() {
           position={[adX + adBandDepth / 2 + 0.05, adCenterY, 0]}
           rotation={[0, Math.PI / 2, 0]}
         >
-          <planeGeometry args={[tier.width * 1.02, adBandHeight * 0.9]} />
+          <planeGeometry args={[tier.width * 0.98, adBandHeight * 0.9]} />
           <meshStandardMaterial
             map={adTexture}
             toneMapped={false}
@@ -1051,7 +1079,7 @@ function StadiumEnvironment() {
         key={`main-walkway-truss-${index}`}
         position={[walkwayDeckX - tier.walkwayDepth / 2 - 1.4, seatCenterY + tier.height / 2 - 1.2, 0]}
       >
-        <boxGeometry args={[2.2, walkwayDeckHeight + tierGap * 1.1, tier.width * 1.08]} />
+        <boxGeometry args={[2.2, walkwayDeckHeight + tierGap * 1.1, tier.width]} />
         <meshStandardMaterial color={STADIUM_COLORS.truss} roughness={0.62} />
       </mesh>,
     );
@@ -1355,7 +1383,7 @@ function StadiumEnvironment() {
           position={[walkwayDeckX, walkwayY, 0]}
           receiveShadow
         >
-          <boxGeometry args={[tier.walkwayDepth, walkwayDeckHeight, tier.width * 1.04]} />
+          <boxGeometry args={[tier.walkwayDepth, walkwayDeckHeight, tier.width]} />
           <meshStandardMaterial color={STADIUM_COLORS.walkway} roughness={0.68} />
         </mesh>,
       );
@@ -1376,7 +1404,7 @@ function StadiumEnvironment() {
           position={[adX, adCenterY, 0]}
           castShadow
         >
-          <boxGeometry args={[wingAdDepth, wingAdHeight, tier.width * 1.04]} />
+          <boxGeometry args={[wingAdDepth, wingAdHeight, tier.width * 0.98]} />
           <meshStandardMaterial
             color={STADIUM_COLORS.adBand}
             emissive={STADIUM_COLORS.adBand}
@@ -1390,7 +1418,7 @@ function StadiumEnvironment() {
           key={`wing-${direction}-ad-highlight-${index}`}
           position={[adX + wingAdDepth / 2 - 0.5, adCenterY + wingAdHeight / 2 - 0.5, 0]}
         >
-          <boxGeometry args={[1, 1.2, tier.width * 1.02]} />
+          <boxGeometry args={[1, 1.2, tier.width * 0.96]} />
           <meshStandardMaterial color={STADIUM_COLORS.bannerHighlight} emissive={STADIUM_COLORS.bannerHighlight} emissiveIntensity={0.18} />
         </mesh>,
       );
@@ -1402,7 +1430,7 @@ function StadiumEnvironment() {
             position={[adX + wingAdDepth / 2 + 0.05, adCenterY, 0]}
             rotation={[0, Math.PI / 2, 0]}
           >
-            <planeGeometry args={[tier.width * 1.02, wingAdHeight * 0.9]} />
+            <planeGeometry args={[tier.width * 0.98, wingAdHeight * 0.9]} />
             <meshStandardMaterial
               map={adTexture}
               toneMapped={false}
@@ -1432,7 +1460,7 @@ function StadiumEnvironment() {
           key={`wing-${direction}-walkway-truss-${index}`}
           position={[walkwayDeckX - tier.walkwayDepth / 2 - 1.2, seatCenterY + tier.height / 2 - 1, 0]}
         >
-          <boxGeometry args={[2, walkwayDeckHeight + tierGap * 0.9, tier.width * 1.08]} />
+          <boxGeometry args={[2, walkwayDeckHeight + tierGap * 0.9, tier.width]} />
           <meshStandardMaterial color={STADIUM_COLORS.truss} roughness={0.6} />
         </mesh>,
       );
@@ -1457,7 +1485,7 @@ function StadiumEnvironment() {
         rotation={[0, direction * Math.PI / 2, 0]}
       >
         <mesh position={[-wingFoundationDepth / 2, wingBaseHeight / 2, 0]} castShadow receiveShadow>
-          <boxGeometry args={[wingFoundationDepth, wingBaseHeight, wingWidth * 1.12]} />
+          <primitive object={wingFoundationGeometry} attach="geometry" />
           <meshStandardMaterial color={STADIUM_COLORS.concrete} roughness={0.82} />
         </mesh>
         <mesh position={[-wingFoundationDepth * 0.6, wingBaseHeight * 0.32, 0]} receiveShadow>
@@ -1488,7 +1516,7 @@ function StadiumEnvironment() {
     <group>
       <group position={[standFrontX, 0, 0]}>
         <mesh position={[-foundationDepth / 2, baseHeight / 2, 0]} castShadow receiveShadow>
-          <boxGeometry args={[foundationDepth, baseHeight, mainWidth * 1.12]} />
+          <primitive object={mainFoundationGeometry} attach="geometry" />
           <meshStandardMaterial color={STADIUM_COLORS.concrete} roughness={0.82} />
         </mesh>
         <mesh position={[-foundationDepth * 0.6, baseHeight * 0.35, 0]} receiveShadow>
