@@ -3045,7 +3045,48 @@ export function betweenPlays(prevState) {
     // Touchdown: add score, then hand the ball to the other team at the 25
     else if (resultWhy === 'Touchdown') {
         if (!s.scores) s.scores = { [TEAM_RED]: 0, [TEAM_BLK]: 0 };
-        const scoringTeam = offenseAtSnap;
+
+        const directory = s.playerDirectory || {};
+        const lookupTeamSlot = (playerId) => {
+            if (!playerId) return null;
+            const meta = directory[playerId];
+            if (!meta) return null;
+            if (meta.teamSlot === TEAM_RED || meta.teamSlot === TEAM_BLK) return meta.teamSlot;
+            if (meta.team) {
+                const entries = Object.entries(s.matchup?.slotToTeam || {});
+                const found = entries.find(([, teamId]) => teamId === meta.team);
+                if (found) return found[0];
+            }
+            return null;
+        };
+        const statCtx = s.play?.statContext || {};
+        const potentialScorers = [
+            s.play?.ball?.lastCarrierId,
+            statCtx.rushCarrierId,
+            statCtx.fumbleRecoveredBy,
+            statCtx.pass?.interceptedBy,
+        ];
+        let scoringTeam = offenseAtSnap;
+        for (const id of potentialScorers) {
+            const slot = lookupTeamSlot(id);
+            if (slot === TEAM_RED || slot === TEAM_BLK) {
+                scoringTeam = slot;
+                break;
+            }
+        }
+        if (scoringTeam === offenseAtSnap) {
+            const recoveredTeam = statCtx.fumbleRecoveredTeam;
+            if (recoveredTeam === TEAM_RED || recoveredTeam === TEAM_BLK) {
+                scoringTeam = recoveredTeam;
+            }
+        }
+
+        if (scoringTeam !== s.possession) {
+            s.possession = scoringTeam;
+            s.teams = s.teams || createTeams(s.matchup, s.league);
+            s.roster = rosterForPossession(s.teams, s.possession);
+        }
+
         s.scores[scoringTeam] = (s.scores[scoringTeam] ?? 0) + 6;
 
         const patPlan = scheduleExtraPoint(s, scoringTeam, { startLos, startDown, startToGo });
