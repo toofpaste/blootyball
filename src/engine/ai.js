@@ -3,6 +3,7 @@ import {
     clamp,
     dist,
     rand,
+    unitVec,
     yardsToPixY,
     findPlayerById,
     forEachPlayer,
@@ -116,6 +117,7 @@ function _assignRoute(player, path, options = {}) {
         throttle: options.speed || 1,
     };
     ai.prevHeading = { x: 0, y: 1 };
+    ai._scrDecision = null;
 }
 
 function _markRouteFinished(player, aiRoute, heading = null) {
@@ -268,6 +270,7 @@ const CFG = {
 };
 
 const SHOTGUN_HINTS = ['gun', 'shotgun', 'empty'];
+const SCRAMBLE_MIN_COMMIT_PX = PX_PER_YARD * 5;
 
 function guessShotgun(call = {}, formationName = '') {
     if (call.shotgun != null) return !!call.shotgun;
@@ -437,6 +440,8 @@ function _nearestDefender(def, pos, maxR = 1e9) {
 }
 
 function _racAdvance(off, def, p, dt, play = null) {
+    const ai = _ensureAI(p);
+    if (ai) ai._scrDecision = null;
     // On first possession, clear leftover route/scramble targets
     if (!p._hasBallInit) {
         p._hasBallInit = true;
@@ -617,6 +622,143 @@ function _routeScrambleTarget(player, aiRoute, context) {
     const x = clamp(qb.pos.x + scrambleDir * width, 16, FIELD_PIX_W - 16);
     const y = Math.max(depth, player.pos.y - PX_PER_YARD * 0.5);
     return { x, y };
+}
+
+function _ensureScrambleDecision(decision) {
+    if (!decision) return decision;
+    const heading = unitVec({
+        x: decision.target.x - decision.origin.x,
+        y: decision.target.y - decision.origin.y,
+    });
+    const commitTarget = {
+        x: clamp(decision.origin.x + heading.x * SCRAMBLE_MIN_COMMIT_PX, 16, FIELD_PIX_W - 16),
+        y: clamp(decision.origin.y + heading.y * SCRAMBLE_MIN_COMMIT_PX, 0, FIELD_PIX_H - 6),
+    };
+    const baseDist = dist(decision.origin, decision.target);
+    decision.heading = heading;
+    if (baseDist < SCRAMBLE_MIN_COMMIT_PX) {
+        decision.target = commitTarget;
+    } else {
+        decision.target = {
+            x: clamp(decision.target.x, 16, FIELD_PIX_W - 16),
+            y: clamp(decision.target.y, 0, FIELD_PIX_H - 6),
+        };
+    }
+    return decision;
+}
+
+function _pickScrambleDecision(player, context, prev = null) {
+    const qbPos = context?.qb?.pos || {
+        x: FIELD_PIX_W / 2,
+        y: Math.max(context?.losY + PX_PER_YARD * 6 || player.pos.y, player.pos.y),
+    };
+    const losY = context?.losY ?? qbPos.y - PX_PER_YARD * 6;
+    const origin = { x: player.pos.x, y: player.pos.y };
+
+    const vertical = {
+        name: 'VERTICAL',
+        target: {
+            x: clamp(player.pos.x + rand(-18, 18), 24, FIELD_PIX_W - 24),
+            y: clamp(Math.max(player.pos.y + PX_PER_YARD * rand(6, 9), losY + PX_PER_YARD * 4), 0, FIELD_PIX_H - 6),
+        },
+    };
+
+    const comebackDepth = Math.max(
+        losY + PX_PER_YARD * 2.5,
+        Math.min(player.pos.y - PX_PER_YARD * rand(5, 7), qbPos.y - PX_PER_YARD * 1.2),
+    );
+    const comeback = {
+        name: 'COMEBACK',
+        target: {
+            x: clamp(qbPos.x + rand(-14, 14), 24, FIELD_PIX_W - 24),
+            y: clamp(comebackDepth, 0, FIELD_PIX_H - 6),
+        },
+    };
+
+    const crossDir = player.pos.x < qbPos.x ? 1 : -1;
+    const cross = {
+        name: 'CROSS',
+        target: {
+            x: clamp(qbPos.x + crossDir * rand(32, 52), 24, FIELD_PIX_W - 24),
+            y: clamp(Math.max(player.pos.y + PX_PER_YARD * rand(4, 7), losY + PX_PER_YARD * 5.5), 0, FIELD_PIX_H - 6),
+        },
+    };
+
+    const choices = [vertical, comeback, cross];
+    let weights;
+    if (context?.scrambleMode === 'FORWARD') {
+        weights = [0.5, 0.2, 0.3];
+    } else if (context?.scrambleMode === 'LATERAL') {
+        weights = [0.25, 0.2, 0.55];
+    } else {
+        weights = [0.4, 0.25, 0.35];
+    }
+    if (prev?.name) {
+        const idx = choices.findIndex((c) => c.name === prev.name);
+        if (idx >= 0) weights[idx] *= 0.6;
+    }
+
+    const total = weights.reduce((sum, w) => sum + w, 0);
+    let roll = rand(0, total);
+    let chosen = choices[choices.length - 1];
+    for (let i = 0; i < choices.length; i++) {
+        roll -= weights[i];
+        if (roll <= 0) { chosen = choices[i]; break; }
+    }
+
+    const decision = {
+        name: chosen.name,
+        origin,
+        target: { ...chosen.target },
+        startedAt: context?.play?.elapsed ?? 0,
+    };
+    return _ensureScrambleDecision(decision);
+}
+
+function _updateScrambleDecision(player, ai, context, dt, speedMul = 0.96) {
+    if (!player?.pos) return;
+    if (!ai._scrDecision) {
+        ai._scrDecision = _pickScrambleDecision(player, context, null);
+    } else {
+        _ensureScrambleDecision(ai._scrDecision);
+    }
+
+    let decision = ai._scrDecision;
+    let commitDist = dist(player.pos, decision.origin);
+    let toTarget = dist(player.pos, decision.target);
+
+    if (toTarget < PX_PER_YARD * 1.4) {
+        if (commitDist >= SCRAMBLE_MIN_COMMIT_PX) {
+            ai._scrDecision = _pickScrambleDecision(player, context, decision);
+            decision = ai._scrDecision;
+            commitDist = 0;
+            toTarget = dist(player.pos, decision.target);
+        } else {
+            const heading = decision.heading || unitVec({
+                x: decision.target.x - decision.origin.x,
+                y: decision.target.y - decision.origin.y,
+            });
+            const commitTarget = {
+                x: clamp(decision.origin.x + heading.x * SCRAMBLE_MIN_COMMIT_PX, 16, FIELD_PIX_W - 16),
+                y: clamp(decision.origin.y + heading.y * SCRAMBLE_MIN_COMMIT_PX, 0, FIELD_PIX_H - 6),
+            };
+            decision.target = commitTarget;
+            decision.heading = heading;
+            toTarget = dist(player.pos, decision.target);
+        }
+    } else if (commitDist >= SCRAMBLE_MIN_COMMIT_PX * 1.35) {
+        ai._scrDecision = _pickScrambleDecision(player, context, decision);
+        decision = ai._scrDecision;
+        commitDist = 0;
+        toTarget = dist(player.pos, decision.target);
+    }
+
+    decision.target = {
+        x: clamp(decision.target.x, 16, FIELD_PIX_W - 16),
+        y: clamp(decision.target.y, 0, FIELD_PIX_H - 6),
+    };
+
+    moveToward(player, decision.target, dt, speedMul, { behavior: 'SCRAMBLE' });
 }
 
 function _updateRouteRunner(player, context, dt) {
@@ -1141,8 +1283,10 @@ export function moveReceivers(off, dt, s = null) {
     ['WR1', 'WR2', 'WR3'].forEach((key) => {
         const p = off[key];
         if (!p || !p.alive) return;
+        const ai = _ensureAI(p);
 
         if (s && isBallLoose(s.play?.ball)) {
+            ai._scrDecision = null;
             pursueLooseBallGroup([p], s.play.ball, dt, 1.18, 10);
             return;
         }
@@ -1168,36 +1312,27 @@ export function moveReceivers(off, dt, s = null) {
             moveToward(p, dest, dt, speedMul, { behavior: 'CATCH', settleDamping: 2.6 });
             p.targets = null;
             p.routeIdx = null;
+            ai._scrDecision = null;
             return;
         }
 
         // If this WR currently has the ball, switch to RAC logic
-        if (s && _isCarrier(off, ball, p)) { _racAdvance(off, def, p, dt, s.play); return; }
+        if (s && _isCarrier(off, ball, p)) { ai._scrDecision = null; _racAdvance(off, def, p, dt, s.play); return; }
 
-        if (off.__carrierWrapped === key) return;
+        if (off.__carrierWrapped === key) { ai._scrDecision = null; return; }
 
-        if (carrier && carrier !== p && _assistCarrierBlock(p, def || {}, dt, context)) return;
+        if (carrier && carrier !== p && _assistCarrierBlock(p, def || {}, dt, context)) { ai._scrDecision = null; return; }
 
         if (off.__runFlag) {
+            ai._scrDecision = null;
             _runSupportReceiver(p, off, def || {}, dt, context);
             return;
         }
 
         const followedRoute = _updateRouteRunner(p, context, dt);
-        if (followedRoute) return;
+        if (followedRoute) { ai._scrDecision = null; return; }
 
-        // scramble drill fallback if QB extends play
-        const ai = _ensureAI(p);
-        ai._scrClock = (ai._scrClock || 0) + dt;
-        const retarget = !ai._scrTarget || ai._scrClock > (ai._scrUntil || 0);
-        if (retarget) {
-            const deepY = Math.max(losY + PX_PER_YARD * 3, qb?.pos?.y ?? p.pos.y) + PX_PER_YARD * 2;
-            const laneX = clamp((qb?.pos?.x ?? p.pos.x) + rand(-80, 80), 24, FIELD_PIX_W - 24);
-            ai._scrTarget = { x: laneX, y: deepY };
-            ai._scrUntil = ai._scrClock + rand(0.5, 0.9);
-        }
-        const target = ai._scrTarget || { x: p.pos.x, y: p.pos.y + PX_PER_YARD * 2 };
-        moveToward(p, target, dt, 0.96, { behavior: 'SCRAMBLE' });
+        _updateScrambleDecision(p, ai, context, dt, 0.96);
     });
 }
 
@@ -1210,8 +1345,10 @@ export function moveTE(off, dt, s = null) {
 
     const def = s?.play?.formation?.def || null;
     const ball = s?.play?.ball || null;
+    const ai = _ensureAI(p);
 
     if (s && isBallLoose(ball)) {
+        ai._scrDecision = null;
         pursueLooseBallGroup([p], ball, dt, 1.12, 10);
         return;
     }
@@ -1237,11 +1374,12 @@ export function moveTE(off, dt, s = null) {
         moveToward(p, dest, dt, speedMul, { behavior: 'CATCH', settleDamping: 2.4 });
         p.targets = null;
         p.routeIdx = null;
+        ai._scrDecision = null;
         return;
     }
 
     // If TE is the ball carrier, use RAC logic
-    if (s && _isCarrier(off, ball, p)) { _racAdvance(off, def, p, dt, s.play); return; }
+    if (s && _isCarrier(off, ball, p)) { ai._scrDecision = null; _racAdvance(off, def, p, dt, s.play); return; }
 
     const qb = off.QB;
     const losY = off.__losPixY ?? (qb?.pos?.y ?? yardsToPixY(25)) - PX_PER_YARD;
@@ -1260,25 +1398,18 @@ export function moveTE(off, dt, s = null) {
         tackler,
     };
 
-    if (carrier && carrier !== p && _assistCarrierBlock(p, def || {}, dt, context)) return;
+    if (carrier && carrier !== p && _assistCarrierBlock(p, def || {}, dt, context)) { ai._scrDecision = null; return; }
 
     if (off.__runFlag) {
+        ai._scrDecision = null;
         _runSupportTightEnd(p, off, def || {}, dt, context);
         return;
     }
 
     const followedRoute = _updateRouteRunner(p, context, dt);
-    if (followedRoute) return;
+    if (followedRoute) { ai._scrDecision = null; return; }
 
-    const ai = _ensureAI(p);
-    ai._scrClock = (ai._scrClock || 0) + dt;
-    if (!ai._scrTarget || ai._scrClock > (ai._scrUntil || 0)) {
-        const settleY = Math.max(losY + PX_PER_YARD * 2, qb?.pos?.y ?? p.pos.y) + PX_PER_YARD * 1.5;
-        const settleX = clamp((qb?.pos?.x ?? p.pos.x) + rand(-28, 28), 24, FIELD_PIX_W - 24);
-        ai._scrTarget = { x: settleX, y: settleY };
-        ai._scrUntil = ai._scrClock + rand(0.45, 0.8);
-    }
-    moveToward(p, ai._scrTarget, dt, 0.94, { behavior: 'SCRAMBLE' });
+    _updateScrambleDecision(p, ai, context, dt, 0.94);
 }
 
 /* =========================================================
