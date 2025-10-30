@@ -1,6 +1,35 @@
 // src/ui/Scoreboard.jsx
 import React, { useCallback } from 'react';
 
+function TimeoutDots({ remaining = 3, total = 3 }) {
+  const safeTotal = Math.max(0, Math.floor(total));
+  const safeRemaining = Math.max(0, Math.min(Math.floor(remaining), safeTotal));
+  if (safeTotal <= 0) return null;
+
+  const ariaLabel = `${safeRemaining} timeout${safeRemaining === 1 ? '' : 's'} remaining`;
+
+  return (
+    <div className="scoreboard__team-timeouts" role="img" aria-label={ariaLabel}>
+      {Array.from({ length: safeTotal }, (_, index) => {
+        const available = index < safeRemaining;
+        const dotClass = [
+          'scoreboard__timeout-dot',
+          available ? 'scoreboard__timeout-dot--available' : 'scoreboard__timeout-dot--used',
+        ]
+          .filter(Boolean)
+          .join(' ');
+        return (
+          <span
+            key={`timeout-${index}`}
+            className={dotClass}
+            aria-hidden="true"
+          />
+        );
+      })}
+    </div>
+  );
+}
+
 function TeamPanel({ team = {}, align = 'left' }) {
   const {
     displayName = 'Team',
@@ -8,6 +37,8 @@ function TeamPanel({ team = {}, align = 'left' }) {
     recordText = '0-0-0',
     score = 0,
     color = '#e8ffe8',
+    timeoutsRemaining = 3,
+    timeoutsTotal = 3,
   } = team;
 
   const isRight = align === 'right';
@@ -22,9 +53,12 @@ function TeamPanel({ team = {}, align = 'left' }) {
           aria-hidden="true"
         />
         <div className="scoreboard__team-text">
-          <span className="scoreboard__team-abbr">{abbr || displayName}</span>
-          <span className="scoreboard__team-name">{label}</span>
-          <span className="scoreboard__team-record">{recordText}</span>
+          <div className="scoreboard__team-labels">
+            <span className="scoreboard__team-abbr">{abbr || displayName}</span>
+            <span className="scoreboard__team-name">{label}</span>
+            <span className="scoreboard__team-record">{recordText}</span>
+          </div>
+          <TimeoutDots remaining={timeoutsRemaining} total={timeoutsTotal} />
         </div>
       </div>
       <div className="scoreboard__score" aria-label={`${label} score`}>

@@ -262,9 +262,9 @@ export function startPass(s, from, to, targetId) {
     const distance = Math.max(1, dist(from, to));
     const velocityTrait = clamp((qb?.modifiers?.throwVelocity ?? 0.5) - 0.5, -0.3, 0.3);
     const touchTrait = clamp((qb?.modifiers?.touch ?? 0.5) - 0.5, -0.3, 0.3);
-    const mph = clamp(48 + (arm - 1) * 26 + velocityTrait * 14, 36, 70);
-    const speed = Math.max(60, mphToPixelsPerSecond(mph));
-    const duration = clamp(distance / speed, 0.35, 1.85);
+    const mph = clamp(54 + (arm - 1) * 28 + velocityTrait * 16, 42, 78);
+    const speed = Math.max(90, mphToPixelsPerSecond(mph));
+    const duration = clamp(distance / speed, 0.32, 1.6);
     const distanceYards = distance / PX_PER_YARD;
     const difficulty = clamp((distanceYards - 8) / 18, 0, 1.3);
     const accComposite = clamp(Math.pow(acc + touchTrait * 0.14, 1.12), 0.3, 1.55);
@@ -283,7 +283,7 @@ export function startPass(s, from, to, targetId) {
         kind: 'pass',
         duration,
         elapsed: 0,
-        arc: clamp(distance * 0.18, 10, 60),
+        peakHeight: clamp(distance * 0.22, 14, 74),
         wobble: Math.random() * clamp(0.18 + (1 - flightAccuracy) * 0.5, 0.12, 0.55),
         speed,
         accuracy: flightAccuracy,
@@ -321,7 +321,7 @@ export function startPitch(s, from, to, targetId) {
         kind: 'pitch',
         duration,
         elapsed: 0,
-        arc: clamp(distance * 0.1, 4, 18),
+        peakHeight: clamp(distance * 0.12, 5, 20),
         wobble: 0,
         speed,
         accuracy: 1,
@@ -359,7 +359,7 @@ export function moveBall(s, dt) {
     }
 
     if (ball.inAir) {
-        const flight = ball.flight || { duration: 0.6, elapsed: 0, arc: 18, speed: 120, accuracy: 1, totalDist: 1, travelled: 0 };
+        const flight = ball.flight || { duration: 0.6, elapsed: 0, peakHeight: 18, speed: 120, accuracy: 1, totalDist: 1, travelled: 0 };
         flight.elapsed += dt;
 
         const currentPos = ball.renderPos || ball.shadowPos || ball.from;
@@ -393,9 +393,10 @@ export function moveBall(s, dt) {
         const remaining = Math.max(0, distToTarget - travelledNow);
         const inferredTotal = flight.travelled + remaining;
         flight.totalDist = Math.max(flight.totalDist || inferredTotal, inferredTotal);
-        const progress = flight.totalDist > 0 ? clamp(flight.travelled / flight.totalDist, 0, 1) : 1;
-        const eased = progress * progress * (3 - 2 * progress);
-        const arcHeight = Math.sin(Math.PI * eased) * (flight.arc || 0);
+        const timeProgress = flight.duration > 0
+            ? clamp(flight.elapsed / flight.duration, 0, 1)
+            : (flight.totalDist > 0 ? clamp(flight.travelled / flight.totalDist, 0, 1) : 1);
+        const arcHeight = (flight.peakHeight || 0) * 4 * timeProgress * (1 - timeProgress);
 
         ball.renderPos = { x: safeX, y: safeY };
         ball.shadowPos = { x: safeX, y: safeY };

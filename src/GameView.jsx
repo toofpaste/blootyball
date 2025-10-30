@@ -361,6 +361,11 @@ const GameView = React.forwardRef(function GameView({
     const resolvedColor = resolveTeamColor(colors, defaultColor);
     const displayName = identity?.displayName || entry?.info?.displayName || identity?.name || teamId || slot;
     const teamLabel = identity?.abbr || entry?.info?.abbr || displayName;
+    const timeoutPool = state.clock?.timeouts || state.lastCompletedGame?.clock?.timeouts || {};
+    const rawTimeouts = timeoutPool?.[slot];
+    const timeoutsRemaining = Number.isFinite(rawTimeouts)
+      ? Math.max(0, Math.min(3, Math.floor(rawTimeouts)))
+      : 3;
     return {
       id: teamId || slot,
       displayName,
@@ -370,6 +375,8 @@ const GameView = React.forwardRef(function GameView({
       score: activeScores?.[slot] ?? 0,
       color: resolvedColor,
       info: entry?.info || identity || {},
+      timeoutsRemaining,
+      timeoutsTotal: 3,
     };
   };
 
