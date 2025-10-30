@@ -4,6 +4,9 @@ import { FIELD_PIX_W, FIELD_PIX_H, PX_PER_YARD } from './constants';
 import { mphToPixelsPerSecond } from './motion';
 import { recordPlayEvent } from './diagnostics';
 
+const PASS_ARC_SHAPE_EXP = 0.68;
+const PASS_ARC_NORMALIZER = Math.pow(0.5, PASS_ARC_SHAPE_EXP * 2);
+
 // ⬇️ ADD this small helper near the top (below the imports)
 function _resolveOffensivePlayer(off, idOrRole) {
     if (!off) return null;
@@ -272,6 +275,8 @@ export function startPass(s, from, to, targetId) {
     const rawAccuracy = accComposite * (0.54 + iqComposite * 0.36);
     const accuracyPenalty = difficulty * clamp(1.25 - accComposite * 0.55 - iqComposite * 0.25, 0.45, 1.25);
     const flightAccuracy = clamp(rawAccuracy - accuracyPenalty, 0.2, 1.42);
+    const loftFactor = clamp(0.36 + touchTrait * 0.12, 0.26, 0.5);
+    const peakHeight = clamp(distance * loftFactor, 24, 128);
 
     ball.inAir = true;
     ball.lastCarrierId = ball.carrierId || ball.lastCarrierId || qb?.id || 'QB';
@@ -283,7 +288,7 @@ export function startPass(s, from, to, targetId) {
         kind: 'pass',
         duration,
         elapsed: 0,
-        peakHeight: clamp(distance * 0.28, 18, 96),
+        peakHeight,
         wobble: Math.random() * clamp(0.18 + (1 - flightAccuracy) * 0.5, 0.12, 0.55),
         speed,
         accuracy: flightAccuracy,
@@ -396,7 +401,14 @@ export function moveBall(s, dt) {
         const timeProgress = flight.duration > 0
             ? clamp(flight.elapsed / flight.duration, 0, 1)
             : (flight.totalDist > 0 ? clamp(flight.travelled / flight.totalDist, 0, 1) : 1);
-        const arcHeight = (flight.peakHeight || 0) * 4 * timeProgress * (1 - timeProgress);
+        let arcHeight;
+        if (flight.kind === 'pass') {
+            const shaped = Math.pow(timeProgress, PASS_ARC_SHAPE_EXP) * Math.pow(1 - timeProgress, PASS_ARC_SHAPE_EXP);
+            const normalized = PASS_ARC_NORMALIZER > 0 ? shaped / PASS_ARC_NORMALIZER : 0;
+            arcHeight = (flight.peakHeight || 0) * normalized;
+        } else {
+            arcHeight = (flight.peakHeight || 0) * 4 * timeProgress * (1 - timeProgress);
+        }
 
         ball.renderPos = { x: safeX, y: safeY };
         ball.shadowPos = { x: safeX, y: safeY };

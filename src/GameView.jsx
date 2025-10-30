@@ -69,7 +69,7 @@ const GameView = React.forwardRef(function GameView({
   onGameComplete,
   onManualReset,
   globalRunning = false,
-  simSpeed = 1,
+  simSpeed = 0.5,
   parallelSlotCount = 1,
   assignmentOffset = null,
   seasonConfig = null,
