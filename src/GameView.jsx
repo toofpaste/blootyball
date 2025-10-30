@@ -1,4 +1,4 @@
-import React, { useEffect, useImperativeHandle, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import Scoreboard from './ui/Scoreboard';
 import { FIELD_PIX_W, FIELD_PIX_H, COLORS, TEAM_RED, TEAM_BLK } from './engine/constants';
 import { createInitialGameState, resumeAssignedMatchup, stepGame, progressOffseason } from './engine/state';
@@ -91,6 +91,13 @@ const GameView = React.forwardRef(function GameView({
   });
   const stateRef = useRef(state);
   stateRef.current = state;
+  const commitState = useCallback((updater) => {
+    setState((prev) => {
+      const next = typeof updater === 'function' ? updater(prev) : updater;
+      stateRef.current = next;
+      return next;
+    });
+  }, []);
   const lastResetTokenRef = useRef(resetSignal?.token ?? 0);
   const notifiedCompleteRef = useRef(false);
   const prevGlobalRunningRef = useRef(globalRunning);
@@ -109,7 +116,7 @@ const GameView = React.forwardRef(function GameView({
       };
     },
     advanceOffseasonDay() {
-      setState((prev) => {
+      commitState((prev) => {
         const offseason = prev?.league?.offseason;
         if (!offseason || !offseason.active || offseason.nextSeasonReady) {
           return prev;
@@ -128,21 +135,49 @@ const GameView = React.forwardRef(function GameView({
         return progressOffseason(next, nowTs);
       });
     },
-  }), [label, state]);
+  }), [commitState, label, state]);
 
   useEffect(() => {
     let rafId;
     let last = performance.now();
+    let accumulator = 0;
+    let lastRenderedState = stateRef.current;
+    let forceSync = true;
+    const fixedStep = 1 / 120;
+    const maxStepsPerFrame = Math.max(12, Math.ceil(simSpeed * 6));
+    const maxDelta = 0.125;
+
     const loop = (now) => {
-      const dt = Math.min(0.033, (now - last) / 1000) * simSpeed;
+      const rawDelta = (now - last) / 1000;
+      const clampedDelta = Math.min(maxDelta, Math.max(0, rawDelta));
       last = now;
+
       if (globalRunning && localRunning) {
-        setState((prev) => {
-          const next = stepGame(prev, dt);
-          stateRef.current = next;
-          return next;
-        });
+        accumulator += clampedDelta * simSpeed;
+        let steps = 0;
+        while (accumulator >= fixedStep && steps < maxStepsPerFrame) {
+          const nextState = stepGame(stateRef.current, fixedStep);
+          if (nextState !== stateRef.current) {
+            stateRef.current = nextState;
+          }
+          accumulator -= fixedStep;
+          steps += 1;
+        }
+        if (steps === maxStepsPerFrame) {
+          accumulator = 0;
+        }
+      } else {
+        accumulator = 0;
       }
+
+      const needsSync = forceSync || stateRef.current !== lastRenderedState;
+
+      if (needsSync) {
+        lastRenderedState = stateRef.current;
+        forceSync = false;
+        commitState(() => lastRenderedState);
+      }
+
       rafId = requestAnimationFrame(loop);
     };
     rafId = requestAnimationFrame(loop);
@@ -152,7 +187,7 @@ const GameView = React.forwardRef(function GameView({
         performance.clearMeasures();
       }
     };
-  }, [globalRunning, localRunning, simSpeed]);
+  }, [commitState, globalRunning, localRunning, simSpeed]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -169,19 +204,16 @@ const GameView = React.forwardRef(function GameView({
   useEffect(() => {
     if (!globalRunning) return undefined;
     const interval = setInterval(() => {
-      setState((prev) => {
-        const next = progressOffseason(prev);
-        return next === prev ? prev : next;
-      });
+      commitState((prev) => progressOffseason(prev));
     }, 1000);
     return () => clearInterval(interval);
-  }, [globalRunning]);
+  }, [commitState, globalRunning]);
 
   useEffect(() => {
     const previous = runningTransitionRef.current;
     runningTransitionRef.current = globalRunning;
     if (previous === globalRunning) return;
-    setState((prev) => {
+    commitState((prev) => {
       const offseason = prev?.league?.offseason;
       if (!offseason || !offseason.active || offseason.nextSeasonReady) {
         return prev;
@@ -207,7 +239,7 @@ const GameView = React.forwardRef(function GameView({
       }
       return next;
     });
-  }, [globalRunning]);
+  }, [commitState, globalRunning]);
 
   useEffect(() => {
     if (state.gameComplete) {
@@ -225,11 +257,8 @@ const GameView = React.forwardRef(function GameView({
     const offseason = state?.league?.offseason;
     if (!offseason) return;
     if (!offseason.nextSeasonReady || offseason.nextSeasonStarted) return;
-    setState((prev) => {
-      const next = progressOffseason(prev);
-      return next === prev ? prev : next;
-    });
-  }, [state]);
+    commitState((prev) => progressOffseason(prev));
+  }, [commitState, state]);
 
   useEffect(() => {
     const token = resetSignal?.token ?? 0;
@@ -243,14 +272,13 @@ const GameView = React.forwardRef(function GameView({
     lastResetTokenRef.current = token;
     const shouldResume = !configChanged && !!resetSignal?.autoResume?.[gameIndex];
     notifiedCompleteRef.current = false;
-    setState((prev) => {
+    commitState((prev) => {
       if (prev && !configChanged) {
         const resumed = resumeAssignedMatchup(prev);
         const adjusted = startAtFinalSeconds
           ? enforceFinalSeconds(resumed, 'Final seconds mode enabled')
           : resumed;
         if (adjusted !== prev) {
-          stateRef.current = adjusted;
           return adjusted;
         }
       }
@@ -264,30 +292,29 @@ const GameView = React.forwardRef(function GameView({
       const adjusted = startAtFinalSeconds
         ? enforceFinalSeconds(nextState, 'Final seconds mode enabled')
         : nextState;
-      stateRef.current = adjusted;
       return adjusted;
     });
     setLocalRunning(shouldResume);
     onManualReset?.(gameIndex);
   }, [
-    resetSignal,
-    gameIndex,
     assignmentOffset,
+    commitState,
+    gameIndex,
     onManualReset,
     parallelSlotCount,
+    resetSignal,
     seasonConfig,
     startAtFinalSeconds,
   ]);
 
   useEffect(() => {
     if (!startAtFinalSeconds) return;
-    setState((prev) => {
+    commitState((prev) => {
       const adjusted = enforceFinalSeconds(prev, 'Final seconds mode enabled');
       if (adjusted === prev) return prev;
-      stateRef.current = adjusted;
       return adjusted;
     });
-  }, [startAtFinalSeconds]);
+  }, [commitState, startAtFinalSeconds]);
 
   const offseasonBlockingGames = Boolean(
     state?.league?.offseason?.active && !state?.league?.offseason?.nextSeasonStarted,
