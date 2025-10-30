@@ -1352,7 +1352,7 @@ export default function App() {
   const autoResumeRef = useRef(Array(GAME_COUNT).fill(false));
   const [resetSignal, setResetSignal] = useState({ token: 0, autoResume: Array(GAME_COUNT).fill(false) });
   const [globalRunning, setGlobalRunning] = useState(false);
-  const [simSpeed, setSimSpeed] = useState(1);
+  const [simSpeed, setSimSpeed] = useState(0.5);
   const [finalSecondsMode, setFinalSecondsMode] = useState(false);
   const [seasonStatsOpen, setSeasonStatsOpen] = useState(false);
   const [teamDirectoryOpen, setTeamDirectoryOpen] = useState(false);
