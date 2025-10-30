@@ -132,6 +132,27 @@ function _markRouteFinished(player, aiRoute, heading = null) {
     }
 }
 
+function _timeSinceLive(play) {
+    if (!play) return 0;
+    const now = play.elapsed || 0;
+    const liveAnchor = play.liveAt ?? play.postSnapStartedAt ?? 0;
+    return Math.max(0, now - liveAnchor);
+}
+
+function _runStateMachine(ai, states = []) {
+    if (!ai || !Array.isArray(states)) return false;
+    for (const state of states) {
+        if (!state) continue;
+        const { name, valid, action } = state;
+        const ok = typeof valid === 'function' ? !!valid() : !!valid;
+        if (!ok) continue;
+        if (name) ai.phase = name;
+        if (typeof action === 'function') action();
+        return true;
+    }
+    return false;
+}
+
 function _nearestAssignmentDefender(def, player) {
     if (!player) return null;
     let best = null;
@@ -141,6 +162,432 @@ function _nearestAssignmentDefender(def, player) {
         if (!best || dd < best.dist) best = { dist: dd, defender: d };
     });
     return best;
+}
+
+function _skillPreSnapAlign(player, anchor, dt) {
+    if (!player?.pos || !anchor) return;
+    const settle = {
+        x: clamp(anchor.x, 16, FIELD_PIX_W - 16),
+        y: clamp(anchor.y, 0, FIELD_PIX_H - 6),
+    };
+    moveToward(player, settle, dt, 0.55, { behavior: 'ALIGN', settleDamping: 6.2 });
+}
+
+function _receiverFirstStep(player, context, dt) {
+    if (!player?.pos) return;
+    const def = context?.def || {};
+    const ai = _ensureAI(player);
+    const releaseIdx = typeof player.routeIdx === 'number' ? player.routeIdx : 0;
+    const firstTarget = Array.isArray(player.targets) && player.targets.length
+        ? player.targets[Math.min(releaseIdx, player.targets.length - 1)]
+        : null;
+    let aim = firstTarget
+        ? { x: firstTarget.x, y: Math.min(firstTarget.y, player.pos.y + PX_PER_YARD * 1.2) }
+        : { x: player.pos.x, y: player.pos.y + PX_PER_YARD };
+
+    const nearest = _nearestAssignmentDefender(def, player);
+    if (nearest?.defender?.pos) {
+        const pressRange = PX_PER_YARD * 1.4;
+        const offRange = PX_PER_YARD * 4.6;
+        if (nearest.dist <= pressRange) {
+            const shade = Math.sign(player.pos.x - nearest.defender.pos.x) || (player.pos.x < FIELD_PIX_W / 2 ? -1 : 1);
+            aim.x += shade * PX_PER_YARD * 0.8;
+            aim.y = Math.max(aim.y, player.pos.y + PX_PER_YARD * 0.6);
+        } else if (nearest.dist <= offRange) {
+            const cushion = clamp(nearest.dist * 0.55, PX_PER_YARD * 1.2, PX_PER_YARD * 2.4);
+            aim.y = Math.min(player.pos.y + cushion, aim.y + PX_PER_YARD * 0.4);
+        }
+    }
+
+    moveToward(player, aim, dt, 0.92, {
+        behavior: 'RELEASE',
+        pursuitTarget: nearest?.defender || null,
+    });
+    ai.prevHeading = ai.prevHeading || { x: 0, y: 1 };
+}
+
+function _receiverReact(player, context, dt) {
+    if (!player?.pos) return;
+    const ai = _ensureAI(player);
+    const def = context?.def || {};
+    const carrier = context?.carrier;
+    const acted = carrier && carrier !== player && _assistCarrierBlock(player, def, dt, context);
+    if (acted) return;
+
+    if (_shouldThrottleAfterRoute(context)) {
+        _settleAfterRoute(player, context, dt);
+        return;
+    }
+
+    const qb = context?.qb;
+    if (qb?.pos) {
+        const look = {
+            x: clamp(qb.pos.x, 18, FIELD_PIX_W - 18),
+        };
+        const midpointY = clamp((player.pos.y + qb.pos.y) / 2, 0, FIELD_PIX_H - 6);
+        look.y = midpointY;
+        moveToward(player, look, dt, 0.6, { behavior: 'ADJUST' });
+        ai._scrDecision = null;
+    }
+}
+
+function _receiverScramble(player, ai, context, dt, speedMul = 0.96) {
+    if (!player?.pos) return;
+    _updateScrambleDecision(player, ai, context, dt, speedMul);
+}
+
+function _receiverFinish(player, context, dt, { speedCatch = 1.0 } = {}) {
+    const { ball, off, def, carrier } = context;
+    const ai = _ensureAI(player);
+    ai._scrDecision = null;
+
+    if (context.wrapLocked) {
+        return;
+    }
+
+    if (context.ballLoose && ball) {
+        pursueLooseBallGroup([player], ball, dt, 1.12, 10);
+        return;
+    }
+
+    if (context.isCarrier) {
+        _racAdvance(off, def || {}, player, dt, context.play);
+        return;
+    }
+
+    if (context.targeted && ball) {
+        const spot = ball.flight?.targetSpot
+            ? { ...ball.flight.targetSpot }
+            : ball.to
+                ? { ...ball.to }
+                : ball.renderPos
+                    ? { ...ball.renderPos }
+                    : { x: player.pos.x, y: player.pos.y };
+        const dest = {
+            x: clamp(spot.x, 16, FIELD_PIX_W - 16),
+            y: clamp(spot.y, 0, FIELD_PIX_H - 6),
+        };
+        const distance = dist(player.pos, dest);
+        const speedMul = distance > PX_PER_YARD * 4
+            ? 1.08 * speedCatch
+            : distance > PX_PER_YARD * 2
+                ? 0.98 * speedCatch
+                : 0.8 * speedCatch;
+        moveToward(player, dest, dt, speedMul, { behavior: 'CATCH', settleDamping: 2.4 });
+        player.targets = player.targets || null;
+        player.routeIdx = null;
+        return;
+    }
+
+    if (carrier && carrier !== player) {
+        if (_assistCarrierBlock(player, def || {}, dt, context)) return;
+        if (context.runFlag) {
+            _runSupportReceiver(player, context.off, def || {}, dt, context);
+            return;
+        }
+    }
+
+    if (_shouldThrottleAfterRoute(context)) {
+        _settleAfterRoute(player, context, dt);
+        return;
+    }
+
+    const heading = ai.prevHeading || { x: 0, y: 1 };
+    const look = 36;
+    const target = {
+        x: clamp(player.pos.x + heading.x * look, 16, FIELD_PIX_W - 16),
+        y: player.pos.y + heading.y * look,
+    };
+    moveToward(player, target, dt, 0.72, { behavior: 'FINISH' });
+}
+
+function _rbFirstStep(rb, context, dt, burst) {
+    const call = context.call || {};
+    const qb = context.qb;
+    if (!rb?.pos || !qb?.pos) return;
+
+    if (call.type === 'RUN') {
+        const firstTarget = Array.isArray(context.play?.rbTargets) ? context.play.rbTargets[0] : null;
+        const trackX = clamp(firstTarget?.x ?? qb.pos.x, 18, FIELD_PIX_W - 18);
+        const trackY = Math.min(firstTarget?.y ?? (qb.pos.y + PX_PER_YARD * 0.6), qb.pos.y + PX_PER_YARD * 0.6);
+        moveToward(rb, { x: trackX, y: trackY }, dt, 1.04 * burst, { behavior: 'RUNFIT' });
+        return;
+    }
+
+    const anchor = context.anchor || { x: rb.pos.x, y: rb.pos.y + PX_PER_YARD * 0.6 };
+    moveToward(rb, anchor, dt, 0.86 * burst, { behavior: 'ALIGN' });
+}
+
+function _rbExecuteRun(rb, context, dt, burst, patienceBase) {
+    const ai = _ensureAI(rb);
+    ai.patience = ai.patience ?? patienceBase;
+    ai.patienceClock = (ai.patienceClock || 0) + dt;
+    const patiencePhase = ai.patienceClock < ai.patience;
+
+    if (!context.play?.handed) {
+        _rbFirstStep(rb, context, dt, burst);
+        return;
+    }
+
+    const mods = context.mods || {};
+    const lane = _computeLaneForRB(context.off, context.def, rb, context.losY);
+    const vision = clamp((mods.vision ?? 0.5) - 0.5, -0.3, 0.3);
+    const blendBase = patiencePhase ? 0.45 : 0.8;
+    const laneX = clamp(_lerp(rb.pos.x, lane.x, clamp(blendBase + vision * 0.25, 0.2, 1.0)), 18, FIELD_PIX_W - 18);
+    const laneY = Math.max(context.off.__runLaneY ?? (rb.pos.y + PX_PER_YARD * 2.5), context.losY + PX_PER_YARD * 2.2);
+    const depthTarget = { x: laneX, y: laneY };
+
+    if (patiencePhase) {
+        const settle = { x: laneX, y: Math.min(rb.pos.y + PX_PER_YARD, context.losY + PX_PER_YARD * 0.8) };
+        moveToward(rb, settle, dt, 0.8 * burst, { behavior: 'RUNFIT' });
+    } else {
+        moveToward(rb, depthTarget, dt, 1.18 * burst, { behavior: 'RUNFIT' });
+    }
+
+    if (context.play?.rbTargets && context.play.rbTargets.length > 1 && ai.patienceClock < ai.patience + 0.35) {
+        const next = context.play.rbTargets[Math.min(1, context.play.rbTargets.length - 1)];
+        moveToward(rb, next, dt, 1.05 * burst, { behavior: 'RUNFIT' });
+    }
+}
+
+function _rbExecutePass(rb, context, dt, burst) {
+    if (context.carrier && context.carrier !== rb) {
+        if (_assistCarrierBlock(rb, context.def || {}, dt, context)) return;
+    }
+    const protectedLane = _rbPassProtect(rb, context.off, context.def, dt, context);
+    if (protectedLane) return;
+
+    if (rb.targets && rb.routeIdx != null) {
+        const routeFollowed = _updateRouteRunner(rb, context, dt);
+        if (routeFollowed) return;
+        if (_shouldThrottleAfterRoute(context)) {
+            _settleAfterRoute(rb, context, dt);
+            return;
+        }
+    }
+
+    const qb = context.qb;
+    if (!qb?.pos) return;
+    const check = {
+        x: clamp(qb.pos.x + rand(-28, 28), 24, FIELD_PIX_W - 24),
+        y: qb.pos.y + PX_PER_YARD * 2.4,
+    };
+    moveToward(rb, check, dt, 0.92 * burst, { behavior: 'ROUTE' });
+}
+
+function _rbReactAdjust(rb, context, dt, burst) {
+    const { def, off, carrier, tackler } = context;
+    if (carrier && carrier !== rb) {
+        if (_assistCarrierBlock(rb, def || {}, dt, context)) return;
+    }
+
+    const qb = context.qb;
+    if (qb?.pos) {
+        const checkdown = {
+            x: clamp(qb.pos.x + rand(-18, 18), 20, FIELD_PIX_W - 20),
+            y: Math.min(qb.pos.y + PX_PER_YARD * 2.8, context.losY + PX_PER_YARD * 4.6),
+        };
+        moveToward(rb, checkdown, dt, 0.86 * burst, { behavior: 'CHECKDOWN' });
+    }
+}
+
+function _rbScrambleAdjust(rb, context, dt, burst) {
+    const qb = context.qb;
+    if (!qb?.pos) return;
+    const distToQB = dist(rb.pos, qb.pos);
+    if (distToQB <= PX_PER_YARD * 5) {
+        const protectSpot = {
+            x: clamp(qb.pos.x + (rb.pos.x < qb.pos.x ? -PX_PER_YARD * 1.4 : PX_PER_YARD * 1.4), 18, FIELD_PIX_W - 18),
+            y: Math.max(qb.pos.y - PX_PER_YARD * 0.6, context.losY + PX_PER_YARD * 0.6),
+        };
+        moveToward(rb, protectSpot, dt, 1.05 * burst, { behavior: 'PROTECT' });
+        return;
+    }
+
+    const sideline = rb.pos.x < FIELD_PIX_W / 2 ? 18 : FIELD_PIX_W - 18;
+    const settle = {
+        x: clamp((qb.pos.x + sideline) / 2, 18, FIELD_PIX_W - 18),
+        y: Math.max(qb.pos.y + PX_PER_YARD * 2.2, context.losY + PX_PER_YARD * 4),
+    };
+    moveToward(rb, settle, dt, 0.94 * burst, { behavior: 'SCRAMBLE' });
+}
+
+function _rbFinish(rb, context, dt, burst) {
+    const { ball, off, def } = context;
+    if (context.ballLoose && ball) {
+        pursueLooseBallGroup([rb], ball, dt, 1.3, 12);
+        return;
+    }
+
+    if (context.isCarrier) {
+        _racAdvance(off, def || {}, rb, dt, context.play);
+        return;
+    }
+
+    if (context.targeted && ball) {
+        const spot = ball.flight?.targetSpot
+            ? { ...ball.flight.targetSpot }
+            : ball.to
+                ? { ...ball.to }
+                : ball.renderPos
+                    ? { ...ball.renderPos }
+                    : { x: rb.pos.x, y: rb.pos.y };
+        const dest = {
+            x: clamp(spot.x, 16, FIELD_PIX_W - 16),
+            y: clamp(spot.y, 0, FIELD_PIX_H - 6),
+        };
+        const distance = dist(rb.pos, dest);
+        const speedMul = distance > PX_PER_YARD * 4
+            ? 1.1 * burst
+            : distance > PX_PER_YARD * 2
+                ? 0.98 * burst
+                : 0.82 * burst;
+        moveToward(rb, dest, dt, speedMul, { behavior: 'CATCH', settleDamping: 2.2 });
+        rb.targets = null;
+        rb.routeIdx = null;
+        return;
+    }
+
+    _rbReactAdjust(rb, context, dt, burst);
+}
+
+function _cornerPreSnapAlign(defender, target, options, ctx, dt) {
+    const losY = ctx.cover?.losY ?? defender.pos.y;
+    const cushion = options?.cushionY ?? PX_PER_YARD * 2.4;
+    const leverage = options?.leverage ?? 0;
+    const aim = {
+        x: clamp((target?.pos?.x ?? defender.pos.x) + leverage * PX_PER_YARD, 18, FIELD_PIX_W - 18),
+        y: Math.max(losY - cushion, 0),
+    };
+    moveToward(defender, aim, dt, 0.72, { behavior: 'ALIGN' });
+}
+
+function _cornerFirstStep(defender, target, ctx, dt) {
+    if (!target?.pos) {
+        moveToward(defender, { x: defender.pos.x, y: Math.max(defender.pos.y - PX_PER_YARD * 0.6, ctx.cover.losY - PX_PER_YARD * 4) }, dt, 0.78, { behavior: 'PEDAL' });
+        return;
+    }
+    const separation = dist(defender.pos, target.pos);
+    if (separation < PX_PER_YARD * 1.4) {
+        moveToward(defender, { x: target.pos.x, y: Math.max(target.pos.y - PX_PER_YARD * 0.4, ctx.cover.losY) }, dt, 1.08, { behavior: 'PRESS' });
+    } else {
+        const depth = Math.max(defender.pos.y - PX_PER_YARD * 0.8, ctx.cover.losY - PX_PER_YARD * 4);
+        moveToward(defender, { x: defender.pos.x, y: depth }, dt, 0.8, { behavior: 'PEDAL' });
+    }
+}
+
+function _cornerExecute(defender, target, options, ctx) {
+    if (target?.pos) {
+        const aim = _manAim(defender, target, ctx.cover.losY, ctx.dt, options || {});
+        moveToward(defender, aim, ctx.dt, _speedFromAttrs(defender, options.baseSpeed ?? 1.02), {
+            behavior: 'MAN',
+            pursuitTarget: target,
+        });
+        return;
+    }
+
+    const fallbackY = ctx.cover.losY + PX_PER_YARD * 6.2;
+    const fallbackX = defender.pos.x >= FIELD_PIX_W / 2 ? FIELD_PIX_W - PX_PER_YARD * 6 : PX_PER_YARD * 6;
+    moveToward(defender, { x: fallbackX, y: fallbackY }, ctx.dt, _speedFromAttrs(defender, 0.94), { behavior: 'ZONE' });
+}
+
+function _cornerReact(defender, target, ctx, dt) {
+    const carrier = ctx.carrier || null;
+    if (carrier?.pos && carrier !== target) {
+        _pursueTarget(defender, carrier, ctx, 1.08, 'PURSUIT');
+        return;
+    }
+    if (target?.pos) {
+        const shade = _manAim(defender, target, ctx.cover.losY, dt, {});
+        moveToward(defender, shade, dt, _speedFromAttrs(defender, 0.98), { behavior: 'ADJUST' });
+    }
+}
+
+function _cornerScramble(defender, target, ctx) {
+    if (target?.pos) {
+        _pursueTarget(defender, target, ctx, 1.12, 'SCRAMBLE');
+        return;
+    }
+    if (ctx.carrier?.pos) {
+        _pursueTarget(defender, ctx.carrier, ctx, 1.1, 'PURSUIT');
+    }
+}
+
+function _cornerFinish(defender, target, ctx) {
+    const ball = ctx.ball;
+    const carrier = ctx.carrier || null;
+    if (isBallLoose(ball)) {
+        const targetPos = ball.loose?.pos || ball.renderPos || ball.shadowPos || { x: FIELD_PIX_W / 2, y: ctx.cover.losY };
+        moveToward(defender, targetPos, ctx.dt, _speedFromAttrs(defender, 1.08), { behavior: 'PURSUIT' });
+        return;
+    }
+    if (ctx.ball?.inAir && ctx.passTargetRole && target && target.id === ctx.passTarget?.id) {
+        const intercept = ctx.catchPrediction?.pos || ctx.passTarget?.pos || target.pos;
+        const aim = {
+            x: clamp(intercept.x, 18, FIELD_PIX_W - 18),
+            y: Math.max(intercept.y - PX_PER_YARD * 0.6, ctx.cover.losY + PX_PER_YARD * 0.6),
+        };
+        moveToward(defender, aim, ctx.dt, _speedFromAttrs(defender, 1.12), { behavior: 'FINISH', pursuitTarget: target });
+        return;
+    }
+    if (carrier?.pos) {
+        _pursueTarget(defender, carrier, ctx, 1.12, 'PURSUIT');
+    }
+}
+
+function _safetyPreSnap(defender, ctx, dt, sideIdx) {
+    const baseDepth = ctx.cover?.safetyShade?.baseDepth ?? (ctx.cover?.losY ?? defender.pos.y) + PX_PER_YARD * 12;
+    const baseHash = ctx.cover?.safetyShade?.hash ?? (FIELD_PIX_W / 2);
+    const offset = sideIdx === 0 ? -PX_PER_YARD * 6 : PX_PER_YARD * 6;
+    const aim = {
+        x: clamp(baseHash + offset, 18, FIELD_PIX_W - 18),
+        y: Math.max(baseDepth - PX_PER_YARD * 0.6, ctx.cover?.losY ?? defender.pos.y),
+    };
+    moveToward(defender, aim, dt, 0.7, { behavior: 'ALIGN' });
+}
+
+function _safetyFirstStep(defender, ctx, dt) {
+    moveToward(defender, { x: defender.pos.x, y: Math.max(defender.pos.y - PX_PER_YARD * 0.8, ctx.cover.losY + PX_PER_YARD * 6) }, dt, 0.82, { behavior: 'PEDAL' });
+}
+
+function _safetyExecute(defKey, sideIdx, ctx) {
+    _safetyExecuteCore(defKey, sideIdx, ctx);
+}
+
+function _safetyReact(defender, ctx, dt) {
+    const carrier = ctx.carrier;
+    if (carrier?.pos) {
+        _pursueTarget(defender, carrier, ctx, 1.14, 'PURSUIT');
+    } else {
+        const hash = ctx.cover?.safetyShade?.hash ?? FIELD_PIX_W / 2;
+        const aim = { x: clamp(hash, 18, FIELD_PIX_W - 18), y: ctx.cover.losY + PX_PER_YARD * 9 };
+        moveToward(defender, aim, dt, _speedFromAttrs(defender, 0.9), { behavior: 'ADJUST' });
+    }
+}
+
+function _safetyScramble(defender, ctx, dt) {
+    const qb = ctx.qb;
+    if (qb?.pos) {
+        const cap = { x: clamp(qb.pos.x, 18, FIELD_PIX_W - 18), y: Math.max(qb.pos.y - PX_PER_YARD * 0.6, ctx.cover.losY + PX_PER_YARD * 7) };
+        moveToward(defender, cap, dt, _speedFromAttrs(defender, 0.98), { behavior: 'SCRAMBLE' });
+    }
+}
+
+function _safetyFinish(defender, ctx, dt) {
+    const ball = ctx.ball;
+    if (isBallLoose(ball)) {
+        const target = ball.loose?.pos || ball.renderPos || ball.shadowPos;
+        if (target) moveToward(defender, target, dt, _speedFromAttrs(defender, 1.0), { behavior: 'PURSUIT' });
+        return;
+    }
+    if (ctx.ball?.inAir && ctx.catchPrediction?.pos) {
+        const intercept = ctx.catchPrediction.pos;
+        moveToward(defender, { x: clamp(intercept.x, 18, FIELD_PIX_W - 18), y: Math.max(intercept.y - PX_PER_YARD * 0.4, ctx.cover.losY + PX_PER_YARD * 1.6) }, dt, _speedFromAttrs(defender, 1.04), { behavior: 'FINISH' });
+        return;
+    }
+    if (ctx.carrier?.pos) {
+        _pursueTarget(defender, ctx.carrier, ctx, 1.16, 'PURSUIT');
+    }
 }
 
 function _laneSample(off, def, yDepth) {
@@ -1287,82 +1734,108 @@ export function moveOL(off, def, dt, state = null) {
 export function moveReceivers(off, dt, s = null) {
     const qb = off.QB;
     const def = s?.play?.formation?.def || null;
-    const ball = s?.play?.ball || null;
+    const play = s?.play || null;
+    const ball = play?.ball || null;
     const losY = off.__losPixY ?? (qb?.pos?.y ?? yardsToPixY(25)) - PX_PER_YARD;
     const carrierInfo = s ? normalizeCarrier(off, ball) : null;
     const carrier = carrierInfo?.player || null;
-    const tackler = s?.play?.primaryTacklerId ? findDefById(def || {}, s.play.primaryTacklerId) : null;
-    const context = {
+    const tackler = play?.primaryTacklerId ? findDefById(def || {}, play.primaryTacklerId) : null;
+    const liveClock = _timeSinceLive(play);
+    const baseContext = {
         qb,
         def,
         losY,
-        runHoleX: s?.play?.runHoleX ?? null,
-        scrambleMode: s?.play?.qbMoveMode,
+        runHoleX: play?.runHoleX ?? null,
+        scrambleMode: play?.qbMoveMode,
         off,
-        play: s?.play,
+        play,
         carrier,
         tackler,
+        ball,
+        runFlag: !!off.__runFlag,
+        timeSinceLive: liveClock,
     };
 
     ['WR1', 'WR2', 'WR3'].forEach((key) => {
-        const p = off[key];
-        if (!p || !p.alive) return;
-        const ai = _ensureAI(p);
+        const player = off[key];
+        if (!player || !player.alive) return;
+        const ai = _ensureAI(player);
 
-        if (s && isBallLoose(s.play?.ball)) {
-            ai._scrDecision = null;
-            pursueLooseBallGroup([p], s.play.ball, dt, 1.18, 10);
-            return;
-        }
+        const targeted = !!(ball?.inAir && ball.targetId === player.id);
+        const ballLoose = !!(play && isBallLoose(ball));
+        const isCarrier = !!(play && _isCarrier(off, ball, player));
+        const scrambleActive = play?.qbMoveMode === 'SCRAMBLE';
+        const route = ai.route || null;
+        const hasRoute = !!(route && !route.finished);
+        const anchor = Array.isArray(player.targets) && player.targets.length ? player.targets[0] : player.home || player.pos;
 
-        if (ball?.inAir && ball.targetId === p.id) {
-            const spot = ball.flight?.targetSpot
-                ? { ...ball.flight.targetSpot }
-                : ball.to
-                    ? { ...ball.to }
-                    : ball.renderPos
-                        ? { ...ball.renderPos }
-                        : { x: p.pos.x, y: p.pos.y };
-            const dest = {
-                x: clamp(spot.x, 16, FIELD_PIX_W - 16),
-                y: clamp(spot.y, 0, FIELD_PIX_H - 6),
-            };
-            const distance = dist(p.pos, dest);
-            const speedMul = distance > PX_PER_YARD * 4
-                ? 1.12
-                : distance > PX_PER_YARD * 2
-                    ? 1.02
-                    : 0.82;
-            moveToward(p, dest, dt, speedMul, { behavior: 'CATCH', settleDamping: 2.6 });
-            p.targets = null;
-            p.routeIdx = null;
-            ai._scrDecision = null;
-            return;
-        }
+        const wrapLocked = off.__carrierWrapped === key || off.__carrierWrappedId === player.id;
 
-        // If this WR currently has the ball, switch to RAC logic
-        if (s && _isCarrier(off, ball, p)) { ai._scrDecision = null; _racAdvance(off, def, p, dt, s.play); return; }
+        const context = {
+            ...baseContext,
+            targeted,
+            ballLoose,
+            isCarrier,
+            playerKey: key,
+            wrapLocked,
+        };
 
-        if (off.__carrierWrapped === key) { ai._scrDecision = null; return; }
+        const finishNow = targeted || ballLoose || isCarrier || wrapLocked;
 
-        if (carrier && carrier !== p && _assistCarrierBlock(p, def || {}, dt, context)) { ai._scrDecision = null; return; }
+        const states = [
+            {
+                name: 'pre_snap',
+                valid: () => !finishNow && baseContext.timeSinceLive < 0.08,
+                action: () => {
+                    _skillPreSnapAlign(player, anchor, dt);
+                    ai._scrDecision = null;
+                },
+            },
+            {
+                name: 'snap',
+                valid: () => !finishNow && baseContext.timeSinceLive < 0.32,
+                action: () => {
+                    _receiverFirstStep(player, context, dt);
+                    ai._scrDecision = null;
+                },
+            },
+            {
+                name: 'execute',
+                valid: () => !finishNow && (baseContext.runFlag || hasRoute),
+                action: () => {
+                    if (baseContext.runFlag) {
+                        ai._scrDecision = null;
+                        _runSupportReceiver(player, off, def || {}, dt, context);
+                    } else {
+                        ai._scrDecision = null;
+                        _updateRouteRunner(player, context, dt);
+                    }
+                },
+            },
+            {
+                name: 'react',
+                valid: () => !finishNow && !baseContext.runFlag && !scrambleActive,
+                action: () => {
+                    _receiverReact(player, context, dt);
+                },
+            },
+            {
+                name: 'scramble',
+                valid: () => !finishNow && scrambleActive,
+                action: () => {
+                    _receiverScramble(player, ai, context, dt, 0.96);
+                },
+            },
+            {
+                name: 'finish',
+                valid: () => finishNow || (!hasRoute && !baseContext.runFlag),
+                action: () => {
+                    _receiverFinish(player, context, dt, { speedCatch: 1.0 });
+                },
+            },
+        ];
 
-        if (off.__runFlag) {
-            ai._scrDecision = null;
-            _runSupportReceiver(p, off, def || {}, dt, context);
-            return;
-        }
-
-        const followedRoute = _updateRouteRunner(p, context, dt);
-        if (followedRoute) { ai._scrDecision = null; return; }
-
-        if (_shouldThrottleAfterRoute(context)) {
-            ai._scrDecision = null;
-            _settleAfterRoute(p, context, dt);
-            return;
-        }
-
-        _updateScrambleDecision(p, ai, context, dt, 0.96);
+        _runStateMachine(ai, states);
     });
 }
 
@@ -1370,82 +1843,104 @@ export function moveReceivers(off, dt, s = null) {
    Tight End
    ========================================================= */
 export function moveTE(off, dt, s = null) {
-    const p = off.TE;
-    if (!p || !p.alive) return;
+    const player = off.TE;
+    if (!player || !player.alive) return;
 
     const def = s?.play?.formation?.def || null;
-    const ball = s?.play?.ball || null;
-    const ai = _ensureAI(p);
-
-    if (s && isBallLoose(ball)) {
-        ai._scrDecision = null;
-        pursueLooseBallGroup([p], ball, dt, 1.12, 10);
-        return;
-    }
-
-    if (ball?.inAir && ball.targetId === p.id) {
-        const spot = ball.flight?.targetSpot
-            ? { ...ball.flight.targetSpot }
-            : ball.to
-                ? { ...ball.to }
-                : ball.renderPos
-                    ? { ...ball.renderPos }
-                    : { x: p.pos.x, y: p.pos.y };
-        const dest = {
-            x: clamp(spot.x, 16, FIELD_PIX_W - 16),
-            y: clamp(spot.y, 0, FIELD_PIX_H - 6),
-        };
-        const distance = dist(p.pos, dest);
-        const speedMul = distance > PX_PER_YARD * 4
-            ? 1.08
-            : distance > PX_PER_YARD * 2
-                ? 0.98
-                : 0.8;
-        moveToward(p, dest, dt, speedMul, { behavior: 'CATCH', settleDamping: 2.4 });
-        p.targets = null;
-        p.routeIdx = null;
-        ai._scrDecision = null;
-        return;
-    }
-
-    // If TE is the ball carrier, use RAC logic
-    if (s && _isCarrier(off, ball, p)) { ai._scrDecision = null; _racAdvance(off, def, p, dt, s.play); return; }
-
+    const play = s?.play || null;
+    const ball = play?.ball || null;
+    const ai = _ensureAI(player);
     const qb = off.QB;
     const losY = off.__losPixY ?? (qb?.pos?.y ?? yardsToPixY(25)) - PX_PER_YARD;
     const carrierInfo = s ? normalizeCarrier(off, ball) : null;
     const carrier = carrierInfo?.player || null;
-    const tackler = s?.play?.primaryTacklerId ? findDefById(def || {}, s.play.primaryTacklerId) : null;
+    const tackler = play?.primaryTacklerId ? findDefById(def || {}, play.primaryTacklerId) : null;
+    const liveClock = _timeSinceLive(play);
+
+    const targeted = !!(ball?.inAir && ball.targetId === player.id);
+    const ballLoose = !!(play && isBallLoose(ball));
+    const isCarrier = !!(play && _isCarrier(off, ball, player));
+    const scrambleActive = play?.qbMoveMode === 'SCRAMBLE';
+    const anchor = Array.isArray(player.targets) && player.targets.length ? player.targets[0] : player.home || player.pos;
+    const route = ai.route || null;
+    const hasRoute = !!(route && !route.finished);
+    const wrapLocked = off.__carrierWrappedId === player.id;
+    const finishNow = targeted || ballLoose || isCarrier || wrapLocked;
+
     const context = {
         qb,
         def,
         losY,
-        runHoleX: s?.play?.runHoleX ?? null,
-        scrambleMode: s?.play?.qbMoveMode,
+        runHoleX: play?.runHoleX ?? null,
+        scrambleMode: play?.qbMoveMode,
         off,
-        play: s?.play,
+        play,
         carrier,
         tackler,
+        ball,
+        runFlag: !!off.__runFlag,
+        timeSinceLive: liveClock,
+        targeted,
+        ballLoose,
+        isCarrier,
+        playerKey: 'TE',
+        wrapLocked,
     };
 
-    if (carrier && carrier !== p && _assistCarrierBlock(p, def || {}, dt, context)) { ai._scrDecision = null; return; }
+    const states = [
+        {
+            name: 'pre_snap',
+            valid: () => !finishNow && liveClock < 0.08,
+            action: () => {
+                _skillPreSnapAlign(player, anchor, dt);
+                ai._scrDecision = null;
+            },
+        },
+        {
+            name: 'snap',
+            valid: () => !finishNow && liveClock < 0.32,
+            action: () => {
+                _receiverFirstStep(player, context, dt);
+                ai._scrDecision = null;
+            },
+        },
+        {
+            name: 'execute',
+            valid: () => !finishNow && (context.runFlag || hasRoute),
+            action: () => {
+                if (context.runFlag) {
+                    ai._scrDecision = null;
+                    _runSupportTightEnd(player, off, def || {}, dt, context);
+                } else {
+                    ai._scrDecision = null;
+                    _updateRouteRunner(player, context, dt);
+                }
+            },
+        },
+        {
+            name: 'react',
+            valid: () => !finishNow && !context.runFlag && !scrambleActive,
+            action: () => {
+                _receiverReact(player, context, dt);
+            },
+        },
+        {
+            name: 'scramble',
+            valid: () => !finishNow && scrambleActive,
+            action: () => {
+                _receiverScramble(player, ai, context, dt, 0.94);
+            },
+        },
+        {
+            name: 'finish',
+            valid: () => finishNow || (!hasRoute && !context.runFlag),
+            action: () => {
+                _receiverFinish(player, context, dt, { speedCatch: 0.96 });
+            },
+        },
+    ];
 
-    if (off.__runFlag) {
-        ai._scrDecision = null;
-        _runSupportTightEnd(p, off, def || {}, dt, context);
-        return;
-    }
-
-    const followedRoute = _updateRouteRunner(p, context, dt);
-    if (followedRoute) { ai._scrDecision = null; return; }
-
-    if (_shouldThrottleAfterRoute(context)) {
-        ai._scrDecision = null;
-        _settleAfterRoute(p, context, dt);
-        return;
-    }
-
-    _updateScrambleDecision(p, ai, context, dt, 0.94);
+    _runStateMachine(ai, states);
 }
 
 /* =========================================================
@@ -2120,54 +2615,31 @@ function _rbPassProtect(rb, off, def, dt, context) {
 }
 
 export function rbLogic(s, dt) {
-    const off = s.play.formation.off, call = s.play.playCall, rb = off.RB;
+    const off = s.play.formation.off;
+    const call = s.play.playCall;
+    const rb = off.RB;
     const def = s.play.formation.def;
     if (!rb || !rb.alive) return;
+
     const mods = rb.modifiers || {};
     const burst = clamp(1 + ((mods.burst ?? 0.5) - 0.5) * 0.4, 0.7, 1.4);
     const patienceBase = clamp(0.22 + ((mods.patience ?? 0.5) - 0.5) * 0.18, 0.1, 0.42);
 
-    if (isBallLoose(s.play?.ball)) {
-        pursueLooseBallGroup([rb], s.play.ball, dt, 1.3, 12);
-        return;
-    }
-
-    const ball = s.play?.ball || null;
-    const carrierInfo = normalizeCarrier(off, ball);
-    const carrier = carrierInfo.player;
-    const tackler = s.play?.primaryTacklerId ? findDefById(def || {}, s.play.primaryTacklerId) : null;
-
-    if (ball?.inAir && ball.targetId === rb.id) {
-        const spot = ball.flight?.targetSpot
-            ? { ...ball.flight.targetSpot }
-            : ball.to
-                ? { ...ball.to }
-                : ball.renderPos
-                    ? { ...ball.renderPos }
-                    : { x: rb.pos.x, y: rb.pos.y };
-        const dest = {
-            x: clamp(spot.x, 16, FIELD_PIX_W - 16),
-            y: clamp(spot.y, 0, FIELD_PIX_H - 6),
-        };
-        const distance = dist(rb.pos, dest);
-        const speedMul = distance > PX_PER_YARD * 4
-            ? 1.1 * burst
-            : distance > PX_PER_YARD * 2
-                ? 0.98 * burst
-                : 0.82 * burst;
-        moveToward(rb, dest, dt, speedMul, { behavior: 'CATCH', settleDamping: 2.2 });
-        rb.targets = null;
-        rb.routeIdx = null;
-        return;
-    }
-
-    // If RB has the ball (after catch or handoff), use RAC logic
-    if (_isCarrier(off, ball, rb)) { _racAdvance(off, def, rb, dt, s.play); return; }
-
-    if (carrier && carrier !== rb && _assistCarrierBlock(rb, def || {}, dt, { off, def, play: s.play, carrier, tackler })) return;
-
+    const play = s.play;
+    const ball = play?.ball || null;
     const qb = off.QB;
     const losY = off.__losPixY ?? (qb?.pos?.y ?? yardsToPixY(25)) - PX_PER_YARD;
+    const carrierInfo = normalizeCarrier(off, ball);
+    const carrier = carrierInfo.player;
+    const tackler = play?.primaryTacklerId ? findDefById(def || {}, play.primaryTacklerId) : null;
+    const targeted = !!(ball?.inAir && ball.targetId === rb.id);
+    const ballLoose = !!(play && isBallLoose(ball));
+    const isCarrier = !!_isCarrier(off, ball, rb);
+    const scrambleActive = play?.qbMoveMode === 'SCRAMBLE';
+    const timeSinceLive = _timeSinceLive(play);
+    const anchor = Array.isArray(play?.rbTargets) && play.rbTargets.length ? play.rbTargets[0] : { x: rb.pos.x, y: rb.pos.y + PX_PER_YARD * 0.6 };
+    const finishNow = targeted || ballLoose || isCarrier;
+
     const context = {
         qb,
         def,
@@ -2175,64 +2647,72 @@ export function rbLogic(s, dt) {
         runHoleX: off.__runHoleX,
         runLaneY: off.__runLaneY,
         off,
-        play: s.play,
+        play,
         carrier,
         tackler,
+        call,
+        mods,
+        burst,
+        anchor,
+        ball,
+        timeSinceLive,
+        targeted,
+        ballLoose,
+        isCarrier,
     };
 
-    if (call.type === 'RUN') {
-        const ai = _ensureAI(rb);
-        ai.patience = ai.patience ?? patienceBase;
-        ai.patienceClock = (ai.patienceClock || 0) + dt;
-        const patiencePhase = ai.patienceClock < ai.patience;
+    const ai = _ensureAI(rb);
 
-        if (!s.play.handed && qb?.pos) {
-            const firstTarget = Array.isArray(s.play.rbTargets) ? s.play.rbTargets[0] : null;
-            const meshX = clamp(firstTarget?.x ?? qb.pos.x, 18, FIELD_PIX_W - 18);
-            const meshY = Math.min(firstTarget?.y ?? (qb.pos.y + PX_PER_YARD * 0.6), qb.pos.y + PX_PER_YARD * 0.6);
-            moveToward(rb, { x: meshX, y: meshY }, dt, 1.04 * burst, { behavior: 'RUNFIT' });
-            return;
-        }
+    const states = [
+        {
+            name: 'pre_snap',
+            valid: () => !finishNow && timeSinceLive < 0.08,
+            action: () => {
+                _skillPreSnapAlign(rb, anchor, dt);
+            },
+        },
+        {
+            name: 'snap',
+            valid: () => !finishNow && timeSinceLive < 0.35,
+            action: () => {
+                _rbFirstStep(rb, context, dt, burst);
+            },
+        },
+        {
+            name: 'execute',
+            valid: () => !finishNow && !scrambleActive && (call.type === 'RUN' || (rb.targets && rb.routeIdx != null)),
+            action: () => {
+                if (call.type === 'RUN') {
+                    _rbExecuteRun(rb, context, dt, burst, patienceBase);
+                } else {
+                    _rbExecutePass(rb, context, dt, burst);
+                }
+            },
+        },
+        {
+            name: 'react',
+            valid: () => !finishNow && !scrambleActive,
+            action: () => {
+                _rbReactAdjust(rb, context, dt, burst);
+            },
+        },
+        {
+            name: 'scramble',
+            valid: () => !finishNow && scrambleActive,
+            action: () => {
+                _rbScrambleAdjust(rb, context, dt, burst);
+            },
+        },
+        {
+            name: 'finish',
+            valid: () => finishNow,
+            action: () => {
+                _rbFinish(rb, context, dt, burst);
+            },
+        },
+    ];
 
-        const lane = _computeLaneForRB(off, def, rb, losY);
-        const vision = clamp((mods.vision ?? 0.5) - 0.5, -0.3, 0.3);
-        const blendBase = patiencePhase ? 0.45 : 0.8;
-        const laneX = clamp(_lerp(rb.pos.x, lane.x, clamp(blendBase + vision * 0.25, 0.2, 1.0)), 18, FIELD_PIX_W - 18);
-        const laneY = Math.max(off.__runLaneY ?? (rb.pos.y + PX_PER_YARD * 2.5), losY + PX_PER_YARD * 2.2);
-        const depthTarget = { x: laneX, y: laneY };
-
-        if (patiencePhase) {
-            const settle = { x: laneX, y: Math.min(rb.pos.y + PX_PER_YARD, losY + PX_PER_YARD * 0.8) };
-            moveToward(rb, settle, dt, 0.8 * burst, { behavior: 'RUNFIT' });
-        } else {
-            moveToward(rb, depthTarget, dt, 1.18 * burst, { behavior: 'RUNFIT' });
-        }
-
-        if (s.play.rbTargets && s.play.rbTargets.length > 1 && ai.patienceClock < ai.patience + 0.35) {
-            const next = s.play.rbTargets[Math.min(1, s.play.rbTargets.length - 1)];
-            moveToward(rb, next, dt, 1.05 * burst, { behavior: 'RUNFIT' });
-        }
-        return;
-    }
-
-    const protect = _rbPassProtect(rb, off, def, dt, context);
-    if (protect) return;
-
-    if (rb.targets && rb.routeIdx != null) {
-        const routeContext = { ...context, qb, def, losY };
-        const followed = _updateRouteRunner(rb, routeContext, dt);
-        if (followed) return;
-        if (_shouldThrottleAfterRoute(routeContext)) {
-            _settleAfterRoute(rb, routeContext, dt);
-            return;
-        }
-    }
-
-    const check = {
-        x: clamp(qb.pos.x + rand(-28, 28), 24, FIELD_PIX_W - 24),
-        y: qb.pos.y + PX_PER_YARD * 2.4,
-    };
-    moveToward(rb, check, dt, 0.92 * burst, { behavior: 'ROUTE' });
+    _runStateMachine(ai, states);
 }
 
 /* =========================================================
@@ -3429,36 +3909,49 @@ function _playManAssignment(defKey, options, ctx) {
         return;
     }
 
-    if (target && target.pos) {
-        if (ctx.carrier && target.id === ctx.carrier.id && ctx.carrierPos) {
-            _pursueTarget(defender, ctx.carrier, ctx, options.blitzSpeed ? options.blitzSpeed : 1.12);
-            return;
-        }
+    const ai = _ensureAI(defender);
+    const timeSinceLive = ctx.timeSinceLive ?? 0;
+    const qbScramble = ctx.play?.qbMoveMode === 'SCRAMBLE';
+    const carrier = ctx.carrier;
+    const carrierClose = carrier?.pos ? dist(carrier.pos, defender.pos) < PX_PER_YARD * 4.5 : false;
+    const ballLoose = isBallLoose(ctx.ball);
+    const finishNow = ballLoose || (ctx.ball?.inAir && ctx.passTargetRole === targetRole) || carrier === target || carrierClose;
+    const reactNeeded = carrier && carrier !== target;
 
-        if (ctx.ball.inAir && ctx.passTargetRole === targetRole && ctx.catchPrediction?.pos) {
-            const intercept = ctx.catchPrediction.pos;
-            const aim = {
-                x: clamp(intercept.x, 18, FIELD_PIX_W - 18),
-                y: Math.max(intercept.y - PX_PER_YARD * 0.8, ctx.cover.losY + PX_PER_YARD * 0.8),
-            };
-            moveToward(defender, aim, ctx.dt, _speedFromAttrs(defender, 1.1), {
-                behavior: 'PURSUIT',
-                pursuitTarget: ctx.passTarget || target,
-            });
-            return;
-        }
+    const states = [
+        {
+            name: 'pre_snap',
+            valid: () => !finishNow && timeSinceLive < 0.08,
+            action: () => _cornerPreSnapAlign(defender, target, options, ctx, ctx.dt),
+        },
+        {
+            name: 'snap',
+            valid: () => !finishNow && timeSinceLive < 0.32,
+            action: () => _cornerFirstStep(defender, target, ctx, ctx.dt),
+        },
+        {
+            name: 'execute',
+            valid: () => !finishNow && !qbScramble && !reactNeeded,
+            action: () => _cornerExecute(defender, target, options, ctx),
+        },
+        {
+            name: 'react',
+            valid: () => !finishNow && !qbScramble && reactNeeded,
+            action: () => _cornerReact(defender, target, ctx, ctx.dt),
+        },
+        {
+            name: 'scramble',
+            valid: () => !finishNow && qbScramble,
+            action: () => _cornerScramble(defender, target, ctx),
+        },
+        {
+            name: 'finish',
+            valid: () => finishNow,
+            action: () => _cornerFinish(defender, target, ctx),
+        },
+    ];
 
-        const aim = _manAim(defender, target, ctx.cover.losY, ctx.dt, options || {});
-        moveToward(defender, aim, ctx.dt, _speedFromAttrs(defender, options.baseSpeed ?? 1.02), {
-            behavior: 'MAN',
-            pursuitTarget: target,
-        });
-        return;
-    }
-
-    const fallbackY = ctx.cover.losY + PX_PER_YARD * 6.2;
-    const fallbackX = defender.pos.x >= FIELD_PIX_W / 2 ? FIELD_PIX_W - PX_PER_YARD * 6 : PX_PER_YARD * 6;
-    moveToward(defender, { x: fallbackX, y: fallbackY }, ctx.dt, _speedFromAttrs(defender, 0.94), { behavior: 'ZONE' });
+    _runStateMachine(ai, states);
 }
 
 function _deepThreatForSafety(ctx, sideIdx) {
@@ -3475,6 +3968,54 @@ function _deepThreatForSafety(ctx, sideIdx) {
 }
 
 function _controlSafety(defKey, sideIdx, ctx) {
+    const defender = ctx.def[defKey];
+    if (!defender?.pos) return;
+
+    const ai = _ensureAI(defender);
+    const timeSinceLive = ctx.timeSinceLive ?? 0;
+    const qbScramble = ctx.play?.qbMoveMode === 'SCRAMBLE';
+    const ballLoose = isBallLoose(ctx.ball);
+    const carrier = ctx.carrier;
+    const carrierThreat = carrier?.pos && carrier.pos.y >= ctx.cover.losY;
+    const finishNow = ballLoose || carrierThreat || (ctx.ball?.inAir && ctx.catchPrediction?.pos);
+
+    const states = [
+        {
+            name: 'pre_snap',
+            valid: () => !finishNow && timeSinceLive < 0.08,
+            action: () => _safetyPreSnap(defender, ctx, ctx.dt, sideIdx),
+        },
+        {
+            name: 'snap',
+            valid: () => !finishNow && timeSinceLive < 0.32,
+            action: () => _safetyFirstStep(defender, ctx, ctx.dt),
+        },
+        {
+            name: 'execute',
+            valid: () => !finishNow && !qbScramble,
+            action: () => _safetyExecuteCore(defKey, sideIdx, ctx),
+        },
+        {
+            name: 'react',
+            valid: () => !finishNow && !qbScramble,
+            action: () => _safetyReact(defender, ctx, ctx.dt),
+        },
+        {
+            name: 'scramble',
+            valid: () => !finishNow && qbScramble,
+            action: () => _safetyScramble(defender, ctx, ctx.dt),
+        },
+        {
+            name: 'finish',
+            valid: () => finishNow,
+            action: () => _safetyFinish(defender, ctx, ctx.dt),
+        },
+    ];
+
+    _runStateMachine(ai, states);
+}
+
+function _safetyExecuteCore(defKey, sideIdx, ctx) {
     const defender = ctx.def[defKey];
     if (!defender?.pos) return;
 
@@ -3594,6 +4135,7 @@ export function defenseLogic(s, dt) {
         cover,
         ball,
         qbPos,
+        qb: off.QB,
         carrier,
         carrierRole,
         carrierPos,
@@ -3601,6 +4143,8 @@ export function defenseLogic(s, dt) {
         passTarget,
         passTargetRole,
         catchPrediction,
+        timeSinceLive: _timeSinceLive(s.play),
+        play: s.play,
     };
 
     _playManAssignment('CB1', { cushionY: PX_PER_YARD * 2.8, leverage: -1 }, coveragePlan);
