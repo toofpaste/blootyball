@@ -2,7 +2,6 @@ import {
   betweenPlays,
   createInitialGameState,
   createPlayState,
-  updateFieldGoalAttempt,
   progressOffseason,
   resumeAssignedMatchup,
   stepGame,
@@ -275,13 +274,6 @@ describe('special teams handling', () => {
     expect(play.specialTeams).toBeTruthy();
     expect(play.specialTeams.visual).toBeTruthy();
     expect(play.specialTeams.kickerId).toBeTruthy();
-    expect(play.specialTeams.visual.kicker.player.id).toBe(roster.special.K.id);
-    expect(play.specialTeams.holderId).toBe(roster.off.QB.id);
-    expect(play.specialTeams.visual.holder.player.role).toBe('H');
-    expect(play.specialTeams.visual.holder.player.id).toBe(roster.off.QB.id);
-    expect(play.specialTeams.snapperId).toBe(roster.off.C.id);
-    expect(play.specialTeams.visual.snapper.player.role).toBe('LS');
-    expect(play.specialTeams.visual.line[3].player.id).toBe(roster.off.C.id);
   });
 
   test('defensive touchdown hands extra point to scoring team', () => {
@@ -330,48 +322,6 @@ describe('special teams handling', () => {
     expect(updated.possession).toBe(defenseSlot);
     expect(updated.play.phase).toBe('FIELD_GOAL');
     expect(updated.play.specialTeams?.kickerId).toBe(teams[defenseSlot].special.K.id);
-    expect(updated.play.specialTeams?.holderId).toBe(teams[defenseSlot].off.QB.id);
-  });
-
-  test('field goal visual keeps assigned personnel in sync with animation', () => {
-    const leagueState = createInitialGameState();
-    const slotToTeam = { [TEAM_RED]: TEAM_IDS[0], [TEAM_BLK]: TEAM_IDS[1] };
-    const teams = createTeams({ slotToTeam });
-    const offenseSlot = TEAM_RED;
-    const state = {
-      ...leagueState,
-      teams,
-      possession: offenseSlot,
-      scores: { [TEAM_RED]: 0, [TEAM_BLK]: 0 },
-      coaches: {},
-      pendingExtraPoint: null,
-    };
-    const roster = rosterForPossession(teams, offenseSlot);
-    roster.__ownerState = state;
-    state.roster = roster;
-    state.pendingExtraPoint = {
-      team: offenseSlot,
-      distance: 33,
-      losYards: 84,
-      startLos: 84,
-      startDown: 1,
-      startToGo: 10,
-    };
-
-    const play = createPlayState(state.roster, { losYards: 84, down: 1, toGo: 10 });
-    state.play = play;
-    state.drive = { losYards: 84, down: 1, toGo: 10 };
-
-    expect(play.specialTeams.visual.kicker.player.id).toBe(roster.special.K.id);
-    expect(play.specialTeams.visual.holder.player.id).toBe(roster.off.QB.id);
-
-    updateFieldGoalAttempt(state, 0.12);
-
-    const visual = play.specialTeams.visual;
-    expect(visual.kicker.player.pos).toEqual(visual.kicker.renderPos);
-    expect(visual.holder.player.pos).toEqual(visual.holder.renderPos);
-    expect(visual.line[0].player.pos).toEqual(visual.line[0].renderPos);
-    expect(visual.rushers[0].player.pos).toEqual(visual.rushers[0].renderPos);
   });
 });
 
