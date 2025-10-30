@@ -1,6 +1,6 @@
 import { Engine, World, Bodies, Body } from 'matter-js';
 
-import { clamp } from './helpers';
+import { clamp, collectActivePlayers, findPlayerById } from './helpers';
 import { FIELD_PIX_W, FIELD_PIX_H } from './constants';
 import { applyCollisionSlowdown } from './motion';
 
@@ -90,17 +90,14 @@ function isCarrier(play, player) {
     if (carrierId == null) return false;
     if (carrierId === player.id) return true;
     const off = play.formation?.off || {};
-    for (const [role, p] of Object.entries(off)) {
-        if (p && (p.id === carrierId || carrierId === role)) {
-            return player.id === p.id;
-        }
+    if (typeof carrierId === 'string' && off[carrierId]) {
+        return off[carrierId] === player;
     }
+    const offMatch = findPlayerById(off, carrierId);
+    if (offMatch && offMatch === player) return true;
     const def = play.formation?.def || {};
-    for (const [, p] of Object.entries(def)) {
-        if (p && (p.id === carrierId || carrierId === p.role)) {
-            return player.id === p.id;
-        }
-    }
+    const defMatch = findPlayerById(def, carrierId);
+    if (defMatch && defMatch === player) return true;
     return false;
 }
 
@@ -133,20 +130,32 @@ function applyMomentumPush(attacker, target, normal, dt) {
     clampToField(attacker.pos);
 }
 
+const SCRATCH_OFF_PLAYERS = [];
+const SCRATCH_DEF_PLAYERS = [];
+const SCRATCH_ALL_PLAYERS = [];
+const SCRATCH_BODIES = [];
+const PROCESSED_PAIRS = new Set();
+
 export function applyPlayerPhysics(play, dt = 0.016) {
     if (!play?.formation) return;
     if (!Number.isFinite(dt) || dt <= 0) return;
-    const offPlayers = Object.values(play.formation.off || {}).filter(p => p && p.pos);
-    const defPlayers = Object.values(play.formation.def || {}).filter(p => p && p.pos);
-    const allPlayers = [...offPlayers, ...defPlayers];
+    const offPlayers = collectActivePlayers(play.formation.off, SCRATCH_OFF_PLAYERS);
+    const defPlayers = collectActivePlayers(play.formation.def, SCRATCH_DEF_PLAYERS);
+    if (!offPlayers.length && !defPlayers.length) return;
+
+    const allPlayers = SCRATCH_ALL_PLAYERS;
+    allPlayers.length = 0;
+    for (let i = 0; i < offPlayers.length; i++) allPlayers.push(offPlayers[i]);
+    for (let i = 0; i < defPlayers.length; i++) allPlayers.push(defPlayers[i]);
     if (allPlayers.length === 0) return;
 
     const engine = createPhysicsEngine();
     const world = engine.world;
-    const bodies = [];
+    const bodies = SCRATCH_BODIES;
+    bodies.length = 0;
 
-    for (const player of allPlayers) {
-        bodies.push(buildPlayerBody(player, dt));
+    for (let i = 0; i < allPlayers.length; i++) {
+        bodies.push(buildPlayerBody(allPlayers[i], dt));
     }
 
     if (bodies.length === 0) return;
@@ -154,14 +163,15 @@ export function applyPlayerPhysics(play, dt = 0.016) {
     World.add(world, bodies);
     Engine.update(engine, dt * 1000);
 
-    for (const body of bodies) {
+    for (let i = 0; i < bodies.length; i++) {
+        const body = bodies[i];
         const player = body.plugin?.player;
         if (!player) continue;
         syncPlayerFromBody(player, body, dt);
         clampToField(player.pos);
     }
 
-    const processed = new Set();
+    PROCESSED_PAIRS.clear();
     for (const pair of engine.pairs.list || []) {
         if (!pair?.isActive || pair.isSensor) continue;
         const playerA = pair.bodyA?.plugin?.player;
@@ -169,8 +179,8 @@ export function applyPlayerPhysics(play, dt = 0.016) {
         if (!playerA || !playerB || playerA === playerB) continue;
 
         const key = playerA.id && playerB.id ? `${playerA.id}:${playerB.id}` : `${playerA.role}:${playerB.role}`;
-        if (processed.has(key) || processed.has(`${playerB?.id ?? playerB?.role}:${playerA?.id ?? playerA?.role}`)) continue;
-        processed.add(key);
+        if (PROCESSED_PAIRS.has(key) || PROCESSED_PAIRS.has(`${playerB?.id ?? playerB?.role}:${playerA?.id ?? playerA?.role}`)) continue;
+        PROCESSED_PAIRS.add(key);
 
         const radiusA = pair.bodyA?.plugin?.radius ?? resolveRadius(playerA);
         const radiusB = pair.bodyB?.plugin?.radius ?? resolveRadius(playerB);
@@ -211,7 +221,8 @@ export function applyPlayerPhysics(play, dt = 0.016) {
         }
     }
 
-    for (const player of allPlayers) {
+    for (let i = 0; i < allPlayers.length; i++) {
+        const player = allPlayers[i];
         if (!player?.motion) continue;
         player.motion.speed = Math.hypot(player.motion.vx, player.motion.vy);
         if (player.motion.speed > 0.01) {

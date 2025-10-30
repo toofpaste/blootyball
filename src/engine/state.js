@@ -2058,11 +2058,35 @@ function recordTraceSample(s) {
     if (s.trace.length > 2000) s.trace.shift();
 }
 
+const EMPTY_ACTIVE_PLAYERS = Object.freeze([]);
+
 function gatherActivePlayers(play) {
-    if (!play || !play.formation) return [];
-    const off = Object.values(play.formation.off || {});
-    const def = Object.values(play.formation.def || {});
-    return [...off, ...def].filter(p => p && p.pos);
+    if (!play || !play.formation) return EMPTY_ACTIVE_PLAYERS;
+    let cache = play.__activePlayersCache;
+    if (!Array.isArray(cache)) {
+        cache = [];
+        play.__activePlayersCache = cache;
+    }
+    let idx = 0;
+    const off = play.formation.off;
+    if (off) {
+        for (const key in off) {
+            if (!Object.prototype.hasOwnProperty.call(off, key)) continue;
+            const player = off[key];
+            if (player?.pos) cache[idx++] = player;
+        }
+    }
+    const def = play.formation.def;
+    if (def) {
+        for (const key in def) {
+            if (!Object.prototype.hasOwnProperty.call(def, key)) continue;
+            const player = def[key];
+            if (player?.pos) cache[idx++] = player;
+        }
+    }
+    cache.length = idx;
+    if (idx === 0) return EMPTY_ACTIVE_PLAYERS;
+    return cache;
 }
 
 const MOTION_ROLES = ['WR3', 'WR2', 'WR1', 'TE', 'RB'];
