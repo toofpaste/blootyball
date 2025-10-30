@@ -125,19 +125,35 @@ function drawFieldGoalScene(ctx, state) {
     const offenseColor = getTeamDisplayColor(state, offenseSlot, 'offense');
     const defenseColor = getTeamDisplayColor(state, defenseSlot, 'defense');
 
+    const resolveDrawable = (entity, fallbackRole = null) => {
+        if (!entity) return null;
+        const pos = entity.renderPos || entity.pos;
+        if (!pos) return null;
+        const player = entity.player;
+        if (player) {
+            if (!player.pos || player.pos.x !== pos.x || player.pos.y !== pos.y) {
+                player.pos = { ...pos };
+            }
+            if (fallbackRole && !player.role) {
+                player.role = fallbackRole;
+            }
+            return player;
+        }
+        return { role: entity.role || fallbackRole, pos };
+    };
+
     const drawGroup = (arr, color) => {
-        (arr || []).forEach((p) => {
-            if (!p?.renderPos) return;
-            const fakePlayer = { role: p.role, pos: p.renderPos };
-            drawPlayer(ctx, fakePlayer, color);
+        (arr || []).forEach((entity) => {
+            const drawable = resolveDrawable(entity);
+            if (!drawable) return;
+            drawPlayer(ctx, drawable, color);
         });
     };
 
     const drawEntity = (entity, color, fallbackRole) => {
-        if (!entity?.renderPos) return;
-        const role = entity.role || fallbackRole;
-        const fakePlayer = { role, pos: entity.renderPos };
-        drawPlayer(ctx, fakePlayer, color);
+        const drawable = resolveDrawable(entity, fallbackRole);
+        if (!drawable) return;
+        drawPlayer(ctx, drawable, color);
     };
 
     if (visual.line) drawGroup(visual.line, offenseColor);

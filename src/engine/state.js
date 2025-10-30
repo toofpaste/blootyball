@@ -1280,6 +1280,176 @@ function createFieldGoalVisual({ losYards, distance }) {
     };
 }
 
+function clonePlayerForSpecial(basePlayer, role, pos = null) {
+    if (!basePlayer) return null;
+    const resolvedPos = pos
+        ? { ...pos }
+        : basePlayer.pos
+            ? { ...basePlayer.pos }
+            : { x: FIELD_PIX_W / 2, y: yardsToPixY(ENDZONE_YARDS + 20) };
+    return {
+        id: basePlayer.id,
+        team: basePlayer.team,
+        role: role || basePlayer.role,
+        profile: basePlayer.profile ? { ...basePlayer.profile } : null,
+        number: basePlayer.number ?? basePlayer.profile?.number ?? null,
+        meta: basePlayer.meta ? { ...basePlayer.meta } : null,
+        attrs: basePlayer.attrs ? { ...basePlayer.attrs } : null,
+        modifiers: basePlayer.modifiers ? { ...basePlayer.modifiers } : null,
+        temperament: basePlayer.temperament ? { ...basePlayer.temperament } : null,
+        pos: { ...resolvedPos },
+        home: { ...resolvedPos },
+        v: { x: 0, y: 0 },
+    };
+}
+
+function attachFieldGoalEntity(entity, player, role, options = {}) {
+    if (!entity || !player) {
+        entity && (entity.player = null);
+        return null;
+    }
+    const clone = clonePlayerForSpecial(player, role || entity.role, entity.renderPos || entity.pos);
+    if (!clone) {
+        entity.player = null;
+        return null;
+    }
+    if (options.storeOriginalRole) {
+        clone.specialOriginalRole = player.role;
+    }
+    entity.player = clone;
+    return clone;
+}
+
+function syncFieldGoalPlayers(visual) {
+    if (!visual) return;
+    const syncEntity = (entity) => {
+        if (!entity?.player) return;
+        const pos = entity.renderPos || entity.pos;
+        if (!pos) return;
+        entity.player.pos = { ...pos };
+        entity.player.home = { ...pos };
+    };
+    const syncGroup = (group) => {
+        if (!Array.isArray(group)) return;
+        group.forEach(syncEntity);
+    };
+    syncEntity(visual.kicker);
+    syncEntity(visual.holder);
+    syncEntity(visual.snapper);
+    syncGroup(visual.line);
+    syncGroup(visual.protectors);
+    syncGroup(visual.rushers);
+}
+
+function assignFieldGoalPersonnel(play, roster) {
+    if (!play?.specialTeams?.visual || !roster) return;
+    const visual = play.specialTeams.visual;
+    const offense = roster.off || {};
+    const defense = roster.def || {};
+    const special = roster.special || {};
+    const usedOffense = new Set();
+    const usedDefense = new Set();
+
+    const markUsed = (set, player) => {
+        if (player?.id) set.add(player.id);
+    };
+    const alreadyUsed = (set, player) => {
+        if (!player?.id) return false;
+        return set.has(player.id);
+    };
+
+    const takeOffense = (candidates, { allowReuse = false } = {}) => {
+        for (const role of candidates) {
+            const candidate = offense?.[role];
+            if (!candidate) continue;
+            if (!allowReuse && alreadyUsed(usedOffense, candidate)) continue;
+            markUsed(usedOffense, candidate);
+            return candidate;
+        }
+        return null;
+    };
+
+    const takeDefense = (candidates, { allowReuse = false } = {}) => {
+        for (const role of candidates) {
+            const candidate = defense?.[role];
+            if (!candidate) continue;
+            if (!allowReuse && alreadyUsed(usedDefense, candidate)) continue;
+            markUsed(usedDefense, candidate);
+            return candidate;
+        }
+        return null;
+    };
+
+    const kicker = special?.K || null;
+    if (kicker) {
+        attachFieldGoalEntity(visual.kicker, kicker, 'K');
+        markUsed(usedOffense, kicker);
+        play.specialTeams.kickerId = kicker.id;
+    }
+
+    const holderPlayer = takeOffense(['QB', 'WR3', 'WR2', 'RB', 'TE']);
+    if (holderPlayer) {
+        attachFieldGoalEntity(visual.holder, holderPlayer, 'H', { storeOriginalRole: true });
+        play.specialTeams.holderId = holderPlayer.id;
+    }
+
+    const snapperPlayer = takeOffense(['C', 'LG', 'RG', 'LT']);
+    if (snapperPlayer) {
+        attachFieldGoalEntity(visual.snapper, snapperPlayer, 'LS', { storeOriginalRole: true });
+        play.specialTeams.snapperId = snapperPlayer.id;
+    }
+
+    const assignLine = [
+        { idx: 0, role: 'LW', sources: ['WR1', 'WR3', 'TE', 'RB'] },
+        { idx: 1, role: 'LT', sources: ['LT', 'LG', 'TE', 'WR1'] },
+        { idx: 2, role: 'LG', sources: ['LG', 'LT', 'RG'] },
+        { idx: 3, role: 'C', sources: ['C', 'RG', 'LG'] },
+        { idx: 4, role: 'RG', sources: ['RG', 'RT', 'LG'] },
+        { idx: 5, role: 'RT', sources: ['RT', 'RG', 'LT'] },
+        { idx: 6, role: 'RW', sources: ['TE', 'WR2', 'WR3', 'RB'] },
+    ];
+
+    assignLine.forEach(({ idx, role, sources }) => {
+        const entity = visual.line?.[idx];
+        if (!entity) return;
+        let player = null;
+        if (role === 'C' && snapperPlayer) {
+            player = snapperPlayer;
+        } else {
+            player = takeOffense(sources);
+        }
+        if (!player && role === 'C') {
+            player = snapperPlayer || takeOffense(['LG', 'RG'], { allowReuse: true });
+        }
+        attachFieldGoalEntity(entity, player, role, { storeOriginalRole: true });
+    });
+
+    const protectorAssignments = [
+        { idx: 0, sources: ['RB', 'TE', 'WR3', 'WR2'] },
+        { idx: 1, sources: ['TE', 'RB', 'WR2', 'WR3'] },
+    ];
+    protectorAssignments.forEach(({ idx, sources }) => {
+        const entity = visual.protectors?.[idx];
+        if (!entity) return;
+        const player = takeOffense(sources);
+        attachFieldGoalEntity(entity, player, 'PP', { storeOriginalRole: true });
+    });
+
+    const rusherAssignments = [
+        { idx: 0, role: 'LE', sources: ['LE', 'LB1', 'CB1'] },
+        { idx: 1, role: 'NG', sources: ['DT', 'RTk', 'NG', 'LB2'] },
+        { idx: 2, role: 'RE', sources: ['RE', 'LB2', 'CB2'] },
+    ];
+    rusherAssignments.forEach(({ idx, role, sources }) => {
+        const entity = visual.rushers?.[idx];
+        if (!entity) return;
+        const player = takeDefense(sources);
+        attachFieldGoalEntity(entity, player, role, { storeOriginalRole: true });
+    });
+
+    syncFieldGoalPlayers(visual);
+}
+
 function resolveFieldGoalAttempt(state, { team, distance, isPat = false }) {
     if (!team || !Number.isFinite(distance)) {
         return { success: false, distance: distance ?? 0, summary: 'No kick attempted', isPat, team, chance: 0, roll: 1, kicker: null };
@@ -1461,7 +1631,7 @@ function computeFieldGoalApex(distance, outcome) {
     return yardsToPixY(base * modifier);
 }
 
-function updateFieldGoalAttempt(state, dt) {
+export function updateFieldGoalAttempt(state, dt) {
     const play = state.play;
     if (!play?.specialTeams) return false;
     const special = play.specialTeams;
@@ -1723,6 +1893,7 @@ function updateFieldGoalAttempt(state, dt) {
             break;
     }
 
+    syncFieldGoalPlayers(visual);
     ensureBallState();
     return false;
 }
@@ -2652,6 +2823,7 @@ export function createPlayState(roster, drive) {
             kickerId: fieldGoalPlan.kicker?.id || null,
             visual: createFieldGoalVisual({ losYards: pendingPat?.losYards ?? safeDrive.losYards, distance: Math.round(fieldGoalPlan.distance) }),
         };
+        assignFieldGoalPersonnel(play, roster);
         const snapPoint = play.specialTeams.visual?.ball?.pos || play.specialTeams.visual?.contactPoint || { x: FIELD_PIX_W / 2, y: losPixY };
         play.ball.renderPos = { ...snapPoint };
         play.ball.shadowPos = { ...snapPoint };
