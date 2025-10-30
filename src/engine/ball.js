@@ -7,6 +7,45 @@ import { recordPlayEvent } from './diagnostics';
 const PASS_ARC_SHAPE_EXP = 0.68;
 const PASS_ARC_NORMALIZER = Math.pow(0.5, PASS_ARC_SHAPE_EXP * 2);
 
+function solvePassIntercept(from, targetPos, targetVel, projectileSpeed) {
+    if (!from || !targetPos || !projectileSpeed) return null;
+    const relX = targetPos.x - from.x;
+    const relY = targetPos.y - from.y;
+    const vx = targetVel?.x ?? 0;
+    const vy = targetVel?.y ?? 0;
+
+    const a = vx * vx + vy * vy - projectileSpeed * projectileSpeed;
+    const b = 2 * (relX * vx + relY * vy);
+    const c = relX * relX + relY * relY;
+
+    let t = null;
+    if (Math.abs(a) < 1e-6) {
+        if (Math.abs(b) < 1e-6) return null;
+        const linearT = -c / b;
+        if (linearT > 0) t = linearT;
+    } else {
+        const discriminant = b * b - 4 * a * c;
+        if (discriminant >= 0) {
+            const root = Math.sqrt(discriminant);
+            const t1 = (-b - root) / (2 * a);
+            const t2 = (-b + root) / (2 * a);
+            const candidates = [t1, t2].filter((v) => Number.isFinite(v) && v > 0);
+            if (candidates.length) {
+                t = Math.min(...candidates);
+            }
+        }
+    }
+
+    if (!Number.isFinite(t) || t <= 0) return null;
+    return {
+        point: {
+            x: targetPos.x + vx * t,
+            y: targetPos.y + vy * t,
+        },
+        time: t,
+    };
+}
+
 // ⬇️ ADD this small helper near the top (below the imports)
 function _resolveOffensivePlayer(off, idOrRole) {
     if (!off) return null;
@@ -258,36 +297,152 @@ function completeFumbleRecovery(s, player) {
 }
 export function startPass(s, from, to, targetId) {
     const ball = s.play.ball;
-    const qb = s.play?.formation?.off?.QB;
+    const off = s.play?.formation?.off || {};
+    const qb = off.QB;
     const arm = clamp(qb?.attrs?.throwPow ?? 1, 0.5, 1.4);
     const acc = clamp(qb?.attrs?.throwAcc ?? 1, 0.35, 1.4);
     const iq = clamp(qb?.attrs?.awareness ?? 0.9, 0.4, 1.4);
-    const distance = Math.max(1, dist(from, to));
     const velocityTrait = clamp((qb?.modifiers?.throwVelocity ?? 0.5) - 0.5, -0.3, 0.3);
     const touchTrait = clamp((qb?.modifiers?.touch ?? 0.5) - 0.5, -0.3, 0.3);
-    const mph = clamp(54 + (arm - 1) * 28 + velocityTrait * 16, 42, 78);
-    const speed = Math.max(90, mphToPixelsPerSecond(mph));
-    const duration = clamp(distance / speed, 0.32, 1.6);
-    const distanceYards = distance / PX_PER_YARD;
-    const distanceOverEight = Math.max(0, distanceYards - 8);
-    const longPassWeight = clamp(distanceOverEight / 18, 0, 1);
-    const difficulty = clamp((distanceYards - 8) / 18, 0, 1.3);
+    const baseMph = clamp(54 + (arm - 1) * 28 + velocityTrait * 16, 42, 78);
     const accComposite = clamp(Math.pow(acc + touchTrait * 0.14, 1.12), 0.3, 1.55);
     const iqComposite = clamp(Math.pow(iq, 1.08), 0.35, 1.5);
+
+    const targetPlayer = targetId ? _resolveOffensivePlayer(off, targetId) : null;
+    const qbLook = to ? { x: to.x, y: to.y } : { x: from.x, y: from.y };
+    let targetPos = targetPlayer?.pos ? { x: targetPlayer.pos.x, y: targetPlayer.pos.y } : (to ? { ...to } : { ...qbLook });
+    let targetVel = { x: 0, y: 0 };
+    let driveFactor = 0;
+
+    if (targetPlayer?.pos) {
+        const motion = targetPlayer.motion || {};
+        const vx = Number.isFinite(motion.vx) ? motion.vx : (targetPlayer.vel?.x ?? 0);
+        const vy = Number.isFinite(motion.vy) ? motion.vy : (targetPlayer.vel?.y ?? 0);
+        targetVel = { x: vx, y: vy };
+        const speedMag = Math.hypot(vx, vy);
+        if (speedMag > 0.1) {
+            const lateral = Math.abs(vx) / speedMag;
+            const vertical = Math.max(0, vy) / speedMag;
+            driveFactor = clamp(lateral * 0.65 + vertical * 0.35, 0, 1);
+        }
+    }
+
+    const styleSpeedAdj = driveFactor > 0 ? clamp(1 + driveFactor * 0.12, 0.88, 1.18) : 1;
+    const mph = clamp(baseMph * styleSpeedAdj, 42, 82);
+    const speed = Math.max(90, mphToPixelsPerSecond(mph));
+
+    const leadSkill = clamp(accComposite * 0.6 + iqComposite * 0.4, 0.35, 1.6);
+    const leadErrorScale = clamp(1 - Math.min(leadSkill, 1.35) / 1.35, 0, 0.7);
+
+    let aim = { ...qbLook };
+    let interceptIdeal = null;
+    if (targetPlayer?.pos) {
+        const velNoise = leadErrorScale * 0.6;
+        const estimateVel = {
+            x: targetVel.x * (1 + rand(-velNoise, velNoise)),
+            y: targetVel.y * (1 + rand(-velNoise, velNoise)),
+        };
+        const angleNoise = leadErrorScale > 0 ? rand(-leadErrorScale, leadErrorScale) * 0.4 : 0;
+        if (Math.abs(angleNoise) > 1e-3) {
+            const cos = Math.cos(angleNoise);
+            const sin = Math.sin(angleNoise);
+            const ex = estimateVel.x;
+            const ey = estimateVel.y;
+            estimateVel.x = ex * cos - ey * sin;
+            estimateVel.y = ex * sin + ey * cos;
+        }
+        const intercept = solvePassIntercept(from, targetPos, estimateVel, speed);
+        if (intercept?.point) {
+            interceptIdeal = intercept.point;
+            const blend = clamp(0.35 + (leadSkill - 0.6) * 0.35, 0.2, 0.92);
+            const base = qbLook || targetPos;
+            aim = {
+                x: base.x + (intercept.point.x - base.x) * blend,
+                y: base.y + (intercept.point.y - base.y) * blend,
+            };
+        } else {
+            aim = {
+                x: targetPos.x + targetVel.x * 0.25,
+                y: targetPos.y + targetVel.y * 0.25,
+            };
+        }
+    }
+
+    if (!targetPlayer?.pos && to) {
+        aim = { x: to.x, y: to.y };
+    }
+
+    if (qb?.pos) {
+        aim.y = Math.max(aim.y, qb.pos.y - PX_PER_YARD * 0.25);
+    }
+    aim.x = clamp(aim.x, 6, FIELD_PIX_W - 6);
+    aim.y = clamp(aim.y, 0, FIELD_PIX_H);
+
+    const preDistance = Math.max(1, dist(from, aim));
+    const preYards = preDistance / PX_PER_YARD;
+    const preDistanceOverEight = Math.max(0, preYards - 8);
+    const longPassWeight = clamp(preDistanceOverEight / 18, 0, 1);
+    const difficulty = clamp((preYards - 8) / 18, 0, 1.3);
     const rawAccuracy = accComposite * (0.54 + iqComposite * 0.36);
-    const accuracyPenalty = difficulty * clamp(1.25 - accComposite * 0.55 - iqComposite * 0.25, 0.45, 1.25);
-    const flightAccuracy = clamp(rawAccuracy - accuracyPenalty, 0.2, 1.42);
-    const loftFactor = clamp(0.36 + touchTrait * 0.12, 0.26, 0.5);
+    let flightAccuracy = clamp(
+        rawAccuracy - difficulty * clamp(1.25 - accComposite * 0.55 - iqComposite * 0.25, 0.45, 1.25),
+        0.2,
+        1.42,
+    );
+
+    const distanceFactor = clamp(preYards / 30, 0, 1.2);
+    const accuracyNorm = clamp(flightAccuracy / 1.08, 0, 1.4);
+    const missFactor = clamp(1 - accuracyNorm, 0, 0.85);
+    const totalErrorScale = clamp(
+        0.02 + distanceFactor * 0.03 + missFactor * (0.16 + distanceFactor * 0.05) + leadErrorScale * 0.25,
+        0.02,
+        0.45,
+    );
+
+    const dirX = aim.x - from.x;
+    const dirY = aim.y - from.y;
+    const mag = Math.hypot(dirX, dirY) || 1;
+    const ux = dirX / mag;
+    const uy = dirY / mag;
+    const px = -uy;
+    const py = ux;
+    const along = (rand(-1, 1) + rand(-1, 1)) * 0.5 * preDistance * totalErrorScale;
+    const cross = rand(-1, 1) * preDistance * totalErrorScale * 0.75;
+    aim.x += ux * along + px * cross;
+    aim.y += uy * along + py * cross;
+
+    aim.x = clamp(aim.x, 6, FIELD_PIX_W - 6);
+    aim.y = clamp(aim.y, 0, FIELD_PIX_H);
+    if (qb?.pos) {
+        aim.y = Math.max(aim.y, qb.pos.y - PX_PER_YARD * 0.25);
+    }
+
+    const distance = Math.max(1, dist(from, aim));
+    const distanceYards = distance / PX_PER_YARD;
+    const distanceOverEight = Math.max(0, distanceYards - 8);
     const dramaticHeightBoost = 1 + Math.pow(distanceOverEight / 12, 1.4);
-    const peakHeight = clamp(distance * loftFactor * dramaticHeightBoost, 24, 240);
-    const shapeExp = clamp(PASS_ARC_SHAPE_EXP - longPassWeight * 0.28, 0.35, PASS_ARC_SHAPE_EXP);
+
+    if (interceptIdeal) {
+        const offTarget = dist(interceptIdeal, aim);
+        if (offTarget > 0) {
+            const deltaRatio = clamp(offTarget / Math.max(distance, 1), 0, 0.8);
+            flightAccuracy = clamp(flightAccuracy - deltaRatio * 0.85, 0.2, 1.42);
+        }
+    }
+
+    const duration = clamp(distance / speed, 0.28, 1.6);
+    const loftBase = clamp(0.36 + touchTrait * 0.12, 0.26, 0.5);
+    const loftScale = clamp(1 - driveFactor * 0.45, 0.55, 1.08);
+    const loftFactor = loftBase * loftScale;
+    const peakHeight = clamp(distance * loftFactor * dramaticHeightBoost, 18, 240);
+    const shapeExp = clamp(PASS_ARC_SHAPE_EXP - longPassWeight * 0.28 - driveFactor * 0.12, 0.3, PASS_ARC_SHAPE_EXP);
     const arcNormalizer = Math.pow(0.5, shapeExp * 2);
 
     ball.inAir = true;
     ball.lastCarrierId = ball.carrierId || ball.lastCarrierId || qb?.id || 'QB';
     ball.carrierId = null;
     ball.from = { ...from };
-    ball.to = { ...to };
+    ball.to = { ...aim };
     ball.t = 0;
     ball.flight = {
         kind: 'pass',
@@ -301,15 +456,22 @@ export function startPass(s, from, to, targetId) {
         accuracy: flightAccuracy,
         totalDist: distance,
         travelled: 0,
+        targetSpot: { ...aim },
     };
     ball.shadowPos = { ...from };
     ball.renderPos = { ...from };
     ball.targetId = targetId; // null means throw-away
 
+    if (targetId) {
+        s.play.passTargetSpot = { id: targetId, pos: { ...aim }, eta: distance / speed };
+    } else {
+        s.play.passTargetSpot = null;
+    }
+
     recordPlayEvent(s, {
         type: 'pass:thrown',
         from: { ...from },
-        to: { ...to },
+        to: { ...aim },
         targetId: targetId ?? null,
         throwSpeed: speed,
         duration,
@@ -375,20 +537,11 @@ export function moveBall(s, dt) {
         flight.elapsed += dt;
 
         const currentPos = ball.renderPos || ball.shadowPos || ball.from;
-        let targetPos = ball.to ? { ...ball.to } : { ...ball.from };
-
-        if (ball.targetId) {
-            const target = _resolveOffensivePlayer(off, ball.targetId);
-            if (target?.pos) {
-                const desired = { x: target.pos.x, y: target.pos.y };
-                const lerp = clamp(dt * 6, 0, 1);
-                targetPos = {
-                    x: targetPos.x + (desired.x - targetPos.x) * lerp,
-                    y: targetPos.y + (desired.y - targetPos.y) * lerp,
-                };
-                ball.to = { ...targetPos };
-            }
-        }
+        const targetPos = ball.flight?.targetSpot
+            ? { ...ball.flight.targetSpot }
+            : ball.to
+                ? { ...ball.to }
+                : { ...ball.from };
 
         const dx = targetPos.x - currentPos.x;
         const dy = targetPos.y - currentPos.y;
@@ -428,6 +581,7 @@ export function moveBall(s, dt) {
         const reached = distToTarget <= Math.max(6, travelStep * 0.6);
 
         if (reached) {
+            if (s.play) s.play.passTargetSpot = null;
             const isPitch = flight?.kind === 'pitch';
             if (isPitch) {
                 const runner = _resolveOffensivePlayer(off, ball.targetId);
@@ -481,6 +635,16 @@ export function moveBall(s, dt) {
 
             const r = _resolveOffensivePlayer(off, ball.targetId);
             if (r) {
+                const catchPoint = ball.flight?.targetSpot
+                    ? { ...ball.flight.targetSpot }
+                    : { ...targetPos };
+                const catchDist = dist(r.pos, catchPoint);
+                const catchAlignment = clamp(
+                    1 - Math.max(0, catchDist - PX_PER_YARD) / (PX_PER_YARD * 4.2),
+                    0,
+                    1,
+                );
+                const severeMiss = catchDist >= PX_PER_YARD * 3.5;
                 const nearestDef = Object.values(def).reduce((best, d) => {
                     if (!d?.pos) return best;
                     const dd = Math.hypot(d.pos.x - r.pos.x, d.pos.y - r.pos.y);
@@ -541,10 +705,40 @@ export function moveBall(s, dt) {
                     ball.lastCarrierId = picker?.id || ball.lastCarrierId || null;
                     ball.renderPos = pickPos;
                     ball.shadowPos = pickPos;
+                    s.play.passTargetSpot = null;
                     recordPlayEvent(s, {
                         type: 'pass:interception',
                         by: picker?.id || null,
                         targetId: r.id,
+                    });
+                    return;
+                }
+
+                if (severeMiss) {
+                    s.play.deadAt = s.play.elapsed;
+                    s.play.phase = 'DEAD';
+                    s.play.resultWhy = 'Incomplete';
+                    const dy = catchPoint.y - r.pos.y;
+                    const dx = catchPoint.x - r.pos.x;
+                    const lateralBias = Math.abs(dx) > Math.abs(dy) * 1.15;
+                    let missText = 'Incomplete';
+                    if (!lateralBias) {
+                        missText = dy > 0 ? 'Overthrown' : 'Underthrown';
+                    } else {
+                        missText = 'Off target';
+                    }
+                    s.play.resultText = missText;
+                    ball.inAir = false;
+                    ball.flight = null;
+                    ball.renderPos = { ...catchPoint };
+                    ball.shadowPos = { ...catchPoint };
+                    s.play.passTargetSpot = null;
+                    recordPlayEvent(s, {
+                        type: 'pass:incomplete',
+                        targetId: r.id,
+                        separation: nearestDef.d,
+                        missDist: catchDist,
+                        missType: missText,
                     });
                     return;
                 }
@@ -580,7 +774,8 @@ export function moveBall(s, dt) {
                 const openRatio = clamp((separationYards - 1.5) / 6, 0, 1);
                 const awarenessRelief = clamp((awareness - 1) * 0.18, -0.18, 0.22);
                 const openBonus = openRatio * 0.42 + awarenessRelief;
-                const catchProbability = clamp(baseCatchChance + openBonus, 0.02, 0.96);
+                let catchProbability = clamp(baseCatchChance + openBonus, 0.02, 0.96);
+                catchProbability = clamp(catchProbability * Math.pow(Math.max(catchAlignment, 0.05), 0.65), 0, 0.96);
 
                 const dropBase = clamp(0.2 - (qbAccBoost - 1) * 0.12 - (qbProcessing - 1) * 0.08, 0.03, 0.26);
                 const dropHands = clamp(Math.pow(Math.max(1.3 - hands * qbAccBoost, 0), 1.1) * 0.32, 0, 0.62);
@@ -590,8 +785,17 @@ export function moveBall(s, dt) {
                 const traitDrop = clamp(-handsTrait * 0.1, -0.1, 0.1);
                 const accuracyDrop = clamp(1 - ballAcc, 0, 0.6) * 0.38;
                 const openDropRelief = openRatio * 0.2 + clamp((technique - 1) * 0.16, -0.16, 0.16);
+                const alignmentPenalty = clamp(1 - catchAlignment, 0, 1);
                 const dropProbability = clamp(
-                    dropBase + dropHands + dropContact + dropRisk + depthDrop + traitDrop + accuracyDrop - openDropRelief,
+                    dropBase +
+                        dropHands +
+                        dropContact +
+                        dropRisk +
+                        depthDrop +
+                        traitDrop +
+                        accuracyDrop -
+                        openDropRelief +
+                        alignmentPenalty * 0.22,
                     0.02,
                     0.75,
                 );
@@ -606,10 +810,12 @@ export function moveBall(s, dt) {
                         ball.flight = null;
                         ball.renderPos = { ...ball.to };
                         ball.shadowPos = { ...ball.to };
+                        s.play.passTargetSpot = null;
                         recordPlayEvent(s, {
                             type: 'pass:drop',
                             targetId: r.id,
                             separation: nearestDef.d,
+                            alignment: catchAlignment,
                         });
                     } else {
                         ball.inAir = false;
@@ -618,10 +824,12 @@ export function moveBall(s, dt) {
                         ball.flight = null;
                         ball.renderPos = { ...r.pos };
                         ball.shadowPos = { ...r.pos };
+                        s.play.passTargetSpot = null;
                         recordPlayEvent(s, {
                             type: 'pass:complete',
                             targetId: r.id,
                             separation: nearestDef.d,
+                            alignment: catchAlignment,
                         });
                     }
                 } else {
@@ -632,10 +840,12 @@ export function moveBall(s, dt) {
                     ball.flight = null;
                     ball.renderPos = { ...ball.to };
                     ball.shadowPos = { ...ball.to };
+                    s.play.passTargetSpot = null;
                     recordPlayEvent(s, {
                         type: 'pass:incomplete',
                         targetId: r.id,
                         separation: nearestDef.d,
+                        alignment: catchAlignment,
                     });
                 }
             } else {
@@ -646,6 +856,7 @@ export function moveBall(s, dt) {
                 ball.flight = null;
                 ball.renderPos = { ...ball.to };
                 ball.shadowPos = { ...ball.to };
+                s.play.passTargetSpot = null;
                 recordPlayEvent(s, { type: 'pass:incomplete', targetId: null });
             }
         }

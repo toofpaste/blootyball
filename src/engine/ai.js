@@ -1139,6 +1139,30 @@ export function moveReceivers(off, dt, s = null) {
             return;
         }
 
+        if (ball?.inAir && ball.targetId === p.id) {
+            const spot = ball.flight?.targetSpot
+                ? { ...ball.flight.targetSpot }
+                : ball.to
+                    ? { ...ball.to }
+                    : ball.renderPos
+                        ? { ...ball.renderPos }
+                        : { x: p.pos.x, y: p.pos.y };
+            const dest = {
+                x: clamp(spot.x, 16, FIELD_PIX_W - 16),
+                y: clamp(spot.y, 0, FIELD_PIX_H - 6),
+            };
+            const distance = dist(p.pos, dest);
+            const speedMul = distance > PX_PER_YARD * 4
+                ? 1.12
+                : distance > PX_PER_YARD * 2
+                    ? 1.02
+                    : 0.82;
+            moveToward(p, dest, dt, speedMul, { behavior: 'CATCH', settleDamping: 2.6 });
+            p.targets = null;
+            p.routeIdx = null;
+            return;
+        }
+
         // If this WR currently has the ball, switch to RAC logic
         if (s && _isCarrier(off, ball, p)) { _racAdvance(off, def, p, dt, s.play); return; }
 
@@ -1181,6 +1205,30 @@ export function moveTE(off, dt, s = null) {
 
     if (s && isBallLoose(ball)) {
         pursueLooseBallGroup([p], ball, dt, 1.12, 10);
+        return;
+    }
+
+    if (ball?.inAir && ball.targetId === p.id) {
+        const spot = ball.flight?.targetSpot
+            ? { ...ball.flight.targetSpot }
+            : ball.to
+                ? { ...ball.to }
+                : ball.renderPos
+                    ? { ...ball.renderPos }
+                    : { x: p.pos.x, y: p.pos.y };
+        const dest = {
+            x: clamp(spot.x, 16, FIELD_PIX_W - 16),
+            y: clamp(spot.y, 0, FIELD_PIX_H - 6),
+        };
+        const distance = dist(p.pos, dest);
+        const speedMul = distance > PX_PER_YARD * 4
+            ? 1.08
+            : distance > PX_PER_YARD * 2
+                ? 0.98
+                : 0.8;
+        moveToward(p, dest, dt, speedMul, { behavior: 'CATCH', settleDamping: 2.4 });
+        p.targets = null;
+        p.routeIdx = null;
         return;
     }
 
@@ -1913,6 +1961,30 @@ export function rbLogic(s, dt) {
     const carrierInfo = normalizeCarrier(off, ball);
     const carrier = carrierInfo.player;
     const tackler = s.play?.primaryTacklerId ? findDefById(def || {}, s.play.primaryTacklerId) : null;
+
+    if (ball?.inAir && ball.targetId === rb.id) {
+        const spot = ball.flight?.targetSpot
+            ? { ...ball.flight.targetSpot }
+            : ball.to
+                ? { ...ball.to }
+                : ball.renderPos
+                    ? { ...ball.renderPos }
+                    : { x: rb.pos.x, y: rb.pos.y };
+        const dest = {
+            x: clamp(spot.x, 16, FIELD_PIX_W - 16),
+            y: clamp(spot.y, 0, FIELD_PIX_H - 6),
+        };
+        const distance = dist(rb.pos, dest);
+        const speedMul = distance > PX_PER_YARD * 4
+            ? 1.1 * burst
+            : distance > PX_PER_YARD * 2
+                ? 0.98 * burst
+                : 0.82 * burst;
+        moveToward(rb, dest, dt, speedMul, { behavior: 'CATCH', settleDamping: 2.2 });
+        rb.targets = null;
+        rb.routeIdx = null;
+        return;
+    }
 
     // If RB has the ball (after catch or handoff), use RAC logic
     if (_isCarrier(off, ball, rb)) { _racAdvance(off, def, rb, dt, s.play); return; }
