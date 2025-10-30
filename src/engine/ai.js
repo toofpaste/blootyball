@@ -118,10 +118,16 @@ function _assignRoute(player, path, options = {}) {
     ai.prevHeading = { x: 0, y: 1 };
 }
 
-function _markRouteFinished(player, aiRoute) {
+function _markRouteFinished(player, aiRoute, heading = null) {
     if (!aiRoute) return;
     aiRoute.finished = true;
     aiRoute.scrambleTimer = 0;
+    if (heading) {
+        const mag = Math.hypot(heading.x, heading.y) || 1;
+        aiRoute.exitHeading = { x: heading.x / mag, y: heading.y / mag };
+    } else if (!aiRoute.exitHeading) {
+        aiRoute.exitHeading = { x: 0, y: 1 };
+    }
 }
 
 function _nearestAssignmentDefender(def, player) {
@@ -618,31 +624,33 @@ function _updateRouteRunner(player, context, dt) {
     if (!ai || ai.type !== 'route' || !ai.route) return false;
     const { route } = ai;
     const def = context.def || {};
-    const qb = context.qb;
     const losY = context.losY;
 
     // Already finished? work scramble drill
     if (route.finished) {
-        if (!route.allowScrambleAdjust || !qb?.pos) return false;
-        route.scrambleTimer += dt;
-        const tgt = _routeScrambleTarget(player, route, context);
-        const blend = _blendHeading(ai.prevHeading || { x: 0, y: 1 }, {
-            x: tgt.x - player.pos.x,
-            y: tgt.y - player.pos.y,
-        }, 0.65);
-        const look = 34;
+        const storedHeading = route.exitHeading || ai.prevHeading || { x: 0, y: 1 };
+        let heading = { ...storedHeading };
+        if (heading.y < 0.1) heading.y = 0.1;
+        // Nudge back inside the sideline but keep momentum mostly forward.
+        if (player.pos.x < 24) heading.x = Math.abs(heading.x) || 0.18;
+        if (player.pos.x > FIELD_PIX_W - 24) heading.x = -Math.abs(heading.x) || -0.18;
+        const mag = Math.hypot(heading.x, heading.y) || 1;
+        heading = { x: heading.x / mag, y: heading.y / mag };
+        route.exitHeading = heading;
+        const look = 52;
         const stepTarget = {
-            x: clamp(player.pos.x + blend.x * look, 16, FIELD_PIX_W - 16),
-            y: player.pos.y + blend.y * look,
+            x: clamp(player.pos.x + heading.x * look, 16, FIELD_PIX_W - 16),
+            y: player.pos.y + heading.y * look,
         };
-        moveToward(player, stepTarget, dt, 0.95, { behavior: 'SCRAMBLE' });
-        ai.prevHeading = blend;
+        const cruise = clamp((route.throttle || 1) * 0.96, 0.7, 1.12);
+        moveToward(player, stepTarget, dt, cruise, { behavior: 'ROUTE' });
+        ai.prevHeading = heading;
         return true;
     }
 
     const idx = Math.min(player.routeIdx || 0, route.targets.length - 1);
     const baseTarget = route.targets[idx];
-    if (!baseTarget) { _markRouteFinished(player, route); return false; }
+    if (!baseTarget) { _markRouteFinished(player, route, ai.prevHeading || { x: 0, y: 1 }); return false; }
 
     const adjusted = _readOptionBreak(baseTarget, player, def, losY);
     let aim = { x: adjusted.x, y: adjusted.y };
@@ -689,13 +697,13 @@ function _updateRouteRunner(player, context, dt) {
         if (adjusted.settle) {
             route.settleHold += dt;
             if (route.settleHold > 0.35) {
-                _markRouteFinished(player, route);
+                _markRouteFinished(player, route, heading);
             }
         } else {
             route.settleHold = 0;
         }
         if (player.routeIdx >= route.targets.length) {
-            _markRouteFinished(player, route);
+            _markRouteFinished(player, route, heading);
         }
     } else if (adjusted.settle) {
         // Sit between zones by drifting from defenders
@@ -708,7 +716,7 @@ function _updateRouteRunner(player, context, dt) {
             player.pos.x += (sdx / sm) * dt * 20;
             player.pos.y += (sdy / sm) * dt * 12;
         }
-        if (route.settleHold > 0.6) _markRouteFinished(player, route);
+        if (route.settleHold > 0.6) _markRouteFinished(player, route, ai.prevHeading || heading);
     } else {
         route.settleHold = 0;
     }
