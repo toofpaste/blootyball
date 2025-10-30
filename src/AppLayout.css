@@ -600,14 +600,46 @@
 
 .scoreboard__team-text {
   display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+
+.scoreboard__team--right .scoreboard__team-text {
+  align-items: flex-end;
+  text-align: right;
+}
+
+.scoreboard__team-labels {
+  display: flex;
   align-items: baseline;
   gap: clamp(4px, 1.4vw, 10px);
   white-space: nowrap;
 }
 
-.scoreboard__team--right .scoreboard__team-text {
+.scoreboard__team--right .scoreboard__team-labels {
   justify-content: flex-end;
-  text-align: right;
+}
+
+.scoreboard__team-timeouts {
+  display: flex;
+  gap: 6px;
+  min-height: 10px;
+}
+
+.scoreboard__timeout-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  box-shadow: 0 0 4px rgba(0, 0, 0, 0.45);
+}
+
+.scoreboard__timeout-dot--available {
+  background: #3bd968;
+}
+
+.scoreboard__timeout-dot--used {
+  background: #d9594c;
 }
 
 .scoreboard__team-abbr {
@@ -881,14 +913,23 @@
   }
 
   .scoreboard__team-text {
-    flex-wrap: wrap;
-    justify-content: center;
-    row-gap: 2px;
-    white-space: normal;
+    align-items: center;
     text-align: center;
+    gap: 6px;
   }
 
   .scoreboard__team--right .scoreboard__team-text {
+    align-items: center;
+  }
+
+  .scoreboard__team-labels {
+    justify-content: center;
+    flex-wrap: wrap;
+    row-gap: 2px;
+    white-space: normal;
+  }
+
+  .scoreboard__team-timeouts {
     justify-content: center;
   }
 

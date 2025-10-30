@@ -61,7 +61,7 @@ function drawContent(ctx, state) {
     // Colors: LOS = blue, First Down = yellow
     ctx.save();
     const broadcastLineWidth = 3.5;
-    const sidelineBuffer = 3;
+    const sidelineBuffer = 6;
     const lineStartX = sidelineBuffer;
     const lineEndX = FIELD_PIX_W - sidelineBuffer;
     ctx.lineWidth = broadcastLineWidth;
@@ -596,16 +596,16 @@ function drawQbVisionIndicator(ctx, player, vision, playElapsed = null) {
     if (!Number.isFinite(dist) || dist < 2) return;
 
     const angle = Math.atan2(dy, dx);
-    const baseRadius = 10;
-    const arrowLength = Math.min(14, Math.max(7, dist * 0.12));
+    const baseRadius = 12;
+    const arrowLength = Math.min(20, Math.max(9, dist * 0.16));
     const tipRadius = baseRadius + arrowLength;
     const color = QB_VISION_COLORS[vision.intent] || QB_VISION_COLORS.SCAN;
 
-    let alpha = vision.intent === 'THROW' ? 0.95 : 0.82;
+    let alpha = vision.intent === 'THROW' ? 1 : 0.92;
     if (typeof playElapsed === 'number' && typeof vision.updatedAt === 'number') {
         const age = Math.max(0, playElapsed - vision.updatedAt);
         if (age > 4.5) return;
-        const fade = Math.max(0.25, 1 - age / 4.5);
+        const fade = Math.max(0.35, 1 - age / 4.5);
         alpha *= fade;
     }
 
@@ -613,23 +613,37 @@ function drawQbVisionIndicator(ctx, player, vision, playElapsed = null) {
     ctx.translate(player.pos.x, player.pos.y);
     ctx.rotate(angle);
 
-    ctx.globalAlpha = alpha * 0.6;
+    ctx.globalAlpha = alpha * 0.75;
     ctx.strokeStyle = color;
-    ctx.lineWidth = 2;
+    ctx.lineWidth = 3;
+    ctx.shadowColor = 'rgba(0,0,0,0.45)';
+    ctx.shadowBlur = 6;
     ctx.beginPath();
     ctx.arc(0, 0, baseRadius, -Math.PI / 2.3, Math.PI / 2.3);
     ctx.stroke();
 
     ctx.globalAlpha = alpha;
     ctx.fillStyle = color;
+    ctx.shadowColor = 'rgba(0,0,0,0.5)';
+    ctx.shadowBlur = 8;
     ctx.beginPath();
-    ctx.moveTo(baseRadius - 3, -3.6);
-    ctx.lineTo(baseRadius, -3.6);
+    ctx.moveTo(baseRadius - 3, -4.6);
+    ctx.lineTo(baseRadius, -4.6);
     ctx.lineTo(tipRadius, 0);
-    ctx.lineTo(baseRadius, 3.6);
-    ctx.lineTo(baseRadius - 3, 3.6);
+    ctx.lineTo(baseRadius, 4.6);
+    ctx.lineTo(baseRadius - 3, 4.6);
     ctx.closePath();
     ctx.fill();
+
+    ctx.shadowBlur = 0;
+    ctx.globalAlpha = alpha * 0.9;
+    ctx.strokeStyle = 'rgba(0,0,0,0.55)';
+    ctx.lineWidth = 1.6;
+    ctx.beginPath();
+    ctx.moveTo(baseRadius - 2, -4.2);
+    ctx.lineTo(tipRadius, 0);
+    ctx.lineTo(baseRadius - 2, 4.2);
+    ctx.stroke();
 
     ctx.restore();
 }
@@ -649,7 +663,7 @@ function drawBall(ctx, pos, ballState) {
 
     // Shadow for depth perception
     ctx.save();
-    const shadowAlpha = 0.25 + Math.min(height / 120, 0.2);
+    const shadowAlpha = 0.25 + Math.min(height / 90, 0.25);
     ctx.globalAlpha = shadowAlpha;
     ctx.fillStyle = 'rgba(0,0,0,0.45)';
     ctx.beginPath();
@@ -658,8 +672,8 @@ function drawBall(ctx, pos, ballState) {
     ctx.restore();
 
     // Actual ball with slight vertical offset based on height
-    const offsetY = height * 0.08;
-    const radiusMajor = 4.4 + Math.min(2.6, height / 14);
+    const offsetY = height * 0.12;
+    const radiusMajor = 4.4 + Math.min(2.6, height / 18);
     const radiusMinor = radiusMajor * 0.72;
 
     ctx.save();

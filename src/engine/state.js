@@ -963,7 +963,11 @@ function beginOvertime(state) {
     state.clock.running = false;
     state.clock.awaitSnap = true;
     state.clock.stopReason = 'Overtime';
-    state.clock.timeouts = { [TEAM_RED]: 2, [TEAM_BLK]: 2 };
+    const carryTimeouts = state.clock.timeouts || {};
+    state.clock.timeouts = {
+        [TEAM_RED]: Math.max(0, Math.min(3, Math.floor(carryTimeouts[TEAM_RED] ?? 0))),
+        [TEAM_BLK]: Math.max(0, Math.min(3, Math.floor(carryTimeouts[TEAM_BLK] ?? 0))),
+    };
 
     state.pendingExtraPoint = null;
     state.possession = first;
@@ -1869,7 +1873,11 @@ function maybeAutoTimeout(s, ctx) {
     const defense = otherTeam(offense);
     const offScore = s.scores?.[offense] ?? 0;
     const defScore = s.scores?.[defense] ?? 0;
+    const margin = Math.abs(offScore - defScore);
+    const quarter = Number.isFinite(s.clock.quarter) ? s.clock.quarter : 1;
     const clockTime = s.clock.time;
+
+    if (quarter < 4 || clockTime > 120 || margin > 7) return false;
 
     const tryTimeout = (team, reason) => {
         if (consumeTimeout(s, team, reason)) {
@@ -1889,25 +1897,11 @@ function maybeAutoTimeout(s, ctx) {
         return false;
     };
 
-    const offSettings = clockSettings(s.clock, offense);
-    const defSettings = clockSettings(s.clock, defense);
+    const trailingTeam = offScore < defScore ? offense : (defScore < offScore ? defense : null);
+    if (!trailingTeam) return false;
 
-    const offenseTrailing = offScore < defScore;
-    const defenseTrailing = defScore < offScore;
-
-    if (offenseTrailing && clockTime <= (offSettings.hurryThreshold ?? DEFAULT_CLOCK_MANAGEMENT.hurryThreshold)) {
-        if (tryTimeout(offense, 'Offense timeout')) return true;
-    }
-
-    if (clockTime <= (offSettings.mustTimeoutThreshold ?? DEFAULT_CLOCK_MANAGEMENT.mustTimeoutThreshold)) {
-        if ((defScore - offScore) <= (offSettings.trailingMargin ?? DEFAULT_CLOCK_MANAGEMENT.trailingMargin)) {
-            if (tryTimeout(offense, 'Clock management timeout')) return true;
-        }
-    }
-
-    if (defenseTrailing && clockTime <= (defSettings.defensiveThreshold ?? DEFAULT_CLOCK_MANAGEMENT.defensiveThreshold)) {
-        if (tryTimeout(defense, 'Defense timeout')) return true;
-    }
+    const reason = trailingTeam === offense ? 'Offense timeout' : 'Defense timeout';
+    if (tryTimeout(trailingTeam, reason)) return true;
 
     return false;
 }
@@ -1923,6 +1917,10 @@ function maybeTimeoutToAvoidRunoff(s, ctx, runoffSeconds = 25) {
     const offenseScore = s.scores?.[offense] ?? 0;
     const defenseScore = s.scores?.[otherTeam(offense)] ?? 0;
     const trailing = offenseScore < defenseScore;
+    const margin = defenseScore - offenseScore;
+    const quarter = Number.isFinite(s.clock.quarter) ? s.clock.quarter : 1;
+
+    if (!trailing || quarter < 4 || clockTime > 120 || margin > 7) return false;
 
     const settings = clockSettings(s.clock, offense);
     const hurryThreshold = settings.hurryThreshold ?? DEFAULT_CLOCK_MANAGEMENT.hurryThreshold;
@@ -2502,17 +2500,40 @@ export function createPlayState(roster, drive) {
             const scores = ownerState?.scores || {};
             const offenseScore = scores?.[offenseTeam] ?? 0;
             const defenseScore = scores?.[defenseTeam] ?? 0;
-            const shortToGo = safeDrive.toGo <= 2;
-            const trailing = offenseScore + 3 < defenseScore;
-            const lateClock = ownerState?.clock?.time != null && ownerState.clock.time < 120;
-            let goForItChance = 0.12;
-            if (shortToGo) goForItChance += 0.25;
-            if (safeDrive.losYards < 60) goForItChance += 0.14;
-            if (trailing) goForItChance += 0.18;
-            if (lateClock && trailing) goForItChance += 0.12;
-            goForItChance = clamp(goForItChance, 0, 0.75);
-            if (!(rand(0, 1) < goForItChance)) {
-                fieldGoalPlan = { distance, kicker };
+            const clock = ownerState?.clock || {};
+            const quarter = Number.isFinite(clock.quarter) ? clock.quarter : 1;
+            const clockTime = Number.isFinite(clock.time) ? clock.time : QUARTER_SECONDS;
+            const margin = defenseScore - offenseScore;
+            const needTouchdown = quarter >= 4 && margin > 3;
+            const aggression = clamp(offenseCoach?.tendencies?.aggression ?? 0, -0.5, 0.5);
+            const moreThanFive = safeDrive.toGo > 5;
+
+            if (moreThanFive) {
+                if (!needTouchdown) {
+                    fieldGoalPlan = { distance, kicker };
+                } else {
+                    const kickBias = clamp(0.48 - aggression * 0.35, 0.15, 0.75);
+                    if (rand(0, 1) < kickBias) {
+                        fieldGoalPlan = { distance, kicker };
+                    }
+                }
+            } else {
+                let goForItChance;
+                if (needTouchdown) {
+                    goForItChance = 0.38 + aggression * 0.4;
+                } else {
+                    goForItChance = 0.28 + aggression * 0.45;
+                }
+                const shortYardsBonus = clamp((5 - safeDrive.toGo) * 0.04, 0, 0.2);
+                goForItChance = clamp(goForItChance - shortYardsBonus, 0.05, 0.65);
+
+                if (needTouchdown && clockTime <= 90) {
+                    goForItChance = clamp(goForItChance + 0.12, 0.05, 0.75);
+                }
+
+                if (!(rand(0, 1) < goForItChance)) {
+                    fieldGoalPlan = { distance, kicker };
+                }
             }
         }
     }
