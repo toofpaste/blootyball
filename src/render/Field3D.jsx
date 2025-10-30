@@ -530,6 +530,25 @@ function FieldGoalPosts() {
   );
 }
 
+const StaticSceneObjects = React.memo(function StaticSceneObjects() {
+  return (
+    <>
+      <FieldBase />
+      <FieldGoalPosts />
+      <StadiumEnvironment />
+      <ambientLight intensity={0.55} />
+      <directionalLight
+        position={[320, 500, 420]}
+        intensity={0.85}
+        castShadow
+        shadow-mapSize-width={2048}
+        shadow-mapSize-height={2048}
+      />
+      <hemisphereLight args={[0x49753a, 0x0a1c0a, 0.35]} />
+    </>
+  );
+});
+
 function createAdTexture() {
   if (typeof document === 'undefined') return null;
   const canvas = document.createElement('canvas');
@@ -1828,6 +1847,45 @@ function StadiumEnvironment() {
   );
 }
 
+const FieldSurface = React.memo(
+  function FieldSurface({ colors }) {
+    return (
+      <>
+        <FieldTopVolume colors={colors} />
+        <FieldTexture colors={colors} />
+      </>
+    );
+  },
+  (prev, next) => areEndzoneConfigsEqual(prev.colors, next.colors),
+);
+
+function useEndzoneColors(state) {
+  const lastColorsRef = React.useRef(null);
+  return React.useMemo(() => {
+    const next = computeEndzoneColors(state);
+    const prev = lastColorsRef.current;
+    if (!prev || !areEndzoneConfigsEqual(prev, next)) {
+      lastColorsRef.current = next;
+    }
+    return lastColorsRef.current;
+  }, [state]);
+}
+
+function areEndzoneConfigsEqual(prev, next) {
+  if (prev === next) return true;
+  if (!prev || !next) return false;
+  const prevNorth = prev.north || {};
+  const prevSouth = prev.south || {};
+  const nextNorth = next.north || {};
+  const nextSouth = next.south || {};
+  return (
+    prevNorth.color === nextNorth.color &&
+    prevNorth.label === nextNorth.label &&
+    prevSouth.color === nextSouth.color &&
+    prevSouth.label === nextSouth.label
+  );
+}
+
 function computeTeams(state) {
   const formation = state?.play?.formation || {};
   const safePlayers = (group) => Object.values(group || {}).filter(
@@ -1901,20 +1959,14 @@ function SceneContent({ state }) {
   useSidelineCamera(center);
 
   const teams = useMemo(() => computeTeams(state), [state]);
-  const endzones = useMemo(() => computeEndzoneColors(state), [state]);
+  const endzones = useEndzoneColors(state);
   const lines = useMemo(() => computeLineMarkers(state), [state]);
   const ball = useMemo(() => computeBall(state), [state]);
 
   return (
     <group>
-      <FieldBase />
-      <FieldTopVolume colors={endzones} />
-      <FieldTexture colors={endzones} />
-      <FieldGoalPosts />
-      <StadiumEnvironment />
-      <ambientLight intensity={0.55} />
-      <directionalLight position={[320, 500, 420]} intensity={0.85} castShadow shadow-mapSize-width={2048} shadow-mapSize-height={2048} />
-      <hemisphereLight args={[0x49753a, 0x0a1c0a, 0.35]} />
+      <StaticSceneObjects />
+      <FieldSurface colors={endzones} />
       <group>
         {teams.defense.map(({ player, color }) => (
           <PlayerMarker
