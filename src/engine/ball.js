@@ -283,7 +283,7 @@ export function startPass(s, from, to, targetId) {
         kind: 'pass',
         duration,
         elapsed: 0,
-        peakHeight: clamp(distance * 0.22, 14, 74),
+        peakHeight: clamp(distance * 0.28, 18, 96),
         wobble: Math.random() * clamp(0.18 + (1 - flightAccuracy) * 0.5, 0.12, 0.55),
         speed,
         accuracy: flightAccuracy,
