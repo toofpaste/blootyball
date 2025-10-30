@@ -13,12 +13,12 @@ export const mphToPixelsPerSecond = (mph) => mph * MPH_TO_YARDS_PER_SEC * PX_PER
 const ROLE_SPEED_TEMPLATES = {
     QB: 18.5,
     RB: 20.6,
-    WR: 21.4,
-    TE: 19.1,
+    WR: 20.2,
+    TE: 18.2,
     OL: 17.2,
     DL: 17.6,
     LB: 19.8,
-    DB: 21.4,
+    DB: 20.4,
     DEFAULT: 18.8,
 };
 
