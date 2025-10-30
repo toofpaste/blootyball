@@ -1,5 +1,5 @@
 // src/ui/Scoreboard.jsx
-import React from 'react';
+import React, { useCallback } from 'react';
 
 function TeamPanel({ team = {}, align = 'left' }) {
   const {
@@ -43,6 +43,8 @@ export default function Scoreboard({
   toGo = 10,
   gameLabel = '',
   onShowStats,
+  collapsed = false,
+  onRequestView,
 }) {
   const safeDown = Number.isFinite(down) && down > 0 ? down : 1;
   const safeToGo = Number.isFinite(toGo) && toGo > 0 ? Math.round(toGo) : 10;
@@ -50,9 +52,51 @@ export default function Scoreboard({
   const downDistanceText = `${ordinal(safeDown)} & ${Math.max(1, safeToGo)}`;
   const quarterText = `Q${safeQuarter}`;
   const canShowStats = typeof onShowStats === 'function';
+  const interactive = typeof onRequestView === 'function';
+
+  const handleClick = useCallback(() => {
+    if (!interactive) return;
+    onRequestView();
+  }, [interactive, onRequestView]);
+
+  const handleKeyDown = useCallback(
+    (event) => {
+      if (!interactive) return;
+      if (event.target !== event.currentTarget) return;
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        onRequestView();
+      }
+    },
+    [interactive, onRequestView],
+  );
+
+  const handleShowStats = useCallback(
+    (event) => {
+      if (!canShowStats) return;
+      event.stopPropagation();
+      onShowStats();
+    },
+    [canShowStats, onShowStats],
+  );
+
+  const rootClassName = [
+    'scoreboard',
+    interactive ? 'scoreboard--interactive' : null,
+    collapsed ? 'scoreboard--collapsed' : 'scoreboard--expanded',
+  ]
+    .filter(Boolean)
+    .join(' ');
 
   return (
-    <div className="scoreboard">
+    <div
+      className={rootClassName}
+      role={interactive ? 'button' : undefined}
+      tabIndex={interactive ? 0 : undefined}
+      aria-expanded={interactive ? !collapsed : undefined}
+      onClick={handleClick}
+      onKeyDown={handleKeyDown}
+    >
       <TeamPanel team={away} align="left" />
       <div className="scoreboard__info">
         <div className="scoreboard__label" aria-live="polite">
@@ -63,11 +107,16 @@ export default function Scoreboard({
           <span aria-label="Quarter">{quarterText}</span>
           <span aria-label="Game clock">{timeLeftText}</span>
         </div>
+        {interactive ? (
+          <div className="scoreboard__view-status" aria-live="polite">
+            {collapsed ? 'Click to watch this game' : 'Currently viewing'}
+          </div>
+        ) : null}
         {canShowStats ? (
           <button
             type="button"
             className="scoreboard__stats-button"
-            onClick={onShowStats}
+            onClick={handleShowStats}
           >
             Game Stats
           </button>

@@ -1363,6 +1363,7 @@ export default function App() {
   const [freeAgentsOpen, setFreeAgentsOpen] = useState(false);
   const [recordBookOpen, setRecordBookOpen] = useState(false);
   const [leagueWikiOpen, setLeagueWikiOpen] = useState(false);
+  const [visibleGameIndex, setVisibleGameIndex] = useState(0);
   const [lastSeenNewsTimestamp, setLastSeenNewsTimestamp] = useState(0);
   const [lastSeenPressWeekKey, setLastSeenPressWeekKey] = useState('');
   const [seasonSnapshots, setSeasonSnapshots] = useState(() => []);
@@ -1652,6 +1653,20 @@ export default function App() {
   const prevActiveSlotCountRef = useRef(activeSlotCount);
 
   useEffect(() => {
+    if (activeSlotCount <= 0) {
+      if (visibleGameIndex !== 0) {
+        setVisibleGameIndex(0);
+      }
+      return;
+    }
+    if (visibleGameIndex < activeSlotCount) return;
+    const nextIndex = Math.max(0, activeSlotCount - 1);
+    if (nextIndex !== visibleGameIndex) {
+      setVisibleGameIndex(nextIndex);
+    }
+  }, [activeSlotCount, visibleGameIndex]);
+
+  useEffect(() => {
     const prev = prevActiveSlotCountRef.current;
     if (activeSlotCount === prev) return;
 
@@ -1855,7 +1870,13 @@ export default function App() {
       <div className={`games-stack${postseasonSingleField ? ' games-stack--single' : ''}`}>
         {Array.from({ length: GAME_COUNT }).map((_, index) => {
           const active = index < activeSlotCount;
-          const assignmentOffset = active ? index : Math.min(activeSlotCount - 1, index);
+          if (!active) {
+            gameRefs.current[index] = null;
+            return null;
+          }
+          const assignmentOffset = index;
+          const collapsed = index !== visibleGameIndex;
+          const handleRequestView = activeSlotCount > 1 ? setVisibleGameIndex : undefined;
           return (
             <GameView
               key={index}
@@ -1865,13 +1886,14 @@ export default function App() {
               resetSignal={resetSignal}
               onGameComplete={handleGameComplete}
               onManualReset={handleGameReset}
-              globalRunning={active ? globalRunning : false}
+              globalRunning={globalRunning}
               simSpeed={simSpeed}
               parallelSlotCount={activeSlotCount}
               assignmentOffset={assignmentOffset >= 0 ? assignmentOffset : 0}
               seasonConfig={seasonConfig}
               startAtFinalSeconds={finalSecondsMode}
-              hidden={!active}
+              collapsed={collapsed}
+              onRequestView={handleRequestView}
             />
           );
         })}

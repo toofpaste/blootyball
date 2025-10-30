@@ -74,7 +74,8 @@ const GameView = React.forwardRef(function GameView({
   assignmentOffset = null,
   seasonConfig = null,
   startAtFinalSeconds = false,
-  hidden = false,
+  collapsed = false,
+  onRequestView,
 }, ref) {
   const [localRunning, setLocalRunning] = useState(false);
   const [statsModalOpen, setStatsModalOpen] = useState(false);
@@ -417,10 +418,15 @@ const GameView = React.forwardRef(function GameView({
   const statsTeams = [awayStatsTeam, homeStatsTeam].filter(Boolean);
   const hasStatsTeams = statsTeams.length > 0;
 
-  const rootClassName = hidden ? 'game-instance game-instance--hidden' : 'game-instance';
+  const rootClassName = collapsed ? 'game-instance game-instance--collapsed' : 'game-instance';
+
+  const handleRequestView = useCallback(() => {
+    if (typeof onRequestView !== 'function') return;
+    onRequestView(gameIndex);
+  }, [gameIndex, onRequestView]);
 
   return (
-    <section className={rootClassName} aria-hidden={hidden}>
+    <section className={rootClassName} data-collapsed={collapsed ? 'true' : 'false'}>
       <h2 className="game-instance__title">{label}</h2>
       <Scoreboard
         home={homeTeam}
@@ -431,13 +437,17 @@ const GameView = React.forwardRef(function GameView({
         toGo={state.drive?.toGo ?? 10}
         gameLabel={gameLabel}
         onShowStats={hasStatsTeams ? () => setStatsModalOpen(true) : undefined}
+        collapsed={collapsed}
+        onRequestView={handleRequestView}
       />
-      <div className="game-instance__body">
-        <div className="field-shell">
-          <Field3D state={state} />
+      {collapsed ? null : (
+        <div className="game-instance__body">
+          <div className="field-shell">
+            <Field3D state={state} />
+          </div>
+          <PlayLog items={state.playLog} />
         </div>
-        <PlayLog items={state.playLog} />
-      </div>
+      )}
       <Modal
         open={statsModalOpen && hasStatsTeams}
         onClose={() => setStatsModalOpen(false)}
