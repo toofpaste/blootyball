@@ -866,6 +866,30 @@ function _updateRouteRunner(player, context, dt) {
     return true;
 }
 
+function _shouldThrottleAfterRoute(context) {
+    const mode = context?.play?.qbMoveMode || 'SET';
+    if (mode === 'SCRAMBLE') return false;
+    if (context?.play?.ball?.inAir) return false;
+    return true;
+}
+
+function _settleAfterRoute(player, context, dt) {
+    if (!player?.pos) return;
+    const qbX = context?.qb?.pos?.x ?? FIELD_PIX_W / 2;
+    const losY = context?.losY ?? player.pos.y;
+    const targetY = clamp(Math.max(player.pos.y + PX_PER_YARD * 0.6, losY + PX_PER_YARD * 5), 0, FIELD_PIX_H - 6);
+    const drift = clamp((qbX - player.pos.x) * 0.08, -6, 6);
+    const baseX = clamp(player.pos.x + drift, 18, FIELD_PIX_W - 18);
+    let aimX = baseX;
+    const nearest = _nearestDefender(context?.def || {}, player.pos, 48);
+    if (nearest?.p?.pos) {
+        const push = clamp((player.pos.x - nearest.p.pos.x) * 0.12, -4.2, 4.2);
+        aimX = clamp(baseX + push, 18, FIELD_PIX_W - 18);
+    }
+    const aim = { x: aimX, y: targetY };
+    moveToward(player, aim, dt, 0.55, { behavior: 'SETTLE', settleDamping: 8.5 });
+}
+
 /* =========================================================
    Offensive Line — assignments, spacing, pass sets, pushback
    ========================================================= */
@@ -1332,6 +1356,12 @@ export function moveReceivers(off, dt, s = null) {
         const followedRoute = _updateRouteRunner(p, context, dt);
         if (followedRoute) { ai._scrDecision = null; return; }
 
+        if (_shouldThrottleAfterRoute(context)) {
+            ai._scrDecision = null;
+            _settleAfterRoute(p, context, dt);
+            return;
+        }
+
         _updateScrambleDecision(p, ai, context, dt, 0.96);
     });
 }
@@ -1408,6 +1438,12 @@ export function moveTE(off, dt, s = null) {
 
     const followedRoute = _updateRouteRunner(p, context, dt);
     if (followedRoute) { ai._scrDecision = null; return; }
+
+    if (_shouldThrottleAfterRoute(context)) {
+        ai._scrDecision = null;
+        _settleAfterRoute(p, context, dt);
+        return;
+    }
 
     _updateScrambleDecision(p, ai, context, dt, 0.94);
 }
@@ -2186,6 +2222,10 @@ export function rbLogic(s, dt) {
         const routeContext = { ...context, qb, def, losY };
         const followed = _updateRouteRunner(rb, routeContext, dt);
         if (followed) return;
+        if (_shouldThrottleAfterRoute(routeContext)) {
+            _settleAfterRoute(rb, routeContext, dt);
+            return;
+        }
     }
 
     const check = {
