@@ -1,6 +1,17 @@
-import { createInitialGameState, progressOffseason, resumeAssignedMatchup, stepGame } from './state';
-import { applyGameResultToSeason, createSeasonState } from './league';
+import {
+  betweenPlays,
+  createInitialGameState,
+  createPlayState,
+  updateFieldGoalAttempt,
+  progressOffseason,
+  resumeAssignedMatchup,
+  stepGame,
+} from './state';
+import { buildPlayerDirectory, createTeams, rosterForPossession } from './rosters';
+import { createPlayStatContext } from './stats';
+import { TEAM_RED, TEAM_BLK } from './constants';
 import { TEAM_IDS } from './data/teamLibrary';
+import { applyGameResultToSeason, createSeasonState } from './league';
 
 describe('progressOffseason', () => {
   test('createInitialGameState ignores stray playoff results from global state', () => {
@@ -228,6 +239,139 @@ describe('progressOffseason', () => {
     expect(resumed.matchup.tag).toBe('regular-season');
 
     delete window.__blootyball;
+  });
+});
+
+describe('special teams handling', () => {
+  test('pending extra point produces field goal special teams', () => {
+    const leagueState = createInitialGameState();
+    const slotToTeam = { [TEAM_RED]: TEAM_IDS[0], [TEAM_BLK]: TEAM_IDS[1] };
+    const teams = createTeams({ slotToTeam });
+    const offenseSlot = TEAM_RED;
+    const state = {
+      ...leagueState,
+      teams,
+      possession: offenseSlot,
+      scores: { [TEAM_RED]: 0, BLK: 0 },
+      coaches: {},
+      pendingExtraPoint: null,
+    };
+    const roster = rosterForPossession(teams, offenseSlot);
+    roster.__ownerState = state;
+    state.roster = roster;
+    expect(roster.special?.K).toBeTruthy();
+    state.pendingExtraPoint = {
+      team: offenseSlot,
+      distance: 33,
+      losYards: 84,
+      startLos: 84,
+      startDown: 1,
+      startToGo: 10,
+    };
+
+    const play = createPlayState(state.roster, { losYards: 84, down: 1, toGo: 10 });
+
+    expect(play.phase).toBe('FIELD_GOAL');
+    expect(play.specialTeams).toBeTruthy();
+    expect(play.specialTeams.visual).toBeTruthy();
+    expect(play.specialTeams.kickerId).toBeTruthy();
+    expect(play.specialTeams.visual.kicker.player.id).toBe(roster.special.K.id);
+    expect(play.specialTeams.holderId).toBe(roster.off.QB.id);
+    expect(play.specialTeams.visual.holder.player.role).toBe('H');
+    expect(play.specialTeams.visual.holder.player.id).toBe(roster.off.QB.id);
+    expect(play.specialTeams.snapperId).toBe(roster.off.C.id);
+    expect(play.specialTeams.visual.snapper.player.role).toBe('LS');
+    expect(play.specialTeams.visual.line[3].player.id).toBe(roster.off.C.id);
+  });
+
+  test('defensive touchdown hands extra point to scoring team', () => {
+    const slotToTeam = { [TEAM_RED]: TEAM_IDS[0], [TEAM_BLK]: TEAM_IDS[1] };
+    const teams = createTeams({ slotToTeam });
+    const offenseSlot = TEAM_RED;
+    const defenseSlot = TEAM_BLK;
+    const state = {
+      league: null,
+      season: null,
+      matchup: { slotToTeam, identities: {} },
+      teams,
+      possession: offenseSlot,
+      drive: { losYards: 35, down: 2, toGo: 8 },
+      scores: { [TEAM_RED]: 0, [TEAM_BLK]: 0 },
+      playLog: [],
+      playerDirectory: buildPlayerDirectory(teams, slotToTeam, {}),
+      playerStats: {},
+      pendingExtraPoint: null,
+      play: {
+        playCall: { name: 'Quick Slant', type: 'PASS' },
+        resultWhy: 'Touchdown',
+        resultText: 'Touchdown',
+        turnover: true,
+        startLos: 35,
+        startDown: 2,
+        startToGo: 8,
+        ball: {
+          lastCarrierId: teams[defenseSlot].def.CB1.id,
+          carrierId: teams[defenseSlot].def.CB1.id,
+          renderPos: { x: 0, y: 0 },
+          shadowPos: { x: 0, y: 0 },
+          flight: { height: 0 },
+          inAir: false,
+        },
+        formation: { off: {}, def: {} },
+        statContext: createPlayStatContext(),
+      },
+    };
+    state.roster = rosterForPossession(teams, offenseSlot);
+    state.roster.__ownerState = state;
+    state.play.statContext.pass = { interceptedBy: teams[defenseSlot].def.CB1.id, attempt: true };
+
+    const updated = betweenPlays(state);
+
+    expect(updated.possession).toBe(defenseSlot);
+    expect(updated.play.phase).toBe('FIELD_GOAL');
+    expect(updated.play.specialTeams?.kickerId).toBe(teams[defenseSlot].special.K.id);
+    expect(updated.play.specialTeams?.holderId).toBe(teams[defenseSlot].off.QB.id);
+  });
+
+  test('field goal visual keeps assigned personnel in sync with animation', () => {
+    const leagueState = createInitialGameState();
+    const slotToTeam = { [TEAM_RED]: TEAM_IDS[0], [TEAM_BLK]: TEAM_IDS[1] };
+    const teams = createTeams({ slotToTeam });
+    const offenseSlot = TEAM_RED;
+    const state = {
+      ...leagueState,
+      teams,
+      possession: offenseSlot,
+      scores: { [TEAM_RED]: 0, [TEAM_BLK]: 0 },
+      coaches: {},
+      pendingExtraPoint: null,
+    };
+    const roster = rosterForPossession(teams, offenseSlot);
+    roster.__ownerState = state;
+    state.roster = roster;
+    state.pendingExtraPoint = {
+      team: offenseSlot,
+      distance: 33,
+      losYards: 84,
+      startLos: 84,
+      startDown: 1,
+      startToGo: 10,
+    };
+
+    const play = createPlayState(state.roster, { losYards: 84, down: 1, toGo: 10 });
+    state.play = play;
+    state.drive = { losYards: 84, down: 1, toGo: 10 };
+
+    expect(play.specialTeams.visual.kicker.player.id).toBe(roster.special.K.id);
+    expect(play.specialTeams.visual.holder.player.id).toBe(roster.off.QB.id);
+
+    updateFieldGoalAttempt(state, 0.12);
+
+    const visual = play.specialTeams.visual;
+    expect(visual.kicker.player.pos).toEqual(visual.kicker.renderPos);
+    expect(visual.holder.player.pos).toEqual(visual.holder.renderPos);
+    expect(visual.line[0].player.pos).toEqual(visual.line[0].renderPos);
+    expect(visual.rushers[0].player.pos).toEqual(visual.rushers[0].renderPos);
   });
 });
 
