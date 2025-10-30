@@ -269,6 +269,8 @@ export function startPass(s, from, to, targetId) {
     const speed = Math.max(90, mphToPixelsPerSecond(mph));
     const duration = clamp(distance / speed, 0.32, 1.6);
     const distanceYards = distance / PX_PER_YARD;
+    const distanceOverEight = Math.max(0, distanceYards - 8);
+    const longPassWeight = clamp(distanceOverEight / 18, 0, 1);
     const difficulty = clamp((distanceYards - 8) / 18, 0, 1.3);
     const accComposite = clamp(Math.pow(acc + touchTrait * 0.14, 1.12), 0.3, 1.55);
     const iqComposite = clamp(Math.pow(iq, 1.08), 0.35, 1.5);
@@ -276,7 +278,10 @@ export function startPass(s, from, to, targetId) {
     const accuracyPenalty = difficulty * clamp(1.25 - accComposite * 0.55 - iqComposite * 0.25, 0.45, 1.25);
     const flightAccuracy = clamp(rawAccuracy - accuracyPenalty, 0.2, 1.42);
     const loftFactor = clamp(0.36 + touchTrait * 0.12, 0.26, 0.5);
-    const peakHeight = clamp(distance * loftFactor, 24, 128);
+    const dramaticHeightBoost = 1 + Math.pow(distanceOverEight / 12, 1.4);
+    const peakHeight = clamp(distance * loftFactor * dramaticHeightBoost, 24, 240);
+    const shapeExp = clamp(PASS_ARC_SHAPE_EXP - longPassWeight * 0.28, 0.35, PASS_ARC_SHAPE_EXP);
+    const arcNormalizer = Math.pow(0.5, shapeExp * 2);
 
     ball.inAir = true;
     ball.lastCarrierId = ball.carrierId || ball.lastCarrierId || qb?.id || 'QB';
@@ -289,6 +294,8 @@ export function startPass(s, from, to, targetId) {
         duration,
         elapsed: 0,
         peakHeight,
+        shapeExp,
+        normalizer: arcNormalizer,
         wobble: Math.random() * clamp(0.18 + (1 - flightAccuracy) * 0.5, 0.12, 0.55),
         speed,
         accuracy: flightAccuracy,
@@ -403,8 +410,12 @@ export function moveBall(s, dt) {
             : (flight.totalDist > 0 ? clamp(flight.travelled / flight.totalDist, 0, 1) : 1);
         let arcHeight;
         if (flight.kind === 'pass') {
-            const shaped = Math.pow(timeProgress, PASS_ARC_SHAPE_EXP) * Math.pow(1 - timeProgress, PASS_ARC_SHAPE_EXP);
-            const normalized = PASS_ARC_NORMALIZER > 0 ? shaped / PASS_ARC_NORMALIZER : 0;
+            const shapeExp = typeof flight.shapeExp === 'number' ? flight.shapeExp : PASS_ARC_SHAPE_EXP;
+            const normalizer = flight.normalizer && flight.normalizer > 0
+                ? flight.normalizer
+                : (shapeExp === PASS_ARC_SHAPE_EXP ? PASS_ARC_NORMALIZER : Math.pow(0.5, shapeExp * 2));
+            const shaped = Math.pow(timeProgress, shapeExp) * Math.pow(1 - timeProgress, shapeExp);
+            const normalized = normalizer > 0 ? shaped / normalizer : 0;
             arcHeight = (flight.peakHeight || 0) * normalized;
         } else {
             arcHeight = (flight.peakHeight || 0) * 4 * timeProgress * (1 - timeProgress);
