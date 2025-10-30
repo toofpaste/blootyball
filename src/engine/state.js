@@ -1195,13 +1195,22 @@ function createFieldGoalVisual({ losYards, distance }) {
         swingDuration: 0.24,
         flightDuration: Math.min(1.9, Math.max(1.15, distance * 0.02 + 0.95)),
         resultDuration: 1.2,
-        kicker: { pos: { ...kickerStart }, start: kickerStart, plant: kickerPlant, follow: kickerFollow, renderPos: { ...kickerStart } },
+        kicker: {
+            role: 'K',
+            pos: { ...kickerStart },
+            start: kickerStart,
+            plant: kickerPlant,
+            follow: kickerFollow,
+            renderPos: { ...kickerStart },
+        },
         holder: {
+            role: 'H',
             pos: { x: holderX, y: holderY },
             kneel: { x: holderX, y: holderY + yard * 0.45 },
             renderPos: { x: holderX, y: holderY },
         },
         snapper: {
+            role: 'LS',
             pos: { x: holderX - yard * 0.25, y: snapperY },
             renderPos: { x: holderX - yard * 0.25, y: snapperY },
         },

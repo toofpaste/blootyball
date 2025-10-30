@@ -133,17 +133,18 @@ function drawFieldGoalScene(ctx, state) {
         });
     };
 
+    const drawEntity = (entity, color, fallbackRole) => {
+        if (!entity?.renderPos) return;
+        const role = entity.role || fallbackRole;
+        const fakePlayer = { role, pos: entity.renderPos };
+        drawPlayer(ctx, fakePlayer, color);
+    };
+
     if (visual.line) drawGroup(visual.line, offenseColor);
     if (visual.protectors) drawGroup(visual.protectors, offenseColor);
-    if (visual.snapper?.renderPos) {
-        drawPlayer(ctx, { role: 'C', pos: visual.snapper.renderPos }, offenseColor);
-    }
-    if (visual.holder?.renderPos) {
-        drawPlayer(ctx, { role: 'QB', pos: visual.holder.renderPos }, offenseColor);
-    }
-    if (visual.kicker?.renderPos) {
-        drawPlayer(ctx, { role: 'K', pos: visual.kicker.renderPos }, offenseColor);
-    }
+    drawEntity(visual.snapper, offenseColor, 'LS');
+    drawEntity(visual.holder, offenseColor, 'H');
+    drawEntity(visual.kicker, offenseColor, 'K');
     if (visual.rushers) drawGroup(visual.rushers, defenseColor);
 
     if (visual.ball?.pos) {
@@ -652,8 +653,9 @@ function shortRole(r) {
     const map = {
         QB: 'QB', RB: 'RB', WR1: 'W1', WR2: 'W2', WR3: 'W3', TE: 'TE',
         LT: 'LT', LG: 'LG', C: 'C', RG: 'RG', RT: 'RT',
-        LE: 'LE', DT: 'DT', RTk: 'NT', RE: 'RE',
-        LB1: 'LB', LB2: 'LB', CB1: 'C1', CB2: 'C2', S1: 'S1', S2: 'S2', NB: 'NB', K: 'K'
+        LE: 'LE', DT: 'DT', RTk: 'NT', RE: 'RE', NG: 'NG',
+        LB1: 'LB', LB2: 'LB', CB1: 'C1', CB2: 'C2', S1: 'S1', S2: 'S2', NB: 'NB',
+        K: 'K', H: 'H', LS: 'LS', LW: 'LW', RW: 'RW', PP: 'PP'
     };
     return map[r] || (r || '?');
 }
