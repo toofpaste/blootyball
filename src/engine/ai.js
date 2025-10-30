@@ -1,5 +1,12 @@
 // src/engine/ai.js
-import { clamp, dist, rand, yardsToPixY } from './helpers';
+import {
+    clamp,
+    dist,
+    rand,
+    yardsToPixY,
+    findPlayerById,
+    forEachPlayer,
+} from './helpers';
 import { FIELD_PIX_W, FIELD_PIX_H, PX_PER_YARD } from './constants';
 import { steerPlayer, dampMotion, applyCollisionSlowdown } from './motion';
 import { getPlayerMass, getPlayerRadius } from './physics';
@@ -32,8 +39,9 @@ function pursueLooseBallGroup(players, ball, dt, speedMul = 1, jitter = 8) {
     if (!target) return false;
 
     let acted = false;
-    players.forEach((p) => {
-        if (!p?.pos) return;
+    for (let i = 0; i < players.length; i++) {
+        const p = players[i];
+        if (!p?.pos) continue;
         if (p.targets) p.targets = null;
         p.routeIdx = null;
         const aim = {
@@ -42,7 +50,7 @@ function pursueLooseBallGroup(players, ball, dt, speedMul = 1, jitter = 8) {
         };
         moveToward(p, aim, dt, speedMul, { behavior: 'PURSUIT' });
         acted = true;
-    });
+    }
     return acted;
 }
 
@@ -119,11 +127,11 @@ function _markRouteFinished(player, aiRoute) {
 function _nearestAssignmentDefender(def, player) {
     if (!player) return null;
     let best = null;
-    for (const d of Object.values(def || {})) {
-        if (!d?.pos) continue;
+    forEachPlayer(def, (d) => {
+        if (!d?.pos) return;
         const dd = dist(d.pos, player.pos);
         if (!best || dd < best.dist) best = { dist: dd, defender: d };
-    }
+    });
     return best;
 }
 
@@ -131,16 +139,18 @@ function _laneSample(off, def, yDepth) {
     const samples = [];
     for (let x = 24; x <= FIELD_PIX_W - 24; x += 12) {
         const point = { x, y: yDepth };
-        const offHelp = Object.values(off || {}).reduce((acc, p) => {
-            if (!p?.pos) return acc;
+        let offHelp = 0;
+        forEachPlayer(off, (p) => {
+            if (!p?.pos) return;
             const d = dist(p.pos, point);
-            return d < 18 ? acc + (18 - d) : acc;
-        }, 0);
-        const defThreat = Object.values(def || {}).reduce((acc, p) => {
-            if (!p?.pos) return acc;
+            if (d < 18) offHelp += (18 - d);
+        });
+        let defThreat = 0;
+        forEachPlayer(def, (p) => {
+            if (!p?.pos) return;
             const d = dist(p.pos, point);
-            return d < 24 ? acc + (24 - d) : acc;
-        }, 0);
+            if (d < 24) defThreat += (24 - d);
+        });
         samples.push({ x, score: offHelp - defThreat, point });
     }
     samples.sort((a, b) => b.score - a.score);
@@ -738,7 +748,12 @@ function pickAssignments(off, def) {
 }
 
 function _roleOf(group, id) {
-    for (const [k, p] of Object.entries(group)) if (p?.id === id) return k;
+    if (!group) return null;
+    for (const key in group) {
+        if (!Object.prototype.hasOwnProperty.call(group, key)) continue;
+        const player = group[key];
+        if (player?.id === id) return key;
+    }
     return null;
 }
 
@@ -772,23 +787,35 @@ function repelTeammates(players, R, push) {
     }
 }
 
+const SCRATCH_DEF_AHEAD = [];
+
 function _chooseRunBlockTarget(player, off, def, context) {
     const ai = _ensureAI(player);
     const { runHoleX, losY } = context;
     const rb = off.RB;
     const laneX = runHoleX ?? rb?.pos?.x ?? player.pos.x;
-    let current = ai.blockTargetId ? Object.values(def).find(d => d && d.id === ai.blockTargetId) : null;
+    let current = ai.blockTargetId ? findPlayerById(def, ai.blockTargetId) : null;
     if (current && (!current.pos || dist(current.pos, player.pos) > 120)) current = null;
     if (!current) {
-        const ahead = Object.values(def || {}).filter(d => d?.pos && d.pos.y <= player.pos.y + PX_PER_YARD * 4);
-        let best = null;
-        ahead.forEach((d) => {
+        const ahead = SCRATCH_DEF_AHEAD;
+        ahead.length = 0;
+        forEachPlayer(def, (d) => {
+            if (!d?.pos) return;
+            if (d.pos.y <= player.pos.y + PX_PER_YARD * 4) ahead.push(d);
+        });
+        let bestScore = -Infinity;
+        let bestTarget = null;
+        for (let i = 0; i < ahead.length; i++) {
+            const d = ahead[i];
             const toLane = Math.abs((d.pos.x || laneX) - laneX);
             const downfield = Math.max(0, d.pos.y - losY);
             const score = downfield * 0.7 - toLane * 1.2 - dist(player.pos, d.pos) * 0.6;
-            if (!best || score > best.score) best = { score, target: d };
-        });
-        if (best) current = best.target;
+            if (score > bestScore) {
+                bestScore = score;
+                bestTarget = d;
+            }
+        }
+        current = bestTarget;
     }
     ai.blockTargetId = current?.id || null;
     return current;
@@ -1019,15 +1046,27 @@ function _updateRunBlocker(ol, key, context, dt) {
     }
 }
 
+const SCRATCH_BLOCKERS = [];
+const SCRATCH_RUSHERS = [];
+
 export function moveOL(off, def, dt, state = null) {
     const olKeys = _olKeys(off);
     const dlKeys = _dlKeys(def);
     if (!olKeys.length) return;
 
+    const blockers = SCRATCH_BLOCKERS;
+    blockers.length = 0;
+    for (let i = 0; i < olKeys.length; i++) {
+        const player = off[olKeys[i]];
+        if (player) blockers.push(player);
+    }
+
     const ball = state?.play?.ball || null;
     if (isBallLoose(ball)) {
-        const blockers = olKeys.map(k => off[k]).filter(Boolean);
-        blockers.forEach((p) => { if (p) p.engagedId = null; });
+        for (let i = 0; i < blockers.length; i++) {
+            const blocker = blockers[i];
+            if (blocker) blocker.engagedId = null;
+        }
         pursueLooseBallGroup(blockers, ball, dt, 1.05, 10);
         return;
     }
@@ -1046,8 +1085,9 @@ export function moveOL(off, def, dt, state = null) {
 
     const isRun = !!off.__runFlag;
 
-    for (const key of olKeys) {
-        const ol = off[key];
+    for (let i = 0; i < blockers.length; i++) {
+        const ol = blockers[i];
+        const key = olKeys[i];
         if (!ol) continue;
         if (isRun) {
             _updateRunBlocker(ol, key, context, dt);
@@ -1056,8 +1096,15 @@ export function moveOL(off, def, dt, state = null) {
         }
     }
 
-    repelTeammates(olKeys.map(k => off[k]).filter(Boolean), CFG.OL_SEPARATION_R, CFG.OL_SEPARATION_PUSH);
-    repelTeammates(dlKeys.map(k => def[k]).filter(Boolean), CFG.DL_SEPARATION_R, CFG.DL_SEPARATION_PUSH);
+    repelTeammates(blockers, CFG.OL_SEPARATION_R, CFG.OL_SEPARATION_PUSH);
+
+    const rushers = SCRATCH_RUSHERS;
+    rushers.length = 0;
+    for (let i = 0; i < dlKeys.length; i++) {
+        const player = def[dlKeys[i]];
+        if (player) rushers.push(player);
+    }
+    repelTeammates(rushers, CFG.DL_SEPARATION_R, CFG.DL_SEPARATION_PUSH);
 }
 
 /* =========================================================
@@ -1940,13 +1987,32 @@ export function rbLogic(s, dt) {
 /* =========================================================
    Defense — respect engagement & try to shed
    ========================================================= */
-function findOffRoleById(off, id) { for (const [role, p] of Object.entries(off || {})) { if (p && p.id === id) return role; } return null; }
-function findDefById(def, id) { return Object.values(def || {}).find((p) => p && p.id === id) || null; }
+function findOffRoleById(off, id) {
+    if (!off) return null;
+    for (const role in off) {
+        if (!Object.prototype.hasOwnProperty.call(off, role)) continue;
+        const player = off[role];
+        if (player && player.id === id) return role;
+    }
+    return null;
+}
+
+function findDefById(def, id) {
+    return findPlayerById(def, id);
+}
 function normalizeCarrier(off, ball) {
     if (isBallLoose(ball)) return { role: null, player: null, id: null };
     let role = null, player = null, id = null;
-    if (typeof ball.carrierId === 'string' && off[ball.carrierId]) { role = ball.carrierId; player = off[role]; id = player?.id ?? null; }
-    if (!player && ball.carrierId != null) { player = Object.values(off || {}).find(p => p && p.id === ball.carrierId) || null; role = player ? findOffRoleById(off, player.id) : role; id = player?.id ?? id; }
+    if (typeof ball.carrierId === 'string' && off?.[ball.carrierId]) {
+        role = ball.carrierId;
+        player = off[role];
+        id = player?.id ?? null;
+    }
+    if (!player && ball.carrierId != null) {
+        player = findPlayerById(off, ball.carrierId);
+        role = player ? findOffRoleById(off, player.id) : role;
+        id = player?.id ?? id;
+    }
     if (!player) { role = 'QB'; player = off.QB || null; id = player?.id ?? 'QB'; }
     return { role, player, id };
 }
