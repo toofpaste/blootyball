@@ -1,5 +1,6 @@
 // src/engine/playbooks.js
 import { PX_PER_YARD } from './constants';
+import { clamp } from './helpers';
 
 /** Extra plays to extend your existing PLAYBOOK (keeps existing names intact). */
 export const PLAYBOOK_PLUS = [
@@ -288,6 +289,7 @@ export function pickPlayCall(allPlays, ctx) {
         relationships = null,
         personnel = null,
         coachTendencies = null,
+        fieldGoalPlan = null,
     } = ctx;
     const long = toGo >= 7;
     const short = toGo <= 2;
@@ -316,7 +318,19 @@ export function pickPlayCall(allPlays, ctx) {
     // Score each play for the situation
     function score(p) {
         let s = 0;
-        if (p.type === 'RUN') {
+        if (p.type === 'FIELD_GOAL') {
+            const plan = p.fieldGoalPlan || fieldGoalPlan || null;
+            if (!plan) return -Infinity;
+            const pref = clamp(plan.preference ?? 0, 0, 1);
+            const chance = clamp(plan.chance ?? 0.5, 0, 1);
+            let s = pref * 35 + chance * 6 - 8;
+            if (toGo >= 7) s += 6;
+            if (toGo >= 4 && toGo < 7) s += 3;
+            if (plan.needTouchdown) s -= 8;
+            if ((plan.distance ?? 0) > 50) s -= 4; // very long field goals are tough
+            s += (Math.random() - 0.5) * 2;
+            return s;
+        } else if (p.type === 'RUN') {
             s += 4; // baseline preference to keep the ground game alive
             if (short) s += 10;
             else if (medium) s += 5;
@@ -367,9 +381,10 @@ export function pickPlayCall(allPlays, ctx) {
     // Guarantee at least one run play remains in the weighted selection so the ground game
     // never disappears entirely even if passes score slightly higher in the current context.
     if (selection.length && !selection.some(p => p.type === 'RUN')) {
+        const replaceIdx = selection.findIndex(p => p.type !== 'FIELD_GOAL');
         const bestRun = plays.find(p => p.type === 'RUN');
-        if (bestRun) {
-            selection[selection.length - 1] = bestRun;
+        if (bestRun && replaceIdx >= 0) {
+            selection[replaceIdx] = bestRun;
         }
     }
 

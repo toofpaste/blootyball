@@ -5,6 +5,7 @@ import {
   progressOffseason,
   resumeAssignedMatchup,
   stepGame,
+  withForceNextPlay,
 } from './state';
 import { buildPlayerDirectory, createTeams, rosterForPossession } from './rosters';
 import { createPlayStatContext } from './stats';
@@ -274,6 +275,59 @@ describe('special teams handling', () => {
     expect(play.specialTeams).toBeTruthy();
     expect(play.specialTeams.visual).toBeTruthy();
     expect(play.specialTeams.kickerId).toBeTruthy();
+  });
+
+  test('coach field goal call on fourth down deploys special teams', () => {
+    const leagueState = createInitialGameState();
+    const slotToTeam = { [TEAM_RED]: TEAM_IDS[0], [TEAM_BLK]: TEAM_IDS[1] };
+    const teams = createTeams({ slotToTeam });
+    const offenseSlot = TEAM_RED;
+    const baseState = {
+      ...leagueState,
+      teams,
+      possession: offenseSlot,
+      scores: { [TEAM_RED]: 17, [TEAM_BLK]: 14 },
+      coaches: {},
+      pendingExtraPoint: null,
+      drive: { losYards: 72, down: 4, toGo: 7 },
+      clock: { quarter: 2, time: 450 },
+    };
+    const forcedState = withForceNextPlay(baseState, 'Field Goal');
+    const roster = rosterForPossession(teams, offenseSlot);
+    forcedState.roster = roster;
+    roster.__ownerState = forcedState;
+
+    const play = createPlayState(roster, forcedState.drive);
+
+    expect(play.playCall.type).toBe('FIELD_GOAL');
+    expect(play.phase).toBe('FIELD_GOAL');
+    expect(play.specialTeams?.kickerId).toBe(roster.special.K.id);
+  });
+
+  test('non-field-goal call on fourth down keeps offense on the field', () => {
+    const leagueState = createInitialGameState();
+    const slotToTeam = { [TEAM_RED]: TEAM_IDS[0], [TEAM_BLK]: TEAM_IDS[1] };
+    const teams = createTeams({ slotToTeam });
+    const offenseSlot = TEAM_RED;
+    const baseState = {
+      ...leagueState,
+      teams,
+      possession: offenseSlot,
+      scores: { [TEAM_RED]: 17, [TEAM_BLK]: 14 },
+      coaches: {},
+      pendingExtraPoint: null,
+      drive: { losYards: 72, down: 4, toGo: 4 },
+      clock: { quarter: 2, time: 450 },
+    };
+    const forcedState = withForceNextPlay(baseState, 'Drive Scissors');
+    const roster = rosterForPossession(teams, offenseSlot);
+    forcedState.roster = roster;
+    roster.__ownerState = forcedState;
+
+    const play = createPlayState(roster, forcedState.drive);
+
+    expect(play.playCall.type).not.toBe('FIELD_GOAL');
+    expect(play.phase).toBe('PRESNAP');
   });
 
   test('defensive touchdown hands extra point to scoring team', () => {
