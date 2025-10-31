@@ -2670,11 +2670,15 @@ export function createPlayState(roster, drive) {
 
     let fieldGoalPlan = null;
     if (pendingPat && kicker) {
+        const distance = pendingPat.distance ?? fieldGoalDistanceYards(safeDrive.losYards);
         fieldGoalPlan = {
-            distance: pendingPat.distance ?? fieldGoalDistanceYards(safeDrive.losYards),
+            distance,
             kicker,
+            isPat: true,
+            chance: kickerSuccessChance(kicker, distance),
+            preference: 1,
         };
-    } else if (!debugForced && safeDrive.down === 4 && kicker) {
+    } else if (safeDrive.down === 4 && kicker) {
         const distance = fieldGoalDistanceYards(safeDrive.losYards);
         if (distance <= (kicker.maxDistance || 0) + 0.01) {
             const scores = ownerState?.scores || {};
@@ -2688,14 +2692,13 @@ export function createPlayState(roster, drive) {
             const aggression = clamp(offenseCoach?.tendencies?.aggression ?? 0, -0.5, 0.5);
             const moreThanFive = safeDrive.toGo > 5;
 
+            let preference = 0;
             if (moreThanFive) {
                 if (!needTouchdown) {
-                    fieldGoalPlan = { distance, kicker };
+                    preference = 1;
                 } else {
                     const kickBias = clamp(0.48 - aggression * 0.35, 0.15, 0.75);
-                    if (rand(0, 1) < kickBias) {
-                        fieldGoalPlan = { distance, kicker };
-                    }
+                    preference = kickBias;
                 }
             } else {
                 let goForItChance;
@@ -2711,10 +2714,19 @@ export function createPlayState(roster, drive) {
                     goForItChance = clamp(goForItChance + 0.12, 0.05, 0.75);
                 }
 
-                if (!(rand(0, 1) < goForItChance)) {
-                    fieldGoalPlan = { distance, kicker };
-                }
+                preference = 1 - goForItChance;
             }
+
+            fieldGoalPlan = {
+                distance,
+                kicker,
+                preference: clamp(preference, 0, 1),
+                chance: kickerSuccessChance(kicker, distance),
+                needTouchdown,
+                margin,
+                quarter,
+                clockTime,
+            };
         }
     }
 
@@ -2722,7 +2734,19 @@ export function createPlayState(roster, drive) {
     let playCall;
     if (debugForced) {
         const dbg = ownerState.debug;
-        const named = Array.isArray(PLAYBOOK) ? PLAYBOOK.find(p => p.name === dbg.forceNextPlayName) : null;
+        const forcedName = dbg.forceNextPlayName;
+        let named = Array.isArray(PLAYBOOK) ? PLAYBOOK.find(p => p.name === forcedName) : null;
+        if (!named && Array.isArray(PLAYBOOK_PLUS)) {
+            named = PLAYBOOK_PLUS.find(p => p.name === forcedName) || null;
+        }
+        if (!named && fieldGoalPlan && forcedName) {
+            const options = fieldGoalPlan.isPat
+                ? ['Extra Point', 'Field Goal']
+                : ['Field Goal', 'Long Field Goal'];
+            if (options.includes(forcedName)) {
+                named = { name: forcedName, type: 'FIELD_GOAL', fieldGoalPlan };
+            }
+        }
         playCall = named || (Array.isArray(PLAYBOOK) && PLAYBOOK.length
             ? PLAYBOOK[(Math.random() * PLAYBOOK.length) | 0]
             : { name: 'Run Middle', type: 'RUN' });
@@ -2732,9 +2756,7 @@ export function createPlayState(roster, drive) {
         // keep dbg.forceNextPlayName around so UI can still show it; clear if you prefer:
         // dbg.forceNextPlayName = null;
     } else if (pendingPat && fieldGoalPlan) {
-        playCall = { name: 'Extra Point', type: 'FIELD_GOAL' };
-    } else if (fieldGoalPlan) {
-        playCall = { name: fieldGoalPlan.distance <= 40 ? 'Field Goal' : 'Long Field Goal', type: 'FIELD_GOAL' };
+        playCall = { name: 'Extra Point', type: 'FIELD_GOAL', fieldGoalPlan };
     } else {
         const allPlays = [];
         if (Array.isArray(PLAYBOOK)) allPlays.push(...PLAYBOOK);
@@ -2758,6 +2780,7 @@ export function createPlayState(roster, drive) {
             relationships: offenseDynamics?.relationshipValues || null,
             personnel,
             coachTendencies: offenseCoach?.tendencies || null,
+            fieldGoalPlan,
         };
         let pool = allPlays.length ? allPlays : [{ name: 'Run Middle', type: 'RUN' }];
         if (safeDrive.down === 4) {
@@ -2768,6 +2791,10 @@ export function createPlayState(roster, drive) {
                 const nonRun = pool.filter(p => p.type !== 'RUN');
                 if (nonRun.length) pool = nonRun;
             }
+        }
+        if (fieldGoalPlan && !pendingPat) {
+            const fgName = fieldGoalPlan.distance <= 40 ? 'Field Goal' : 'Long Field Goal';
+            pool.push({ name: fgName, type: 'FIELD_GOAL', fieldGoalPlan });
         }
         playCall = pickPlayCall(pool, context) || pool[0] || { name: 'Run Middle', type: 'RUN' };
     }
@@ -2814,14 +2841,22 @@ export function createPlayState(roster, drive) {
         play.startDown = pendingPat.startDown ?? play.startDown;
         play.startToGo = pendingPat.startToGo ?? play.startToGo;
     }
-    if (fieldGoalPlan && play.playCall?.type === 'FIELD_GOAL') {
+    const selectedFieldGoalPlan = play.playCall?.type === 'FIELD_GOAL'
+        ? (play.playCall.fieldGoalPlan || fieldGoalPlan)
+        : null;
+
+    if (selectedFieldGoalPlan) {
         play.phase = 'FIELD_GOAL';
         play.specialTeams = {
             type: 'FIELD_GOAL',
-            distance: Math.round(fieldGoalPlan.distance),
-            isPat: !!pendingPat,
-            kickerId: fieldGoalPlan.kicker?.id || null,
-            visual: createFieldGoalVisual({ losYards: pendingPat?.losYards ?? safeDrive.losYards, distance: Math.round(fieldGoalPlan.distance) }),
+            distance: Math.round(selectedFieldGoalPlan.distance),
+            isPat: !!selectedFieldGoalPlan.isPat,
+            kickerId: selectedFieldGoalPlan.kicker?.id || null,
+            chance: selectedFieldGoalPlan.chance ?? null,
+            visual: createFieldGoalVisual({
+                losYards: pendingPat?.losYards ?? safeDrive.losYards,
+                distance: Math.round(selectedFieldGoalPlan.distance),
+            }),
         };
         assignFieldGoalPersonnel(play, roster);
         const snapPoint = play.specialTeams.visual?.ball?.pos || play.specialTeams.visual?.contactPoint || { x: FIELD_PIX_W / 2, y: losPixY };
@@ -2829,11 +2864,11 @@ export function createPlayState(roster, drive) {
         play.ball.shadowPos = { ...snapPoint };
         play.ball.flight = { height: 0 };
         play.ball.carrierId = null;
-        if (pendingPat) {
+        if (selectedFieldGoalPlan.isPat) {
             play.resultText = 'Extra point attempt';
             if (ownerState) ownerState.pendingExtraPoint = null;
         } else {
-            play.resultText = `FG attempt from ${Math.round(fieldGoalPlan.distance)} yds`;
+            play.resultText = `FG attempt from ${Math.round(selectedFieldGoalPlan.distance)} yds`;
         }
         play.preSnap = null;
         return play;
