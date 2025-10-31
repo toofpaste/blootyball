@@ -1,4 +1,4 @@
-import { clamp, dist, unitVec } from './helpers';
+import { clamp, dist, unitVec, vectorDiff, vectorLength } from './helpers';
 import { FIELD_PIX_W, FIELD_PIX_H, PX_PER_YARD } from './constants';
 import { resolveBehaviorTuning } from './movementProfiles';
 
@@ -94,14 +94,23 @@ function ensureMotion(player) {
         player.motion = {
             vx: 0,
             vy: 0,
+            vz: 0,
             speed: 0,
-            heading: { x: 0, y: 1 },
+            heading: { x: 0, y: 1, z: 0 },
             stamina: 1,
             reaction: 1,
             mass: player?.phys?.mass ?? 1,
         };
     }
+    if (player.motion.vx == null) player.motion.vx = 0;
+    if (player.motion.vy == null) player.motion.vy = 0;
+    if (player.motion.vz == null) player.motion.vz = 0;
+    if (!player.motion.heading) player.motion.heading = { x: 0, y: 1, z: 0 };
+    if (player.motion.heading.x == null) player.motion.heading.x = 0;
+    if (player.motion.heading.y == null) player.motion.heading.y = 1;
+    if (player.motion.heading.z == null) player.motion.heading.z = 0;
     if (player.motion.mass == null) player.motion.mass = player?.phys?.mass ?? 1;
+    if (player.pos && player.pos.z == null) player.pos.z = 0;
     return player.motion;
 }
 
@@ -118,28 +127,46 @@ function smoothstep(t) {
 function extractVelocity(source) {
     if (!source) return null;
     if (Number.isFinite(source.vx) && Number.isFinite(source.vy)) {
-        return { vx: source.vx, vy: source.vy };
+        return {
+            vx: source.vx,
+            vy: source.vy,
+            vz: Number.isFinite(source.vz) ? source.vz : 0,
+        };
     }
-    if (source.motion && Number.isFinite(source.motion.vx) && Number.isFinite(source.motion.vy)) {
-        return { vx: source.motion.vx, vy: source.motion.vy };
+    if (
+        source.motion &&
+        Number.isFinite(source.motion.vx) &&
+        Number.isFinite(source.motion.vy)
+    ) {
+        return {
+            vx: source.motion.vx,
+            vy: source.motion.vy,
+            vz: Number.isFinite(source.motion.vz) ? source.motion.vz : 0,
+        };
     }
     if (source.vel && Number.isFinite(source.vel.x) && Number.isFinite(source.vel.y)) {
-        return { vx: source.vel.x, vy: source.vel.y };
+        return {
+            vx: source.vel.x,
+            vy: source.vel.y,
+            vz: Number.isFinite(source.vel.z) ? source.vel.z : 0,
+        };
     }
     return null;
 }
 
-function projectVelocity(vx, vy, ax, ay, maxDelta) {
+function projectVelocity(vx, vy, ax, ay, maxDelta, vz = 0, az = 0) {
     const dvx = ax - vx;
     const dvy = ay - vy;
-    const mag = Math.hypot(dvx, dvy);
+    const dvz = az - vz;
+    const mag = Math.hypot(dvx, dvy, dvz);
     if (mag <= maxDelta || mag === 0) {
-        return { vx: ax, vy: ay };
+        return { vx: ax, vy: ay, vz: az };
     }
     const scale = maxDelta / mag;
     return {
         vx: vx + dvx * scale,
         vy: vy + dvy * scale,
+        vz: vz + dvz * scale,
     };
 }
 
@@ -189,10 +216,12 @@ export function dampMotion(player, dt, damping = 4.0) {
     const factor = clamp(1 - (damping / (1 + (inertia - 1) * 0.65)) * dt, 0, 1);
     motion.vx *= factor;
     motion.vy *= factor;
-    motion.speed = Math.hypot(motion.vx, motion.vy);
+    motion.vz = (motion.vz ?? 0) * factor;
+    motion.speed = Math.hypot(motion.vx, motion.vy, motion.vz ?? 0);
     if (motion.speed < 0.25) {
         motion.vx = 0;
         motion.vy = 0;
+        motion.vz = 0;
         motion.speed = 0;
     }
 }
@@ -215,13 +244,24 @@ export function steerPlayer(player, target, dt, opts = {}) {
             aim = {
                 x: goal.x + targetVel.vx * leadSeconds,
                 y: goal.y + targetVel.vy * leadSeconds,
+                z: (Number.isFinite(goal.z) ? goal.z : player.pos.z || 0) +
+                    (targetVel.vz ?? 0) * leadSeconds,
             };
         }
     }
 
-    const dx = aim.x - player.pos.x;
-    const dy = aim.y - player.pos.y;
-    const distance = Math.hypot(dx, dy);
+    const pos = {
+        x: player.pos.x,
+        y: player.pos.y,
+        z: Number.isFinite(player.pos.z) ? player.pos.z : 0,
+    };
+    const aimPos = {
+        x: aim.x,
+        y: aim.y,
+        z: Number.isFinite(aim.z) ? aim.z : pos.z,
+    };
+    const delta = vectorDiff(aimPos, pos);
+    const distance = vectorLength(delta);
 
     const captureRadius = opts.captureRadius ?? tuning.captureRadius ?? 0.5;
     if (distance < captureRadius) {
@@ -231,7 +271,7 @@ export function steerPlayer(player, target, dt, opts = {}) {
         return;
     }
 
-    const rawHeading = distance > 0 ? { x: dx / distance, y: dy / distance } : motion.heading;
+    const rawHeading = distance > 0 ? unitVec(delta) : motion.heading;
     const agility = clamp(player?.attrs?.agility ?? 1, 0.5, 1.5);
     const agilityCurve = tuning.agilityCurve ?? 0.18;
     const blendMin = tuning.blendMin ?? 0.4;
@@ -242,10 +282,11 @@ export function steerPlayer(player, target, dt, opts = {}) {
     const blendGain = tuning.distanceBlendGain ?? 0.5;
     const blend = clamp(baseBlend * (blendBase + distanceBlend * blendGain), blendMin, blendMax);
     const desiredHeading = (() => {
-        const hx = motion.heading.x * blend + rawHeading.x * (1 - blend);
-        const hy = motion.heading.y * blend + rawHeading.y * (1 - blend);
-        const mag = Math.hypot(hx, hy) || 1;
-        return { x: hx / mag, y: hy / mag };
+        const prev = motion.heading || { x: 0, y: 1, z: 0 };
+        const hx = (prev.x ?? 0) * blend + rawHeading.x * (1 - blend);
+        const hy = (prev.y ?? 0) * blend + rawHeading.y * (1 - blend);
+        const hz = (prev.z ?? 0) * blend + (rawHeading.z ?? 0) * (1 - blend);
+        return unitVec({ x: hx, y: hy, z: hz });
     })();
     const ramp = smoothstep(clamp(distance / (PX_PER_YARD * (tuning.accelRamp ?? 1.6)), 0, 1));
     const arrivalBrake = Math.max(tuning.arrivalBrake ?? 4, 0.5);
@@ -254,23 +295,34 @@ export function steerPlayer(player, target, dt, opts = {}) {
     const desiredSpeed = Math.min(maxSpeed * (tuning.speedCeiling ?? 1), Math.max(rampedSpeed, arrivalSpeed));
     const desiredVx = desiredHeading.x * desiredSpeed;
     const desiredVy = desiredHeading.y * desiredSpeed;
+    const desiredVz = (desiredHeading.z ?? 0) * desiredSpeed;
 
     const agilityBias = tuning.agilityBias ?? 1;
     const agilityMin = tuning.agilityMin ?? 0.6;
     const agilityMax = tuning.agilityMax ?? 1.35;
     const agilityBoost = clamp(Math.pow(agility, 1.35) * agilityBias, agilityMin, agilityMax);
     const maxDelta = accel * agilityBoost * dt;
-    const { vx, vy } = projectVelocity(motion.vx, motion.vy, desiredVx, desiredVy, maxDelta);
+    const { vx, vy, vz } = projectVelocity(
+        motion.vx,
+        motion.vy,
+        desiredVx,
+        desiredVy,
+        maxDelta,
+        motion.vz ?? 0,
+        desiredVz,
+    );
 
     motion.vx = vx;
     motion.vy = vy;
+    motion.vz = vz;
 
     player.pos.x += motion.vx * dt;
     player.pos.y += motion.vy * dt;
+    if (player.pos) player.pos.z = Number.isFinite(player.pos.z) ? player.pos.z + motion.vz * dt : motion.vz * dt;
 
-    motion.speed = Math.hypot(motion.vx, motion.vy);
+    motion.speed = Math.hypot(motion.vx, motion.vy, motion.vz ?? 0);
     if (motion.speed > 0.01) {
-        motion.heading = unitVec({ x: motion.vx, y: motion.vy });
+        motion.heading = unitVec({ x: motion.vx, y: motion.vy, z: motion.vz ?? 0 });
     }
 
     limitToField(player);
@@ -280,8 +332,9 @@ export function syncMotionToPosition(player) {
     if (!player?.motion || !player?.pos || !player?.motion.prevPos) return;
     const dx = player.pos.x - player.motion.prevPos.x;
     const dy = player.pos.y - player.motion.prevPos.y;
-    const distMoved = Math.hypot(dx, dy);
-    const heading = distMoved > 0 ? { x: dx / distMoved, y: dy / distMoved } : player.motion.heading;
+    const dz = (player.pos.z ?? 0) - (player.motion.prevPos.z ?? 0);
+    const distMoved = Math.hypot(dx, dy, dz);
+    const heading = distMoved > 0 ? unitVec({ x: dx, y: dy, z: dz }) : player.motion.heading;
     player.motion.heading = heading;
     player.motion.speed = distMoved;
 }
@@ -290,9 +343,10 @@ export function beginFrame(players = []) {
     for (const p of players) {
         if (!p) continue;
         ensureMotion(p);
-        p.motion.prevPos = p.motion.prevPos || { x: p.pos.x, y: p.pos.y };
+        p.motion.prevPos = p.motion.prevPos || { x: p.pos.x, y: p.pos.y, z: p.pos.z ?? 0 };
         p.motion.prevPos.x = p.pos.x;
         p.motion.prevPos.y = p.pos.y;
+        p.motion.prevPos.z = p.pos.z ?? 0;
     }
 }
 
@@ -303,6 +357,7 @@ export function endFrame(players = []) {
         if (p.motion) {
             p.motion.prevPos.x = p.pos.x;
             p.motion.prevPos.y = p.pos.y;
+            p.motion.prevPos.z = p.pos.z ?? 0;
         }
     }
 }
@@ -312,8 +367,9 @@ export function resetMotion(player) {
     player.motion = {
         vx: 0,
         vy: 0,
+        vz: 0,
         speed: 0,
-        heading: { x: 0, y: 1 },
+        heading: { x: 0, y: 1, z: 0 },
         stamina: 1,
         reaction: 1,
         mass: player?.phys?.mass ?? 1,
@@ -326,15 +382,24 @@ export function applyCollisionSlowdown(player, severity = 1.0) {
     const factor = clamp(1 - 0.55 * severity, 0.25, 1);
     motion.vx *= factor;
     motion.vy *= factor;
-    motion.speed *= factor;
+    motion.vz = (motion.vz ?? 0) * factor;
+    motion.speed = Math.hypot(motion.vx, motion.vy, motion.vz ?? 0);
 }
 
 export function distanceAhead(pos, heading, magnitude) {
-    if (!pos || !heading) return { x: pos?.x ?? 0, y: pos?.y ?? 0 };
-    return {
+    if (!pos || !heading) {
+        const base = { x: pos?.x ?? 0, y: pos?.y ?? 0 };
+        if (pos?.z != null) base.z = pos.z;
+        return base;
+    }
+    const next = {
         x: pos.x + heading.x * magnitude,
         y: pos.y + heading.y * magnitude,
     };
+    if (pos.z != null || heading.z != null) {
+        next.z = (pos.z ?? 0) + (heading.z ?? 0) * magnitude;
+    }
+    return next;
 }
 
 export function willReach(player, target, lookahead = 0.3) {
@@ -342,6 +407,7 @@ export function willReach(player, target, lookahead = 0.3) {
     const projected = {
         x: player.pos.x + player.motion.vx * lookahead,
         y: player.pos.y + player.motion.vy * lookahead,
+        z: (player.pos.z ?? 0) + (player.motion.vz ?? 0) * lookahead,
     };
     return dist(projected, target) < dist(player.pos, target);
 }
@@ -351,6 +417,7 @@ export function cloneMotion(player) {
     return {
         vx: player.motion.vx,
         vy: player.motion.vy,
+        vz: player.motion.vz ?? 0,
         speed: player.motion.speed,
         heading: { ...player.motion.heading },
         stamina: player.motion.stamina,

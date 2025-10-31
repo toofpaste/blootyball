@@ -2,11 +2,14 @@
 import {
     clamp,
     dist,
+    distSq,
     rand,
     unitVec,
     yardsToPixY,
     findPlayerById,
     forEachPlayer,
+    vectorDiff,
+    vectorLength,
 } from './helpers';
 import { FIELD_PIX_W, FIELD_PIX_H, PX_PER_YARD } from './constants';
 import { steerPlayer, dampMotion, applyCollisionSlowdown } from './motion';
@@ -1408,12 +1411,15 @@ function repelTeammates(players, R, push) {
     for (let i = 0; i < players.length; i++) {
         for (let j = i + 1; j < players.length; j++) {
             const a = players[i], b = players[j];
-            const dx = b.pos.x - a.pos.x, dy = b.pos.y - a.pos.y;
-            const d = Math.hypot(dx, dy);
+            if (!a?.pos || !b?.pos) continue;
+            const delta = vectorDiff(b.pos, a.pos);
+            const d = vectorLength(delta);
             if (!(d > 0 && d < R)) continue;
 
-            const nx = dx / d;
-            const ny = dy / d;
+            const normal = unitVec(delta);
+            const nx = normal.x;
+            const ny = normal.y;
+            const nz = normal.z ?? 0;
             const radiusA = getPlayerRadius(a);
             const radiusB = getPlayerRadius(b);
             const separation = Math.max((radiusA + radiusB) * 0.5, R);
@@ -1426,8 +1432,14 @@ function repelTeammates(players, R, push) {
 
             a.pos.x -= nx * k * shareA;
             a.pos.y -= ny * k * shareA;
+            if (nz !== 0 || a.pos.z != null || b.pos.z != null) {
+                a.pos.z = (a.pos.z ?? 0) - nz * k * shareA;
+            }
             b.pos.x += nx * k * shareB;
             b.pos.y += ny * k * shareB;
+            if (nz !== 0 || a.pos.z != null || b.pos.z != null) {
+                b.pos.z = (b.pos.z ?? 0) + nz * k * shareB;
+            }
             applyCollisionSlowdown(a, 0.28 + shareA * 0.22);
             applyCollisionSlowdown(b, 0.28 + shareB * 0.22);
         }
@@ -4856,7 +4868,11 @@ export function defenseLogic(s, dt) {
                     behavior: 'CARRY',
                 });
                 s.play.noWrapUntil = s.play.elapsed + CFG.GLOBAL_IMMUNITY;
-                s.play.lastBreakPos = { x: ballCarrier.pos.x, y: ballCarrier.pos.y };
+                s.play.lastBreakPos = {
+                    x: ballCarrier.pos.x,
+                    y: ballCarrier.pos.y,
+                    z: ballCarrier.pos.z ?? 0,
+                };
                 (s.play.wrapCooldown ||= {}); if (tackler) s.play.wrapCooldown[tackler.id] = s.play.elapsed + CFG.TACKLER_COOLDOWN;
                 (s.play.events ||= []).push({ t: s.play.elapsed, type: 'break:won', carrierId, byId: wr.byId }); endWrap(s);
             }
@@ -4869,15 +4885,14 @@ export function defenseLogic(s, dt) {
     const immuneGlobal = now < (s.play.noWrapUntil || 0);
     let distOk = true;
     if (s.play.lastBreakPos) {
-        distOk = Math.hypot(ballCarrier.pos.x - s.play.lastBreakPos.x, ballCarrier.pos.y - s.play.lastBreakPos.y) >= CFG.MIN_DIST_AFTER_BREAK;
+        distOk = dist(ballCarrier.pos, s.play.lastBreakPos) >= CFG.MIN_DIST_AFTER_BREAK;
         if (!immuneGlobal && distOk) s.play.lastBreakPos = null;
     }
     if (!immuneGlobal && distOk) {
         const tackler = Object.values(def).find((d) => {
             if (!d) return false;
             const cd = s.play.wrapCooldown?.[d.id]; if (cd && now < cd) return false;
-            const dx = d.pos.x - ballCarrier.pos.x, dy = d.pos.y - ballCarrier.pos.y;
-            return (dx * dx + dy * dy) <= (CFG.CONTACT_R * CFG.CONTACT_R);
+            return distSq(d.pos, ballCarrier.pos) <= (CFG.CONTACT_R * CFG.CONTACT_R);
         });
         if (tackler) {
             startWrap(s, carrierId, tackler.id);
@@ -4888,11 +4903,17 @@ export function defenseLogic(s, dt) {
     // Forward progress (unchanged)
     (s.play._fp ||= { t0: null, last: null });
     const last = s.play._fp.last;
-    s.play._fp.last = { t: now, x: ballCarrier.pos.x, y: ballCarrier.pos.y };
+    s.play._fp.last = { t: now, x: ballCarrier.pos.x, y: ballCarrier.pos.y, z: ballCarrier.pos.z ?? 0 };
     let speed = Infinity;
-    if (last) { const dtWin = Math.max(1e-3, now - last.t); const dxy = Math.hypot(ballCarrier.pos.x - last.x, ballCarrier.pos.y - last.y); speed = dxy / dtWin; }
+    if (last) {
+        const dtWin = Math.max(1e-3, now - last.t);
+        const travel = dist(ballCarrier.pos, last);
+        speed = travel / dtWin;
+    }
     const nearestSq = Object.values(def).reduce((best, d) => {
-        if (!d) return best; const dx = d.pos.x - ballCarrier.pos.x, dy = d.pos.y - ballCarrier.pos.y; const dsq = dx * dx + dy * dy; return Math.min(best, dsq);
+        if (!d) return best;
+        const dsq = distSq(d.pos, ballCarrier.pos);
+        return Math.min(best, dsq);
     }, Infinity);
     const inContact = nearestSq <= CFG.FP_CONTACT_R * CFG.FP_CONTACT_R;
     if (inContact && speed <= CFG.FP_SLOW_SPEED) {
