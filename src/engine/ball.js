@@ -8,6 +8,7 @@ const PASS_ARC_SHAPE_EXP = 0.68;
 const PASS_ARC_NORMALIZER = Math.pow(0.5, PASS_ARC_SHAPE_EXP * 2);
 const PASS_SPEED_BOOST = 1.12;
 const PASS_MIN_SPEED = 100;
+const PASS_THROW_SPEED_MULT = 2;
 const PASS_ARC_HEIGHT_MULT = 1.18;
 
 function solvePassIntercept(from, targetPos, targetVel, projectileSpeed) {
@@ -332,7 +333,7 @@ export function startPass(s, from, to, targetId) {
 
     const styleSpeedAdj = driveFactor > 0 ? clamp(1 + driveFactor * 0.12, 0.88, 1.18) : 1;
     const mph = clamp(baseMph * styleSpeedAdj * PASS_SPEED_BOOST, 46, 86);
-    const speed = Math.max(PASS_MIN_SPEED, mphToPixelsPerSecond(mph));
+    const speed = Math.max(PASS_MIN_SPEED, mphToPixelsPerSecond(mph)) * PASS_THROW_SPEED_MULT;
 
     const leadSkill = clamp(accComposite * 0.6 + iqComposite * 0.4, 0.35, 1.6);
     const leadErrorScale = clamp(1 - Math.min(leadSkill, 1.35) / 1.35, 0, 0.7);
