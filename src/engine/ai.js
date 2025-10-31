@@ -680,11 +680,11 @@ const CFG = {
     OL_SEPARATION_R: 12,
     OL_SEPARATION_PUSH: 0.5,
     OL_ENGAGE_R: 16,
-    OL_STICK_TIME: 0.30,
-    OL_BLOCK_PUSHBACK: 28,      // lighten OL drive so DL can compress pocket quicker
-    OL_BLOCK_MIRROR: 0.9,
-    OL_REACH_SPEED: 0.93,
-    DL_ENGAGED_SLOW: 0.96,      // DL keep their feet driving through blocks
+    OL_STICK_TIME: 0.36,
+    OL_BLOCK_PUSHBACK: 34,      // give OL a firmer pocket anchor against rushers
+    OL_BLOCK_MIRROR: 1.02,
+    OL_REACH_SPEED: 1.05,
+    DL_ENGAGED_SLOW: 0.92,      // slow DL momentum a touch while engaged
     DL_SEPARATION_R: 12,
     DL_SEPARATION_PUSH: 0.42,
 

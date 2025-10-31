@@ -6,6 +6,9 @@ import { recordPlayEvent } from './diagnostics';
 
 const PASS_ARC_SHAPE_EXP = 0.68;
 const PASS_ARC_NORMALIZER = Math.pow(0.5, PASS_ARC_SHAPE_EXP * 2);
+const PASS_SPEED_BOOST = 1.12;
+const PASS_MIN_SPEED = 100;
+const PASS_ARC_HEIGHT_MULT = 1.18;
 
 function solvePassIntercept(from, targetPos, targetVel, projectileSpeed) {
     if (!from || !targetPos || !projectileSpeed) return null;
@@ -328,8 +331,8 @@ export function startPass(s, from, to, targetId) {
     }
 
     const styleSpeedAdj = driveFactor > 0 ? clamp(1 + driveFactor * 0.12, 0.88, 1.18) : 1;
-    const mph = clamp(baseMph * styleSpeedAdj, 42, 82);
-    const speed = Math.max(90, mphToPixelsPerSecond(mph));
+    const mph = clamp(baseMph * styleSpeedAdj * PASS_SPEED_BOOST, 46, 86);
+    const speed = Math.max(PASS_MIN_SPEED, mphToPixelsPerSecond(mph));
 
     const leadSkill = clamp(accComposite * 0.6 + iqComposite * 0.4, 0.35, 1.6);
     const leadErrorScale = clamp(1 - Math.min(leadSkill, 1.35) / 1.35, 0, 0.7);
@@ -420,7 +423,7 @@ export function startPass(s, from, to, targetId) {
     const distance = Math.max(1, dist(from, aim));
     const distanceYards = distance / PX_PER_YARD;
     const distanceOverEight = Math.max(0, distanceYards - 8);
-    const dramaticHeightBoost = 1 + Math.pow(distanceOverEight / 12, 1.4);
+    const dramaticHeightBoost = (1 + Math.pow(distanceOverEight / 12, 1.4)) * (1 + (PASS_ARC_HEIGHT_MULT - 1) * clamp(distanceYards / 12, 0, 1));
 
     if (interceptIdeal) {
         const offTarget = dist(interceptIdeal, aim);
@@ -434,8 +437,9 @@ export function startPass(s, from, to, targetId) {
     const loftBase = clamp(0.36 + touchTrait * 0.12, 0.26, 0.5);
     const loftScale = clamp(1 - driveFactor * 0.45, 0.55, 1.08);
     const loftFactor = loftBase * loftScale;
-    const peakHeight = clamp(distance * loftFactor * dramaticHeightBoost, 18, 240);
-    const shapeExp = clamp(PASS_ARC_SHAPE_EXP - longPassWeight * 0.28 - driveFactor * 0.12, 0.3, PASS_ARC_SHAPE_EXP);
+    const peakHeight = clamp(distance * loftFactor * dramaticHeightBoost * PASS_ARC_HEIGHT_MULT, 24, 260);
+    const baseShape = PASS_ARC_SHAPE_EXP * 0.94;
+    const shapeExp = clamp(baseShape - longPassWeight * 0.26 - driveFactor * 0.1, 0.3, PASS_ARC_SHAPE_EXP);
     const arcNormalizer = Math.pow(0.5, shapeExp * 2);
 
     ball.inAir = true;
